@@ -228,7 +228,7 @@ export default function App() {
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Hotel
+             Aladdin Dream Hotel
              <div className="user-profile" onClick={() => setShowPasswordModal(true)} title="Change Password">
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span style={{fontSize: '0.9rem', fontWeight: 'normal'}}>{currentUser.name}</span>

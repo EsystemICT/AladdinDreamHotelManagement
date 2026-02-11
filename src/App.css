@@ -247,6 +247,80 @@ td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
 .modal-content h2 { color: #222; margin-top: 0; }
 .modal-content p { color: #555; }
 
+.req-card { 
+  background: #f9f9f9; 
+  padding: 15px; 
+  border-radius: 12px; 
+  margin-bottom: 12px; 
+  border-left: 4px solid var(--primary); /* Uses your existing var, or default blue */
+  border: 1px solid #eee;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  animation: fadeIn 0.3s ease;
+}
+
+.req-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.req-time-info {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.req-time-info i { width: 16px; text-align: center; margin-right: 5px; }
+
+/* Status Badges */
+.req-status { 
+  display: inline-block; 
+  padding: 4px 10px; 
+  border-radius: 12px; 
+  font-size: 0.7rem; 
+  font-weight: 800; 
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-pending { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+.status-accepted { background: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+.status-completed { background: #cff4fc; color: #055160; border: 1px solid #b6effb; }
+.status-rejected { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+
+/* Rejection Box */
+.rejection-box {
+  background: #fff;
+  border-left: 3px solid #dc3545;
+  padding: 8px 12px;
+  margin-top: 10px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+/* Modal Specifics */
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+textarea.reject-input {
+  width: 100%;
+  border: 2px solid #eee;
+  padding: 10px;
+  border-radius: 8px;
+  min-height: 80px;
+  margin-top: 10px;
+}
+textarea.reject-input:focus { border-color: #ef4444; outline: none; }
+
 /* RESPONSIVE MOBILE FIXES */
 @media (max-width: 768px) {
   body { padding-top: 150px; } 
@@ -262,3 +336,4 @@ td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
   .task-card .actions, .ticket-card .btn { width: 100%; justify-content: center; }
   .btn { justify-content: center; }
 }
+

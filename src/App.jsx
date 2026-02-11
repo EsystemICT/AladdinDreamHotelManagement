@@ -258,7 +258,7 @@ export default function App() {
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
             <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
             <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
             <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
@@ -276,7 +276,7 @@ export default function App() {
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Hotel
+             Aladdin Dream Hotel
              <div className="user-profile" title={`Logged in as ${currentUser.name}`}>
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span style={{fontSize: '0.9rem', fontWeight: 'normal', color:'#333'}}>{currentUser.name}</span>

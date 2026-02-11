@@ -5,7 +5,7 @@ body {
   background-attachment: fixed;
   margin: 0; 
   padding: 0;
-  padding-top: 130px; /* INCREASED: Space for fixed header */
+  padding-top: 130px; 
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -63,6 +63,7 @@ body {
   padding: 5px 10px;
   border-radius: 8px;
   transition: background 0.2s;
+  color: #333; /* Ensuring text is dark */
 }
 .user-profile:hover { background: #f0f0f0; }
 
@@ -81,7 +82,7 @@ body {
   border-radius: 8px; 
   cursor: pointer; 
   font-weight: 600;
-  color: #666;
+  color: #666; /* Dark grey by default */
   transition: all 0.3s ease;
   font-size: 0.9rem;
   display: flex;
@@ -90,7 +91,7 @@ body {
 }
 
 .tabs button:hover { background: rgba(221, 189, 136, 0.2); color: #2c2c2c; }
-.tabs button.active { background: #ddbd88; color: white; box-shadow: 0 2px 8px rgba(221, 189, 136, 0.3); }
+.tabs button.active { background: #ddbd88; color: white !important; box-shadow: 0 2px 8px rgba(221, 189, 136, 0.3); }
 
 /* LOGIN SCREEN */
 .login-container {
@@ -109,7 +110,8 @@ body {
   max-width: 400px;
   text-align: center;
 }
-.login-card input { width: 100%; margin-bottom: 15px; box-sizing: border-box; }
+.login-card h1 { color: #333; }
+.login-card input { width: 100%; margin-bottom: 15px; box-sizing: border-box; color: #333; }
 .login-card button { width: 100%; padding: 12px; font-size: 1.1rem; }
 
 /* DASHBOARD & GRIDS */
@@ -146,7 +148,7 @@ body {
   text-align: center; 
   border-radius: 10px; 
   cursor: pointer; 
-  color: white; 
+  color: white !important; /* Force white text */
   box-shadow: 0 3px 6px rgba(0,0,0,0.1);
   transition: transform 0.2s;
   position: relative;
@@ -173,7 +175,7 @@ body {
 .badge { 
   padding: 8px 14px; 
   border-radius: 20px; 
-  color: white; 
+  color: white !important; /* Force white text */
   font-size: 0.85rem; 
   font-weight: 700;
   display: flex; align-items: center; gap: 6px;
@@ -193,6 +195,7 @@ body {
   max-width: 800px; 
   margin: 0 auto;
 }
+.list-view h2, .list-view h3 { color: #333; }
 
 .task-card, .ticket-card { 
   display: flex; 
@@ -203,11 +206,16 @@ body {
   margin-bottom: 10px;
   background: #f9f9f9;
   border: 1px solid #eee;
+  color: #333; /* Dark text for list items */
 }
 .ticket-card.open { border-left: 5px solid #ef4444; background: #fff5f5; }
 
 /* BUTTONS & FORMS */
-.btn { border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: 700; color: white; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; }
+.btn { 
+  border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; 
+  font-weight: 700; color: white !important; /* Force white text */
+  display: flex; align-items: center; gap: 6px; font-size: 0.9rem; 
+}
 .btn.green { background: #10b981; }
 .btn.blue { background: #3b82f6; }
 .btn.red { background: #ef4444; }
@@ -216,13 +224,14 @@ body {
 
 input, select { 
   padding: 10px; border: 2px solid #eee; border-radius: 8px; font-size: 1rem; 
-  transition: border 0.2s;
+  transition: border 0.2s; color: #333; /* Dark input text */
+  background: white;
 }
 input:focus { outline: none; border-color: #ddbd88; }
 
-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-th { text-align: left; padding: 10px; background: #000000; border-bottom: 2px solid #ddd; font-size: 0.85rem; }
-td { padding: 10px; border-bottom: 1px solid #000000; font-size: 0.9rem; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #333; }
+th { text-align: left; padding: 10px; background: #f9f9f9; border-bottom: 2px solid #ddd; font-size: 0.85rem; color: #444; }
+td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
 
 /* MODAL */
 .modal-overlay { 
@@ -233,15 +242,15 @@ td { padding: 10px; border-bottom: 1px solid #000000; font-size: 0.9rem; }
 .modal-content { 
   background: white; padding: 30px; border-radius: 20px; width: 90%; max-width: 350px; 
   text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+  color: #333; /* Ensure modal text is dark */
 }
+.modal-content h2 { color: #222; margin-top: 0; }
+.modal-content p { color: #555; }
 
 /* RESPONSIVE MOBILE FIXES */
 @media (max-width: 768px) {
-  body { padding-top: 150px; } /* More space for stacked header */
-  .app-container { 
-    width: 98%; /* LARGER CONTAINER ON MOBILE */
-    padding: 10px; 
-  }
+  body { padding-top: 150px; } 
+  .app-container { width: 98%; padding: 10px; }
   .header-content { flex-direction: column; gap: 10px; padding: 0 10px; }
   .header h1 { font-size: 1.2rem; }
   .tabs { width: 100%; justify-content: center; flex-wrap: wrap; }

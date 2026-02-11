@@ -191,8 +191,8 @@ export default function App() {
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
-            <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
+            <h3 style={{color:'#000000', marginBottom:'20px'}}>Staff Login</h3>
             
             <input 
               placeholder="User ID" 
@@ -212,10 +212,6 @@ export default function App() {
             
             <button type="submit" className="btn blue" style={{justifyContent:'center'}}>Login</button>
             
-            {/* Secret button to seed DB if empty */}
-            <button type="button" onClick={initAdmin} style={{marginTop:'20px', background:'none', border:'none', fontSize:'0.7rem', color:'#eee', cursor:'pointer'}}>
-              (Init Admin)
-            </button>
           </form>
         </div>
       </div>

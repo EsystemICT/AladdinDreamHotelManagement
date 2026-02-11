@@ -112,7 +112,7 @@ export default function App() {
         <div className="dashboard">
            <div className="stats-bar">
              <span className="badge green">
-               <i className="fa-solid fa-circle-check"></i>Vacant: {stats.vacant}
+               <i className="fa-solid fa-circle-check"></i>Vacanto: {stats.vacant}
              </span>
              <span className="badge blue">
                <i className="fa-solid fa-user"></i>Occupied: {stats.occupied}

@@ -221,8 +221,8 @@ input, select {
 input:focus { outline: none; border-color: #ddbd88; }
 
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-th { text-align: left; padding: 10px; background: #f9f9f9; border-bottom: 2px solid #ddd; font-size: 0.85rem; }
-td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+th { text-align: left; padding: 10px; background: #000000; border-bottom: 2px solid #ddd; font-size: 0.85rem; }
+td { padding: 10px; border-bottom: 1px solid #000000; font-size: 0.9rem; }
 
 /* MODAL */
 .modal-overlay { 

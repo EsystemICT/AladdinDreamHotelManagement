@@ -52,7 +52,17 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // --- 1. REAL-TIME LISTENERS ---
+  // --- 1. PERSIST LOGIN ON REFRESH ---
+  useEffect(() => {
+    const storedUser = localStorage.getItem('hotelUser');
+    if (storedUser) {
+      const userObj = JSON.parse(storedUser);
+      setCurrentUser(userObj);
+      setView(userObj.role === 'admin' ? 'ADMIN' : 'FO');
+    }
+  }, []);
+
+  // --- 2. REAL-TIME LISTENERS ---
   useEffect(() => {
     // Always listen to rooms
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
@@ -85,13 +95,11 @@ export default function App() {
     return () => { unsubTickets(); unsubRequests(); unsubUsers(); };
   }, [currentUser]);
 
-  // --- 2. AUTHENTICATION LOGIC ---
+  // --- 3. AUTHENTICATION LOGIC ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     
-    // Simple query to find user by ID
-    // NOTE: In a real app, use Firebase Auth. This is a simple Firestore simulation per request.
     const q = query(collection(db, "users"), where("userid", "==", loginId));
     const querySnapshot = await getDocs(q);
     
@@ -104,7 +112,9 @@ export default function App() {
     const docId = querySnapshot.docs[0].id;
 
     if (userData.password === loginPass) {
-      setCurrentUser({ dbId: docId, ...userData });
+      const userObj = { dbId: docId, ...userData };
+      setCurrentUser(userObj);
+      localStorage.setItem('hotelUser', JSON.stringify(userObj)); // SAVE TO STORAGE
       setView(userData.role === 'admin' ? 'ADMIN' : 'FO');
     } else {
       setLoginError('Incorrect Password');
@@ -133,13 +143,13 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('hotelUser'); // CLEAR STORAGE
     setCurrentUser(null);
     setLoginId('');
     setLoginPass('');
     setView('FO');
   };
 
-  // Temporary function to create first admin if DB is empty
   const initAdmin = async () => {
     await addDoc(collection(db, "users"), {
       userid: "admin", name: "System Admin", password: "1234", role: "admin"
@@ -147,7 +157,7 @@ export default function App() {
     alert("Admin created! ID: admin, Pass: 1234");
   };
 
-  // --- 3. BUSINESS LOGIC ---
+  // --- 4. BUSINESS LOGIC ---
   const updateRoomStatus = async (roomId, newStatus) => {
     await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
     setSelectedRoom(null);
@@ -164,7 +174,6 @@ export default function App() {
 
   const resolveTicket = async (ticket) => {
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp() });
-    // Note: We don't auto-clean room, HK must do it. But we can mark it dirty.
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'dirty' });
   };
 
@@ -185,14 +194,14 @@ export default function App() {
     maintenance: rooms.filter(r => r.status === 'maintenance').length
   };
 
-  // --- 4. RENDER: LOGIN SCREEN ---
+  // --- 5. RENDER: LOGIN SCREEN ---
   if (!currentUser) {
     return (
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
-            <h3 style={{color:'#000000', marginBottom:'20px'}}>Staff Login</h3>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
+            <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
             
             <input 
               placeholder="User ID" 
@@ -210,24 +219,27 @@ export default function App() {
             
             {loginError && <p style={{color:'red'}}>{loginError}</p>}
             
-            <button type="submit" className="btn blue" style={{justifyContent:'center'}}>Login</button>
+            <button type="submit" className="btn blue" style={{justifyContent:'center', width:'100%'}}>Login</button>
             
+            <button type="button" onClick={initAdmin} style={{marginTop:'20px', background:'none', border:'none', fontSize:'0.7rem', color:'#ccc', cursor:'pointer'}}>
+              (Init Admin)
+            </button>
           </form>
         </div>
       </div>
     );
   }
 
-  // --- 5. RENDER: MAIN APP ---
+  // --- 6. RENDER: MAIN APP ---
   return (
     <div className="app-container">
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Dream Hotel
+             Aladdin Hotel
              <div className="user-profile" onClick={() => setShowPasswordModal(true)} title="Change Password">
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
-               <span style={{fontSize: '0.9rem', fontWeight: 'normal'}}>{currentUser.name}</span>
+               <span style={{fontSize: '0.9rem', fontWeight: 'normal', color:'#333'}}>{currentUser.name}</span>
              </div>
           </h1>
           
@@ -237,7 +249,6 @@ export default function App() {
                 <i className={ICONS[v].icon}></i> {ICONS[v].label}
               </button>
             ))}
-            {/* Admin Tab */}
             {currentUser.role === 'admin' && (
               <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => setView('ADMIN')}>
                 <i className="fa-solid fa-lock"></i> Admin
@@ -308,7 +319,7 @@ export default function App() {
         </div>
       )}
 
-      {/* VIEW: MAINTENANCE (Active Tickets Only) */}
+      {/* VIEW: MAINTENANCE */}
       {view === 'MAINT' && (
         <div className="list-view">
           <h2><i className="fa-solid fa-wrench"></i> Active Tickets</h2>
@@ -355,22 +366,20 @@ export default function App() {
       {/* VIEW: ADMIN PANEL */}
       {view === 'ADMIN' && (
         <div className="dashboard">
-          
-          {/* 1. Staff Management */}
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff</h2>
             <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
               <input name="userid" placeholder="User ID" required />
               <input name="name" placeholder="Full Name" required />
               <input name="password" placeholder="Password" required />
-              <select name="role">
+              <select name="role" style={{padding:'10px', borderRadius:'8px', border:'2px solid #eee'}}>
                 <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
               </select>
               <button className="btn green">Create User</button>
             </form>
 
-            <table style={{fontSize:'0.85rem'}}>
+            <table>
               <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Pass</th><th>Action</th></tr></thead>
               <tbody>
                 {users.map(u => (
@@ -392,9 +401,8 @@ export default function App() {
             </table>
           </div>
 
-          {/* 2. Full History */}
-          <div className="grid grid-cols-2 gap-2" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px'}}>
-            <div className="list-view" style={{margin:0}}>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
+            <div className="list-view" style={{margin:0, width:'auto'}}>
               <h3>Maintenance History</h3>
               <div style={{maxHeight:'300px', overflowY:'auto'}}>
                 {tickets.filter(t => t.status === 'resolved').map(t => (
@@ -405,7 +413,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="list-view" style={{margin:0}}>
+            <div className="list-view" style={{margin:0, width:'auto'}}>
               <h3>Request History</h3>
               <div style={{maxHeight:'300px', overflowY:'auto'}}>
                 {requests.filter(r => r.status === 'done').map(r => (
@@ -423,8 +431,8 @@ export default function App() {
       {showPasswordModal && (
         <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>Change Password</h2>
-            <p>Enter a new password for <strong>{currentUser.userid}</strong></p>
+            <h2 style={{color:'#333'}}>Change Password</h2>
+            <p style={{color:'#666'}}>Enter a new password for <strong>{currentUser.userid}</strong></p>
             <form onSubmit={handleChangePassword} style={{flexDirection:'column'}}>
               <input name="newPass" placeholder="New Password" required />
               <button className="btn blue" style={{width:'100%', justifyContent:'center'}}>Update</button>
@@ -433,43 +441,40 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL: ROOM DETAILS (UPDATED WORKFLOW) --- */}
+      {/* --- MODAL: ROOM DETAILS --- */}
       {selectedRoom && (
         <div className="modal-overlay" onClick={() => setSelectedRoom(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>Room {selectedRoom.id}</h2>
-            <p>Current: <strong>{getStatusLabel(selectedRoom.status).toUpperCase()}</strong></p>
+            <h2 style={{color:'#333'}}>Room {selectedRoom.id}</h2>
+            <p style={{color:'#666'}}>Current: <strong>{getStatusLabel(selectedRoom.status).toUpperCase()}</strong></p>
             
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
-              {/* Reception Workflow */}
               <button 
                 className="btn red" 
                 onClick={() => updateRoomStatus(selectedRoom.id, 'dirty')}
-                style={{justifyContent:'center', padding:'15px'}}
+                style={{justifyContent:'center', padding:'15px', color:'white'}}
               >
                 Needs Cleaning
               </button>
 
-              {/* HK Workflow */}
               <button 
                 className="btn green" 
                 onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')}
-                style={{justifyContent:'center', padding:'15px'}}
+                style={{justifyContent:'center', padding:'15px', color:'white'}}
               >
                 Mark Ready
               </button>
               
-              {/* Maintenance */}
               <button 
                 className="btn grey" 
                 onClick={() => reportIssue(selectedRoom.id)}
-                style={{gridColumn:'span 2', justifyContent:'center', padding:'15px'}}
+                style={{gridColumn:'span 2', justifyContent:'center', padding:'15px', color:'white'}}
               >
                 Report Issue
               </button>
             </div>
             
-            <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer'}} onClick={() => setSelectedRoom(null)}>
+            <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666'}} onClick={() => setSelectedRoom(null)}>
               Close
             </button>
           </div>

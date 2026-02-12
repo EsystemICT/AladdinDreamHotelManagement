@@ -139,13 +139,13 @@ body {
 
 .room-grid { 
   display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); 
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); 
+  gap: 12px;
 }
 
 /* ROOM CARDS */
 .room-card { 
-  padding: 15px 5px; 
+  padding: 20px 8px; 
   text-align: center; 
   border-radius: 8px; 
   cursor: pointer; 
@@ -155,8 +155,8 @@ body {
   position: relative;
 }
 .room-card:hover { transform: translateY(-2px); }
-.room-number { font-size: 1.4rem; font-weight: 800; margin-bottom: 2px; }
-.room-type { font-size: 0.75rem; opacity: 0.95; text-transform: uppercase; font-weight: 700; }
+.room-number { font-size: 1.6rem; font-weight: 800; margin-bottom: 4px; }
+.room-type { font-size: 0.8rem; opacity: 0.95; text-transform: uppercase; font-weight: 700; }
 
 /* COLORS */
 .bg-green-500 { background: linear-gradient(135deg, #10b981 0%, #059669 100%); } 

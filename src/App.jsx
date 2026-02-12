@@ -3,10 +3,10 @@ import { db } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs } from 'firebase/firestore';
 import './App.css';
 
-// ICONS
+// ICONS - Removed HK
 const ICONS = { 
   FO: { icon: "fa-solid fa-hotel", label: "Front Office" }, 
-  HK: { icon: "fa-solid fa-broom", label: "Housekeeping" }, 
+  // HK Removed
   MAINT: { icon: "fa-solid fa-wrench", label: "Maintenance" }, 
   REQ: { icon: "fa-solid fa-paper-plane", label: "Requests" } 
 };
@@ -78,7 +78,6 @@ export default function App() {
 
   // --- 2. DATA LISTENERS ---
   useEffect(() => {
-    // Rooms Listener (Always active)
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
       setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -88,20 +87,16 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Listen to ALL Tickets (Admin needs history)
     const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
     const unsubTickets = onSnapshot(qTickets, (snap) => {
       setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Listen to ALL Requests
     const qRequests = query(collection(db, "requests"), orderBy("createdAt", "desc"));
     const unsubRequests = onSnapshot(qRequests, (snap) => {
       setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Listen to ALL Users (Needed for Request Recipient List)
-    // FIX: Moved this out of the Admin-only block so everyone can see who to send requests to.
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
       setUsers(snap.docs.map(d => ({ dbId: d.id, ...d.data() })));
     });
@@ -113,14 +108,9 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    
     const q = query(collection(db, "users"), where("userid", "==", loginId));
     const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) {
-      setLoginError('User ID not found');
-      return;
-    }
+    if (querySnapshot.empty) { setLoginError('User ID not found'); return; }
 
     const userData = querySnapshot.docs[0].data();
     const docId = querySnapshot.docs[0].id;
@@ -155,57 +145,35 @@ export default function App() {
   // --- 4. REQUESTS SYSTEM ---
   const handleSendRequest = async (e) => {
     e.preventDefault();
-    if (!reqReceiver || !reqContent) {
-      alert("Please select a receiver and enter details.");
-      return;
-    }
-
-    // FIX: Find the correct user object from the state
+    if (!reqReceiver || !reqContent) { alert("Please select a receiver and enter details."); return; }
     const receiverUser = users.find(u => u.dbId === reqReceiver);
-    
-    if (!receiverUser) {
-        alert("Receiver not found!");
-        return;
-    }
+    if (!receiverUser) { alert("Receiver not found!"); return; }
 
     await addDoc(collection(db, "requests"), {
       senderId: currentUser.dbId,
       senderName: currentUser.name,
-      receiverId: reqReceiver, // This is the Firestore Doc ID
-      receiverName: receiverUser.name, // This is their Display Name
+      receiverId: reqReceiver, 
+      receiverName: receiverUser.name, 
       content: reqContent,
       status: 'pending',
       createdAt: serverTimestamp()
     });
-
-    setReqContent('');
-    setReqReceiver('');
-    alert("Request Sent!");
+    setReqContent(''); setReqReceiver(''); alert("Request Sent!");
   };
 
   const handleAcceptRequest = async (reqId) => {
     if(!confirm("Accept this request?")) return;
-    await updateDoc(doc(db, "requests", reqId), {
-      status: 'accepted',
-      acceptedAt: serverTimestamp()
-    });
+    await updateDoc(doc(db, "requests", reqId), { status: 'accepted', acceptedAt: serverTimestamp() });
   };
 
   const handleCompleteRequest = async (reqId) => {
     if(!confirm("Mark as complete?")) return;
-    await updateDoc(doc(db, "requests", reqId), {
-      status: 'completed',
-      completedAt: serverTimestamp()
-    });
+    await updateDoc(doc(db, "requests", reqId), { status: 'completed', completedAt: serverTimestamp() });
   };
 
   const submitReject = async () => {
     if(!rejectReason) return alert("Please enter reason.");
-    await updateDoc(doc(db, "requests", rejectModal.reqId), {
-      status: 'rejected',
-      rejectionReason: rejectReason,
-      completedAt: serverTimestamp()
-    });
+    await updateDoc(doc(db, "requests", rejectModal.reqId), { status: 'rejected', rejectionReason: rejectReason, completedAt: serverTimestamp() });
     setRejectModal({ show: false, reqId: null });
   };
 
@@ -218,9 +186,7 @@ export default function App() {
   const reportIssue = async (roomId) => {
     const issue = prompt(`Issue description for Room ${roomId}?`);
     if (!issue) return;
-    await addDoc(collection(db, "tickets"), {
-      roomId, issue, status: 'open', createdAt: serverTimestamp()
-    });
+    await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp() });
     await updateRoomStatus(roomId, 'maintenance');
   };
 
@@ -232,19 +198,14 @@ export default function App() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     const f = e.target;
-    await addDoc(collection(db, "users"), {
-      userid: f.userid.value,
-      name: f.name.value,
-      password: f.password.value,
-      role: f.role.value
-    });
-    f.reset();
-    alert("User Created!");
+    await addDoc(collection(db, "users"), { userid: f.userid.value, name: f.name.value, password: f.password.value, role: f.role.value });
+    f.reset(); alert("User Created!");
   };
 
+  // REMOVED 'dirty' stat from display based on "remove traces of housekeeping"
   const stats = {
     vacant: rooms.filter(r => r.status === 'vacant').length,
-    dirty: rooms.filter(r => r.status === 'dirty').length,
+    occupied: rooms.filter(r => r.status === 'occupied').length,
     maintenance: rooms.filter(r => r.status === 'maintenance').length
   };
 
@@ -255,7 +216,7 @@ export default function App() {
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
             <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
-            <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
+            <h3 style={{color:'#666', marginBottom:'20px'}}>System Login</h3>
             <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
             <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
             {loginError && <p style={{color:'red'}}>{loginError}</p>}
@@ -301,7 +262,9 @@ export default function App() {
         <div className="dashboard">
            <div className="stats-bar">
              <span className="badge green"><i className="fa-solid fa-check"></i>Ready: {stats.vacant}</span>
-             <span className="badge red"><i className="fa-solid fa-broom"></i>Dirty: {stats.dirty}</span>
+             <span className="badge blue"><i className="fa-solid fa-user"></i>Occ: {stats.occupied}</span>
+             {/* Removed 'Dirty' Stat to comply with 'Remove Housekeeping' visual clutter, 
+                 but rooms can still be marked dirty if needed for internal logic */}
              <span className="badge grey"><i className="fa-solid fa-wrench"></i>Maint: {stats.maintenance}</span>
            </div>
            {[1, 2, 3].map(floorNum => {
@@ -324,23 +287,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: HOUSEKEEPING --- */}
-      {view === 'HK' && (
-        <div className="list-view">
-          <h2><i className="fa-solid fa-broom"></i> Housekeeping Tasks</h2>
-          {rooms.filter(r => r.status === 'dirty').length === 0 ? <p style={{textAlign:'center', color:'#999'}}>All rooms clean!</p> :
-            rooms.filter(r => r.status === 'dirty').map(room => (
-              <div key={room.id} className="task-card">
-                <div><strong>Room {room.id}</strong> ({room.type})</div>
-                <div className="actions">
-                  <button onClick={() => updateRoomStatus(room.id, 'vacant')} className="btn green"><i className="fa-solid fa-check"></i> Clean</button>
-                  <button onClick={() => reportIssue(room.id)} className="btn orange"><i className="fa-solid fa-triangle-exclamation"></i> Issue</button>
-                </div>
-              </div>
-            ))
-          }
-        </div>
-      )}
+      {/* --- HOUSEKEEPING VIEW REMOVED --- */}
 
       {/* --- VIEW: MAINTENANCE --- */}
       {view === 'MAINT' && (
@@ -360,7 +307,6 @@ export default function App() {
       {/* --- VIEW: REQUESTS --- */}
       {view === 'REQ' && (
         <div className="list-view">
-          {/* New Request Form */}
           <div className="floor-section" style={{marginBottom:'20px', border:'1px solid #eee'}}>
             <h2 className="floor-title"><i className="fa-solid fa-plus-circle"></i> New Request</h2>
             <form onSubmit={handleSendRequest} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
@@ -420,7 +366,6 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
-          {/* User Management */}
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff</h2>
             <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
@@ -448,9 +393,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ALL Maintenance Tickets */}
           <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> All Maintenance Tickets</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> All Tickets</h2>
             <div className="admin-table-container">
               <table>
                 <thead><tr><th>Room</th><th>Issue</th><th>Status</th><th>Reported</th><th>Resolved</th></tr></thead>
@@ -469,9 +413,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ALL Requests */}
           <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Requests Logs</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Requests</h2>
             <div className="admin-table-container">
               <table>
                 <thead><tr><th>From</th><th>To</th><th>Content</th><th>Status</th><th>Date</th></tr></thead>
@@ -493,18 +436,11 @@ export default function App() {
       )}
 
       {/* --- MODALS --- */}
-      {/* Reject Reason Modal */}
       {rejectModal.show && (
         <div className="modal-overlay" onClick={() => setRejectModal({show:false, reqId:null})}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2 style={{color:'#dc3545'}}>Reject Request</h2>
-            <textarea 
-              placeholder="Reason for rejection..." 
-              value={rejectReason}
-              onChange={e => setRejectReason(e.target.value)}
-              rows="3"
-              autoFocus
-            />
+            <textarea placeholder="Reason..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows="3" autoFocus />
             <div style={{display:'flex', gap:'10px', marginTop:'15px'}}>
               <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => setRejectModal({show:false, reqId:null})}>Cancel</button>
               <button className="btn red" style={{flex:1, justifyContent:'center'}} onClick={submitReject}>Reject</button>
@@ -513,7 +449,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Change Password Modal */}
       {showPasswordModal && (
         <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -527,14 +462,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Room Details Modal */}
       {selectedRoom && (
         <div className="modal-overlay" onClick={() => setSelectedRoom(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2>Room {selectedRoom.id}</h2>
             <p style={{marginBottom:'20px'}}>Current: <strong>{getStatusLabel(selectedRoom.status).toUpperCase()}</strong></p>
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
-              <button className="btn red" onClick={() => updateRoomStatus(selectedRoom.id, 'dirty')} style={{justifyContent:'center', padding:'15px'}}>Needs Cleaning</button>
+              <button className="btn red" onClick={() => updateRoomStatus(selectedRoom.id, 'dirty')} style={{justifyContent:'center', padding:'15px'}}>Mark Dirty</button>
               <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Ready</button>
               <button className="btn grey" onClick={() => reportIssue(selectedRoom.id)} style={{gridColumn:'span 2', justifyContent:'center', padding:'15px'}}>Report Issue</button>
             </div>

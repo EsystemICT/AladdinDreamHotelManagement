@@ -3,9 +3,10 @@ import { db } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
 import './App.css';
 
-// ICONS
+// UPDATED ICONS & TABS
 const ICONS = { 
-  MAINT: { icon: "fa-solid fa-wrench", label: "Maintenance" }, 
+  ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
+  TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Requests" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
@@ -13,8 +14,8 @@ const ICONS = {
 // HELPERS
 const getStatusColor = (status) => {
   switch(status) {
-    case 'maintenance': return 'bg-gray-800'; // Dark Grey for Maintenance
-    default: return 'bg-green-500'; // Default is Ready/Vacant
+    case 'maintenance': return 'bg-gray-800';
+    default: return 'bg-green-500'; // Default is Ready
   }
 };
 
@@ -35,7 +36,10 @@ const formatDate = (timestamp) => {
 export default function App() {
   // STATE
   const [currentUser, setCurrentUser] = useState(null);
-  const [view, setView] = useState('MAINT');
+  const [view, setView] = useState('ROOMS');
+  
+  // Real-time Clock
+  const [currentTime, setCurrentTime] = useState(new Date());
   
   // Data
   const [rooms, setRooms] = useState([]);
@@ -49,7 +53,7 @@ export default function App() {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
-  const [staffModal, setStaffModal] = useState(null); // For Admin viewing staff details
+  const [staffModal, setStaffModal] = useState(null);
   
   // Requests UI
   const [reqReceiver, setReqReceiver] = useState('');
@@ -63,14 +67,18 @@ export default function App() {
   // Attendance UI
   const [lastClock, setLastClock] = useState(null);
 
-  // --- 1. PERSISTENCE ---
+  // --- 1. PERSISTENCE & CLOCK ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
     if (storedUser) {
       const userObj = JSON.parse(storedUser);
       setCurrentUser(userObj);
-      setView(userObj.role === 'admin' ? 'ADMIN' : 'MAINT');
+      setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     }
+
+    // Real-time clock ticker
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // --- 2. LISTENERS ---
@@ -93,12 +101,11 @@ export default function App() {
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => setUsers(snap.docs.map(d => ({ dbId: d.id, ...d.data() }))));
     
-    // Attendance & Leaves (All for Admin, Filtered for Staff if we wanted, but grabbing all for simplicity then filtering in UI)
+    // Attendance
     const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(500));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setAttendance(data);
-        // Find last clock for current user
         if(currentUser) {
             const myLogs = data.filter(a => a.userId === currentUser.userid);
             if(myLogs.length > 0) setLastClock(myLogs[0]);
@@ -126,7 +133,7 @@ export default function App() {
       const userObj = { dbId: docId, ...userData };
       setCurrentUser(userObj);
       localStorage.setItem('hotelUser', JSON.stringify(userObj));
-      setView(userData.role === 'admin' ? 'ADMIN' : 'MAINT');
+      setView(userData.role === 'admin' ? 'ADMIN' : 'ROOMS');
     } else {
       setLoginError('Incorrect Password');
     }
@@ -137,7 +144,7 @@ export default function App() {
     setCurrentUser(null);
     setLoginId('');
     setLoginPass('');
-    setView('MAINT');
+    setView('ROOMS');
   };
 
   const handleChangePassword = async (e) => {
@@ -155,7 +162,7 @@ export default function App() {
       await addDoc(collection(db, "attendance"), {
           userId: currentUser.userid,
           userName: currentUser.name,
-          type: type, // 'in' or 'out'
+          type: type, 
           timestamp: serverTimestamp()
       });
   };
@@ -205,8 +212,13 @@ export default function App() {
   };
 
   const resolveTicket = async (ticket) => {
-    await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp() });
-    // DIRECT TO VACANT (READY) - No Dirty Step
+    if(!confirm("Mark this ticket as Resolved?")) return;
+    await updateDoc(doc(db, "tickets", ticket.id), { 
+      status: 'resolved', 
+      resolvedAt: serverTimestamp(),
+      resolvedBy: currentUser.name // Record WHO did it
+    });
+    // Auto-set room to Vacant/Ready (No dirty status)
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
@@ -220,6 +232,8 @@ export default function App() {
   // --- FILTERED DATA ---
   const filteredRooms = rooms.filter(r => r.id.includes(roomSearch));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
+  // Count Pending Requests for Current User
+  const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -255,6 +269,7 @@ export default function App() {
             {Object.keys(ICONS).map(v => (
               <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
                 <i className={ICONS[v].icon}></i> <span>{ICONS[v].label}</span>
+                {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
               </button>
             ))}
             {currentUser.role === 'admin' && (
@@ -270,16 +285,15 @@ export default function App() {
         </div>
       </header>
 
-      {/* --- VIEW: MAINTENANCE (HOME) --- */}
-      {view === 'MAINT' && (
+      {/* --- VIEW: ROOMS (GRID) --- */}
+      {view === 'ROOMS' && (
         <div className="dashboard">
-          
           <div className="floor-section">
             <h2 className="floor-title">
               <span><i className="fa-solid fa-bed"></i> Room Status</span>
               <input 
                 className="search-bar"
-                placeholder="Search Room No..." 
+                placeholder="Search Room..." 
                 value={roomSearch}
                 onChange={e => setRoomSearch(e.target.value)}
               />
@@ -296,7 +310,7 @@ export default function App() {
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
                           <div className="room-number">{room.id}</div>
                           <div className="room-type">{room.type}</div>
-                          {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINTENANCE</div>}
+                          {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
                         </div>
                      ))}
                    </div>
@@ -304,17 +318,42 @@ export default function App() {
                );
              })}
           </div>
+        </div>
+      )}
 
+      {/* --- VIEW: TICKETS (SEPARATED) --- */}
+      {view === 'TICKETS' && (
+        <div className="dashboard">
+          {/* ACTIVE ISSUES */}
           <div className="list-view">
-            <h2><i className="fa-solid fa-wrench"></i> Active Tickets</h2>
+            <h2><i className="fa-solid fa-triangle-exclamation"></i> Active Issues</h2>
             {tickets.filter(t => t.status === 'open').length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No active issues.</p> :
               tickets.filter(t => t.status === 'open').map(ticket => (
                 <div key={ticket.id} className="ticket-card open">
-                  <div><strong>Room {ticket.roomId}</strong><br/><small>{ticket.issue}</small></div>
-                  <button onClick={() => resolveTicket(ticket)} className="btn blue">Done (Ready)</button>
+                  <div>
+                    <strong>Room {ticket.roomId}</strong> - <span style={{color:'#666'}}>{ticket.issue}</span>
+                    <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>Reported: {formatTime(ticket.createdAt)}</div>
+                  </div>
+                  <button onClick={() => resolveTicket(ticket)} className="btn blue">Resolve</button>
                 </div>
               ))
             }
+          </div>
+
+          {/* HISTORY */}
+          <div className="list-view">
+            <h2><i className="fa-solid fa-clock-rotate-left"></i> Resolved History (Recent)</h2>
+            {tickets.filter(t => t.status === 'resolved').slice(0, 10).map(ticket => (
+                <div key={ticket.id} className="ticket-card resolved">
+                  <div>
+                    <strong>Room {ticket.roomId}</strong> - {ticket.issue}
+                    <div style={{fontSize:'0.8rem', color:'#666', marginTop:'5px'}}>
+                        Fixed by <b>{ticket.resolvedBy || 'Unknown'}</b> on {formatTime(ticket.resolvedAt)}
+                    </div>
+                  </div>
+                  <div style={{color:'green', fontWeight:'bold', fontSize:'0.8rem'}}>FIXED</div>
+                </div>
+            ))}
           </div>
         </div>
       )}
@@ -354,10 +393,12 @@ export default function App() {
       {/* --- VIEW: MY SHIFT (ATTENDANCE) --- */}
       {view === 'SHIFT' && (
         <div className="dashboard">
-            {/* CLOCK IN/OUT */}
+            {/* REAL TIME CLOCK */}
             <div className="clock-card">
-                <h3>Attendance</h3>
-                <div className="clock-time">{new Date().toLocaleTimeString('en-MY', {hour:'2-digit', minute:'2-digit'})}</div>
+                <div className="clock-display">
+                    <div className="clock-date">{currentTime.toLocaleDateString('en-MY', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
+                    <div className="clock-time">{currentTime.toLocaleTimeString('en-MY', {hour12:false})}</div>
+                </div>
                 <div style={{display:'flex', gap:'20px', justifyContent:'center'}}>
                     <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={lastClock?.type === 'in'}>
                          Clock IN
@@ -371,10 +412,10 @@ export default function App() {
                 </p>
             </div>
 
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px'}}>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
                 {/* LEAVE APP */}
                 <div className="leave-form">
-                    <h3>Apply Leave</h3>
+                    <h3>Apply Leave / MC</h3>
                     <form onSubmit={handleApplyLeave}>
                         <select name="leaveType" required>
                             <option value="Annual Leave">Annual Leave</option>
@@ -384,11 +425,11 @@ export default function App() {
                             <option value="Others">Others</option>
                         </select>
                         <textarea name="remarks" placeholder="Reason / Remarks" required rows="3"></textarea>
-                        <button className="btn purple" style={{justifyContent:'center', width:'100%'}}>Apply</button>
+                        <button className="btn purple" style={{justifyContent:'center', width:'100%'}}>Submit Application</button>
                     </form>
                 </div>
 
-                {/* MY HISTORY */}
+                {/* MY LOGS */}
                 <div className="list-view" style={{margin:0}}>
                     <h3>My Logs</h3>
                     <div style={{maxHeight:'300px', overflowY:'auto'}}>
@@ -474,7 +515,7 @@ export default function App() {
       {staffModal && (
           <div className="modal-overlay" onClick={() => setStaffModal(null)}>
               <div className="modal-content" onClick={e => e.stopPropagation()}>
-                  <h2>{staffModal.name} ({staffModal.userid})</h2>
+                  <h2>{staffModal.name}</h2>
                   
                   <h3 style={{fontSize:'1rem', marginTop:'20px', borderBottom:'2px solid #eee'}}>Attendance History</h3>
                   <div style={{maxHeight:'200px', overflowY:'auto', marginBottom:'20px'}}>
@@ -531,7 +572,7 @@ export default function App() {
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
             
             <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              {/* Only 2 Actions now: Report Issue OR Mark Ready */}
+              {/* Only 2 Actions: Maintenance OR Ready */}
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (

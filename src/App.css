@@ -195,6 +195,8 @@ body {
   border-radius: 12px; 
   box-shadow: 0 4px 15px rgba(0,0,0,0.05);
   margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .ticket-card { 
@@ -269,5 +271,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   .tabs button { padding: 8px 10px; font-size: 0.8rem; flex: 1; justify-content: center; }
   .tabs button span { display: none; }
   .room-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+  
+  /* Fix admin table overflow */
+  .admin-table-container { 
+    overflow-x: auto; 
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  table { 
+    min-width: 600px;
+    font-size: 0.85rem;
+  }
+  
+  th, td {
+    padding: 8px;
+    font-size: 0.85rem;
+  }
+  
+  .floor-section {
+    padding: 15px;
+  }
+  
+  .list-view {
+    padding: 15px;
+  }
 }
 @media (min-width: 769px) { .tabs button span { display: inline; } }

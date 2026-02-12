@@ -54,6 +54,8 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
+  const [rejectModal, setRejectModal] = useState(null);
+  const [completeModal, setCompleteModal] = useState(null);
   
   // Requests UI
   const [reqReceiver, setReqReceiver] = useState('');
@@ -73,7 +75,17 @@ export default function App() {
     if (storedUser) {
       const userObj = JSON.parse(storedUser);
       setCurrentUser(userObj);
-      setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
+      
+      // Check if user needs to clock in today
+      const lastClockDate = localStorage.getItem('lastClockDate');
+      const today = new Date().toDateString();
+      
+      if (userObj.role !== 'admin' && lastClockDate !== today) {
+        // First visit of the day - redirect to shift page
+        setView('SHIFT');
+      } else {
+        setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
+      }
     }
 
     // Real-time clock ticker
@@ -165,6 +177,11 @@ export default function App() {
           type: type, 
           timestamp: serverTimestamp()
       });
+      
+      // Save today's date to localStorage
+      if (type === 'in') {
+        localStorage.setItem('lastClockDate', new Date().toDateString());
+      }
   };
 
   const handleApplyLeave = async (e) => {
@@ -180,6 +197,29 @@ export default function App() {
       });
       f.reset();
       alert("Leave Application Sent!");
+  };
+
+  const handleRejectLeave = async (e) => {
+      e.preventDefault();
+      const reason = e.target.reason.value;
+      await updateDoc(doc(db, "leaves", rejectModal.id), {
+          status: 'rejected',
+          rejectionReason: reason
+      });
+      setRejectModal(null);
+      alert("Leave application rejected");
+  };
+
+  const handleCompleteRequest = async (e) => {
+      e.preventDefault();
+      const remark = e.target.remark.value;
+      await updateDoc(doc(db, "requests", completeModal.id), {
+          status: 'completed',
+          completionRemark: remark,
+          completedAt: serverTimestamp()
+      });
+      setCompleteModal(null);
+      alert("Request marked as completed");
   };
 
   // --- 5. CORE LOGIC ---
@@ -385,6 +425,34 @@ export default function App() {
               </div>
               <p style={{margin:'5px 0', fontSize:'1rem'}}>{req.content}</p>
               <div style={{fontSize:'0.75rem', color:'#666', marginTop:'5px'}}>{formatTime(req.createdAt)}</div>
+              
+              {req.status === 'pending' && (
+                <div style={{display:'flex', gap:'8px', marginTop:'10px'}}>
+                  <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'accepted'})} className="btn green" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                    <i className="fa-solid fa-check"></i> Accept
+                  </button>
+                  <button onClick={() => setCompleteModal(req)} className="btn blue" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                    <i className="fa-solid fa-circle-check"></i> Complete
+                  </button>
+                  <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'rejected'})} className="btn red" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                    <i className="fa-solid fa-xmark"></i> Reject
+                  </button>
+                </div>
+              )}
+              
+              {req.status === 'accepted' && (
+                <div style={{marginTop:'10px'}}>
+                  <button onClick={() => setCompleteModal(req)} className="btn blue" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                    <i className="fa-solid fa-circle-check"></i> Mark as Completed
+                  </button>
+                </div>
+              )}
+              
+              {req.status === 'completed' && req.completionRemark && (
+                <div style={{marginTop:'8px', padding:'8px', background:'#e0f2fe', borderRadius:'6px', fontSize:'0.85rem'}}>
+                  <strong>Completion Note:</strong> {req.completionRemark}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -433,14 +501,32 @@ export default function App() {
                 <div className="list-view" style={{margin:0}}>
                     <h3>My Logs</h3>
                     <div style={{maxHeight:'300px', overflowY:'auto'}}>
-                        {attendance.filter(a => a.userId === currentUser.userid).slice(0, 10).map(a => (
-                            <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between'}}>
-                                <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red'}}>
-                                    {a.type.toUpperCase()}
-                                </span>
-                                <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
-                            </div>
-                        ))}
+                        {(() => {
+                            const myLogs = attendance.filter(a => a.userId === currentUser.userid).slice(0, 30);
+                            const groupedByDay = {};
+                            
+                            myLogs.forEach(log => {
+                                const day = formatDate(log.timestamp);
+                                if (!groupedByDay[day]) groupedByDay[day] = [];
+                                groupedByDay[day].push(log);
+                            });
+                            
+                            return Object.entries(groupedByDay).map(([day, logs]) => (
+                                <div key={day} style={{marginBottom:'15px'}}>
+                                    <div style={{fontWeight:'bold', fontSize:'0.9rem', color:'#666', marginBottom:'5px', borderBottom:'2px solid #ddbd88', paddingBottom:'3px'}}>
+                                        {day}
+                                    </div>
+                                    {logs.map(a => (
+                                        <div key={a.id} style={{padding:'8px 10px', borderBottom:'1px solid #f0f0f0', display:'flex', justifyContent:'space-between'}}>
+                                            <span style={{fontWeight:'bold', color: a.type==='in'?'#10b981':'#ef4444'}}>
+                                                {a.type.toUpperCase()}
+                                            </span>
+                                            <span style={{color:'#666'}}>{formatTime(a.timestamp)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ));
+                        })()}
                     </div>
                 </div>
             </div>
@@ -493,11 +579,24 @@ export default function App() {
                                <td>
                                    {l.status === 'pending' ? (
                                        <div style={{display:'flex', gap:'5px'}}>
-                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'approved'})} className="btn green" style={{padding:'5px'}}>✓</button>
-                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'rejected'})} className="btn red" style={{padding:'5px'}}>✕</button>
+                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'approved'})} className="btn green" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                                               <i className="fa-solid fa-check"></i> Approve
+                                           </button>
+                                           <button onClick={() => setRejectModal(l)} className="btn red" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
+                                               <i className="fa-solid fa-xmark"></i> Reject
+                                           </button>
                                        </div>
                                    ) : (
-                                       <span style={{fontWeight:'bold', color: l.status==='approved'?'green':'red'}}>{l.status.toUpperCase()}</span>
+                                       <div>
+                                           <span style={{fontWeight:'bold', color: l.status==='approved'?'#10b981':'#ef4444'}}>
+                                               {l.status.toUpperCase()}
+                                           </span>
+                                           {l.rejectionReason && (
+                                               <div style={{fontSize:'0.8rem', color:'#666', marginTop:'4px'}}>
+                                                   Reason: {l.rejectionReason}
+                                               </div>
+                                           )}
+                                       </div>
                                    )}
                                </td>
                            </tr>
@@ -580,6 +679,66 @@ export default function App() {
               )}
             </div>
             <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666'}} onClick={() => setSelectedRoom(null)}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT LEAVE MODAL */}
+      {rejectModal && (
+        <div className="modal-overlay" onClick={() => setRejectModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2 style={{color:'#ef4444'}}>Reject Leave Application</h2>
+            <p style={{marginBottom:'15px'}}>
+              <strong>{rejectModal.userName}</strong> - {rejectModal.type}
+            </p>
+            <form onSubmit={handleRejectLeave} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+              <textarea 
+                name="reason" 
+                placeholder="Reason for rejection..." 
+                required 
+                rows="3"
+                style={{resize:'vertical'}}
+              />
+              <div style={{display:'flex', gap:'10px'}}>
+                <button type="submit" className="btn red" style={{flex:1, justifyContent:'center'}}>
+                  <i className="fa-solid fa-xmark"></i> Confirm Reject
+                </button>
+                <button type="button" onClick={() => setRejectModal(null)} className="btn grey" style={{flex:1, justifyContent:'center'}}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* COMPLETE REQUEST MODAL */}
+      {completeModal && (
+        <div className="modal-overlay" onClick={() => setCompleteModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2 style={{color:'#3b82f6'}}>Complete Request</h2>
+            <p style={{marginBottom:'15px'}}>
+              From: <strong>{completeModal.senderName}</strong>
+            </p>
+            <div style={{background:'#f9fafb', padding:'10px', borderRadius:'8px', marginBottom:'15px'}}>
+              {completeModal.content}
+            </div>
+            <form onSubmit={handleCompleteRequest} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+              <textarea 
+                name="remark" 
+                placeholder="Optional completion note/remark..." 
+                rows="3"
+                style={{resize:'vertical'}}
+              />
+              <div style={{display:'flex', gap:'10px'}}>
+                <button type="submit" className="btn blue" style={{flex:1, justifyContent:'center'}}>
+                  <i className="fa-solid fa-circle-check"></i> Mark Completed
+                </button>
+                <button type="button" onClick={() => setCompleteModal(null)} className="btn grey" style={{flex:1, justifyContent:'center'}}>
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

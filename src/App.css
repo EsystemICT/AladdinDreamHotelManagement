@@ -5,16 +5,17 @@ body {
   background-attachment: fixed;
   margin: 0; 
   padding: 0;
-  padding-top: 100px; /* Default Desktop Padding */
+  padding-top: 90px; /* Reduced top padding slightly */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
+  color: #222; /* GLOBAL DARK TEXT */
 }
 
 .app-container { 
-  width: 90%; /* WIDER ON DESKTOP */
-  max-width: 1600px; /* Allow it to get very wide */
+  width: 96%; /* BIGGER ON DESKTOP */
+  max-width: 1800px; /* Allow wide screens */
   margin: 0 auto;
   padding: 20px;
   box-sizing: border-box;
@@ -36,8 +37,8 @@ body {
 }
 
 .header-content {
-  width: 90%; /* Match app-container */
-  max-width: 1600px;
+  width: 96%; /* Match app-container */
+  max-width: 1800px;
   padding: 0 20px;
   box-sizing: border-box;
   display: flex;
@@ -48,8 +49,8 @@ body {
 .header h1 {
   margin: 0;
   font-size: 1.4rem;
-  color: #2c2c2c;
-  font-weight: 700;
+  color: #222;
+  font-weight: 800;
   display: flex;
   align-items: center;
   gap: 15px;
@@ -62,8 +63,8 @@ body {
   cursor: pointer;
   padding: 6px 12px;
   border-radius: 20px;
-  background: #f8f8f8;
-  border: 1px solid #eee;
+  background: #f1f1f1;
+  border: 1px solid #ddd;
   transition: all 0.2s;
   color: #333;
 }
@@ -83,8 +84,8 @@ body {
   background: transparent;
   border-radius: 8px; 
   cursor: pointer; 
-  font-weight: 600;
-  color: #666;
+  font-weight: 700;
+  color: #555; /* Dark grey for inactive tabs */
   transition: all 0.2s ease;
   font-size: 0.9rem;
   display: flex;
@@ -92,7 +93,7 @@ body {
   gap: 6px;
 }
 
-.tabs button:hover { background: rgba(0,0,0,0.05); color: #333; }
+.tabs button:hover { background: rgba(0,0,0,0.05); color: #000; }
 .tabs button.active { background: #ddbd88; color: white !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
 
 /* DASHBOARD GRID */
@@ -106,16 +107,16 @@ body {
 
 .floor-title { 
   font-size: 1.1rem; 
-  color: #444;
-  font-weight: 700;
+  color: #333;
+  font-weight: 800;
   margin: 0 0 15px 0;
   padding-bottom: 8px;
-  border-bottom: 2px solid #f0f0f0;
+  border-bottom: 2px solid #eee;
 }
 
 .room-grid { 
   display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); 
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); /* Slightly wider cards */
   gap: 12px;
 }
 
@@ -125,20 +126,22 @@ body {
   text-align: center; 
   border-radius: 8px; 
   cursor: pointer; 
-  color: white !important; 
+  color: white !important; /* Keep white for cards because backgrounds are dark/vibrant */
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   transition: transform 0.1s;
   position: relative;
 }
 .room-card:hover { transform: translateY(-2px); }
-.room-number { font-size: 1.3rem; font-weight: 800; margin-bottom: 2px; }
-.room-type { font-size: 0.7rem; opacity: 0.95; text-transform: uppercase; font-weight: 600; }
+.room-number { font-size: 1.4rem; font-weight: 800; margin-bottom: 2px; }
+.room-type { font-size: 0.75rem; opacity: 0.95; text-transform: uppercase; font-weight: 700; }
 
 /* COLORS */
+/* Ensuring these are vibrant enough for white text */
 .bg-green-500 { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
 .bg-blue-500 { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); }
 .bg-red-500 { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
-.bg-gray-800 { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+.bg-gray-800 { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); } /* Maint is Orange/Dark */
+.bg-gray-300 { background: #9ca3af; color: #fff !important; } /* Default */
 
 /* STATS BAR */
 .stats-bar { 
@@ -169,6 +172,8 @@ body {
   box-shadow: 0 4px 15px rgba(0,0,0,0.05);
   margin-bottom: 20px;
 }
+
+/* Force dark text on these white cards */
 .task-card, .ticket-card { 
   display: flex; 
   justify-content: space-between; 
@@ -178,17 +183,18 @@ body {
   margin-bottom: 10px;
   background: #f9f9f9;
   border: 1px solid #eee;
-  color: #333;
+  color: #333 !important; /* FIXED: Dark Text */
 }
+.ticket-card small { color: #666; }
+.ticket-card strong { color: #000; }
+
 .ticket-card.open { border-left: 5px solid #ef4444; background: #fff5f5; }
 
 /* ADMIN TABLES */
-.admin-table-container {
-  overflow-x: auto;
-}
+.admin-table-container { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #333; min-width: 600px; }
-th { text-align: left; padding: 12px; background: #f4f4f4; border-bottom: 2px solid #ddd; font-size: 0.9rem; color: #444; }
-td { padding: 12px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+th { text-align: left; padding: 12px; background: #f4f4f4; border-bottom: 2px solid #ddd; font-size: 0.9rem; color: #222; font-weight: bold; }
+td { padding: 12px; border-bottom: 1px solid #eee; font-size: 0.9rem; color: #333; }
 tr:hover { background: #fafafa; }
 
 /* REQUESTS */
@@ -200,18 +206,21 @@ tr:hover { background: #fafafa; }
   border-left: 4px solid #3b82f6;
   border: 1px solid #eee;
   box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  color: #333; /* FIXED: Dark Text */
 }
 .req-status { 
   display: inline-block; padding: 4px 10px; border-radius: 12px; 
   font-size: 0.7rem; font-weight: 800; text-transform: uppercase;
+  color: #333; /* Default status text */
 }
+/* Ensure status text is readable */
 .status-pending { background: #fff3cd; color: #856404; }
 .status-accepted { background: #d1e7dd; color: #0f5132; }
 .status-completed { background: #cff4fc; color: #055160; }
 .status-rejected { background: #f8d7da; color: #842029; }
 
 /* BUTTONS */
-.btn { border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 700; color: white !important; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; transition: opacity 0.2s; }
+.btn { border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-weight: 700; color: white !important; display: flex; align-items: center; gap: 6px; font-size: 0.95rem; transition: opacity 0.2s; }
 .btn:hover { opacity: 0.9; }
 .btn.green { background: #10b981; }
 .btn.blue { background: #3b82f6; }
@@ -219,21 +228,40 @@ tr:hover { background: #fafafa; }
 .btn.orange { background: #f59e0b; }
 .btn.grey { background: #6b7280; }
 
-input, select, textarea { padding: 10px; border: 2px solid #eee; border-radius: 8px; font-size: 1rem; color: #333; width: 100%; box-sizing: border-box; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88; }
+/* INPUTS */
+input, select, textarea { 
+  padding: 12px; 
+  border: 2px solid #ddd; 
+  border-radius: 8px; 
+  font-size: 1rem; 
+  color: #222; /* FIXED: Dark Text */
+  background: #fff;
+  width: 100%; 
+  box-sizing: border-box; 
+}
+input::placeholder { color: #999; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88; background: #fff; }
 
 /* MODAL */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(3px); }
-.modal-content { background: white; padding: 30px; border-radius: 16px; width: 90%; max-width: 400px; text-align: center; color: #333; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
+.modal-content { 
+  background: white; padding: 30px; border-radius: 16px; 
+  width: 90%; max-width: 400px; text-align: center; 
+  color: #333; /* FIXED: Dark Text */
+  box-shadow: 0 20px 50px rgba(0,0,0,0.2); 
+}
+.modal-content h2 { color: #222; margin-top: 0; }
+.modal-content p { color: #555; }
 
 /* LOGIN */
 .login-container { display: flex; justify-content: center; align-items: center; height: 80vh; }
-.login-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; }
+.login-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; color: #333; }
+.login-card h1 { color: #222; }
 
 /* MOBILE RESPONSIVE FIXES */
 @media (max-width: 768px) {
-  body { padding-top: 140px; /* More space for stacked header */ }
-  .app-container { width: 95%; padding: 10px; }
+  body { padding-top: 140px; }
+  .app-container { width: 95%; padding: 10px; } /* Mobile stays compact */
   
   .header { padding: 10px 0; }
   .header-content { flex-direction: column; gap: 10px; width: 100%; }
@@ -242,9 +270,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   
   .tabs { width: 100%; justify-content: space-between; overflow-x: auto; }
   .tabs button { padding: 8px 10px; font-size: 0.8rem; flex: 1; justify-content: center; }
-  .tabs button span { display: none; /* Hide text label on small mobile, show icon only */ }
+  .tabs button span { display: none; }
   
-  .room-grid { grid-template-columns: repeat(auto-fill, minmax(75px, 1fr)); gap: 8px; }
+  .room-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
   
   .task-card, .ticket-card { flex-direction: column; align-items: flex-start; gap: 10px; }
   .task-card .actions, .ticket-card button { width: 100%; justify-content: center; }

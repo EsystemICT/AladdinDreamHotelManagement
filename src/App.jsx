@@ -431,9 +431,6 @@ export default function App() {
                   <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'accepted'})} className="btn green" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
                     <i className="fa-solid fa-check"></i> Accept
                   </button>
-                  <button onClick={() => setCompleteModal(req)} className="btn blue" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                    <i className="fa-solid fa-circle-check"></i> Complete
-                  </button>
                   <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'rejected'})} className="btn red" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
                     <i className="fa-solid fa-xmark"></i> Reject
                   </button>
@@ -603,6 +600,79 @@ export default function App() {
                        ))}
                    </tbody>
                </table>
+            </div>
+          </div>
+
+          {/* MAINTENANCE TICKETS HISTORY */}
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> Maintenance Tickets History</h2>
+            <div className="admin-table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Room</th>
+                    <th>Issue</th>
+                    <th>Status</th>
+                    <th>Reported</th>
+                    <th>Resolved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map(t => (
+                    <tr key={t.id}>
+                      <td><strong>Room {t.roomId}</strong></td>
+                      <td>{t.issue}</td>
+                      <td>
+                        <span style={{
+                          fontWeight:'bold', 
+                          color: t.status === 'open' ? '#ef4444' : '#10b981'
+                        }}>
+                          {t.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td>{formatTime(t.createdAt)}</td>
+                      <td>{t.resolvedAt ? formatTime(t.resolvedAt) : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* REQUESTS HISTORY */}
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Requests History</h2>
+            <div className="admin-table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Content</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Completion Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.map(r => (
+                    <tr key={r.id}>
+                      <td><strong>{r.senderName}</strong></td>
+                      <td>{r.receiverName}</td>
+                      <td style={{maxWidth:'300px'}}>{r.content}</td>
+                      <td>
+                        <span className={`req-status status-${r.status}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td>{formatTime(r.createdAt)}</td>
+                      <td style={{fontSize:'0.85rem', color:'#666'}}>
+                        {r.completionRemark || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

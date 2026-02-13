@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit, writeBatch } from 'firebase/firestore';
 import './App.css';
+import * as XLSX from 'xlsx';
 
 // UPDATED ICONS & TABS
 const ICONS = { 
@@ -56,6 +57,7 @@ export default function App() {
   const [staffModal, setStaffModal] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
   const [completeModal, setCompleteModal] = useState(null);
+  const [uploading, setUploading] = useState(false);
   
   // Requests UI
   const [reqReceiver, setReqReceiver] = useState('');
@@ -75,17 +77,7 @@ export default function App() {
     if (storedUser) {
       const userObj = JSON.parse(storedUser);
       setCurrentUser(userObj);
-      
-      // Check if user needs to clock in today
-      const lastClockDate = localStorage.getItem('lastClockDate');
-      const today = new Date().toDateString();
-      
-      if (userObj.role !== 'admin' && lastClockDate !== today) {
-        // First visit of the day - redirect to shift page
-        setView('SHIFT');
-      } else {
-        setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
-      }
+      setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     }
 
     // Real-time clock ticker
@@ -177,11 +169,6 @@ export default function App() {
           type: type, 
           timestamp: serverTimestamp()
       });
-      
-      // Save today's date to localStorage
-      if (type === 'in') {
-        localStorage.setItem('lastClockDate', new Date().toDateString());
-      }
   };
 
   const handleApplyLeave = async (e) => {
@@ -199,30 +186,93 @@ export default function App() {
       alert("Leave Application Sent!");
   };
 
-  const handleRejectLeave = async (e) => {
-      e.preventDefault();
-      const reason = e.target.reason.value;
-      await updateDoc(doc(db, "leaves", rejectModal.id), {
-          status: 'rejected',
-          rejectionReason: reason
-      });
-      setRejectModal(null);
-      alert("Leave application rejected");
+  // --- 5. BULK UPLOAD HANDLERS ---
+  const handleBulkUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setUploading(true);
+    
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+      
+      // Validate and upload using batch
+      const batch = writeBatch(db);
+      let successCount = 0;
+      let errorCount = 0;
+      
+      for (const row of jsonData) {
+        // Expected columns: roomId, issue, status (optional), reportedDate (optional)
+        if (!row.roomId || !row.issue) {
+          errorCount++;
+          continue;
+        }
+        
+        const ticketRef = doc(collection(db, "tickets"));
+        const ticketData = {
+          roomId: String(row.roomId),
+          issue: String(row.issue),
+          status: row.status === 'resolved' ? 'resolved' : 'open',
+          createdAt: row.reportedDate ? new Date(row.reportedDate) : serverTimestamp(),
+          uploadedBy: currentUser.name,
+          bulkUpload: true
+        };
+        
+        // Add resolvedAt if status is resolved
+        if (row.status === 'resolved' && row.resolvedDate) {
+          ticketData.resolvedAt = new Date(row.resolvedDate);
+          ticketData.resolvedBy = row.resolvedBy || 'Bulk Upload';
+        }
+        
+        batch.set(ticketRef, ticketData);
+        successCount++;
+      }
+      
+      await batch.commit();
+      
+      alert(`Bulk upload complete!\n✓ ${successCount} tickets added\n${errorCount > 0 ? `✗ ${errorCount} rows skipped (missing data)` : ''}`);
+      
+      // Reset file input
+      e.target.value = '';
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Error uploading file. Please check the format and try again.');
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const handleCompleteRequest = async (e) => {
-      e.preventDefault();
-      const remark = e.target.remark.value;
-      await updateDoc(doc(db, "requests", completeModal.id), {
-          status: 'completed',
-          completionRemark: remark,
-          completedAt: serverTimestamp()
-      });
-      setCompleteModal(null);
-      alert("Request marked as completed");
+  const downloadTemplate = () => {
+    const template = [
+      {
+        roomId: '101',
+        issue: 'Broken AC',
+        status: 'open',
+        reportedDate: '2024-01-15',
+        resolvedDate: '',
+        resolvedBy: ''
+      },
+      {
+        roomId: '102',
+        issue: 'Leaking faucet',
+        status: 'resolved',
+        reportedDate: '2024-01-14',
+        resolvedDate: '2024-01-15',
+        resolvedBy: 'John Doe'
+      }
+    ];
+    
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, "maintenance_log_template.xlsx");
   };
 
-  // --- 5. CORE LOGIC ---
+  // --- 6. CORE LOGIC ---
   const handleSendRequest = async (e) => {
     e.preventDefault();
     if (!reqReceiver || !reqContent) { alert("Select receiver and enter details."); return; }
@@ -281,7 +331,7 @@ export default function App() {
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
             <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
             <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
             <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
@@ -299,7 +349,7 @@ export default function App() {
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Dream Hotel
+             Aladdin Hotel
              <div className="user-profile" onClick={() => setShowPasswordModal(true)}>
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span style={{fontWeight: 'bold'}}>{currentUser.name}</span>
@@ -425,31 +475,6 @@ export default function App() {
               </div>
               <p style={{margin:'5px 0', fontSize:'1rem'}}>{req.content}</p>
               <div style={{fontSize:'0.75rem', color:'#666', marginTop:'5px'}}>{formatTime(req.createdAt)}</div>
-              
-              {req.status === 'pending' && (
-                <div style={{display:'flex', gap:'8px', marginTop:'10px'}}>
-                  <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'accepted'})} className="btn green" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                    <i className="fa-solid fa-check"></i> Accept
-                  </button>
-                  <button onClick={() => updateDoc(doc(db, "requests", req.id), {status: 'rejected'})} className="btn red" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                    <i className="fa-solid fa-xmark"></i> Reject
-                  </button>
-                </div>
-              )}
-              
-              {req.status === 'accepted' && (
-                <div style={{marginTop:'10px'}}>
-                  <button onClick={() => setCompleteModal(req)} className="btn blue" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                    <i className="fa-solid fa-circle-check"></i> Mark as Completed
-                  </button>
-                </div>
-              )}
-              
-              {req.status === 'completed' && req.completionRemark && (
-                <div style={{marginTop:'8px', padding:'8px', background:'#e0f2fe', borderRadius:'6px', fontSize:'0.85rem'}}>
-                  <strong>Completion Note:</strong> {req.completionRemark}
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -498,32 +523,14 @@ export default function App() {
                 <div className="list-view" style={{margin:0}}>
                     <h3>My Logs</h3>
                     <div style={{maxHeight:'300px', overflowY:'auto'}}>
-                        {(() => {
-                            const myLogs = attendance.filter(a => a.userId === currentUser.userid).slice(0, 30);
-                            const groupedByDay = {};
-                            
-                            myLogs.forEach(log => {
-                                const day = formatDate(log.timestamp);
-                                if (!groupedByDay[day]) groupedByDay[day] = [];
-                                groupedByDay[day].push(log);
-                            });
-                            
-                            return Object.entries(groupedByDay).map(([day, logs]) => (
-                                <div key={day} style={{marginBottom:'15px'}}>
-                                    <div style={{fontWeight:'bold', fontSize:'0.9rem', color:'#666', marginBottom:'5px', borderBottom:'2px solid #ddbd88', paddingBottom:'3px'}}>
-                                        {day}
-                                    </div>
-                                    {logs.map(a => (
-                                        <div key={a.id} style={{padding:'8px 10px', borderBottom:'1px solid #f0f0f0', display:'flex', justifyContent:'space-between'}}>
-                                            <span style={{fontWeight:'bold', color: a.type==='in'?'#10b981':'#ef4444'}}>
-                                                {a.type.toUpperCase()}
-                                            </span>
-                                            <span style={{color:'#666'}}>{formatTime(a.timestamp)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ));
-                        })()}
+                        {attendance.filter(a => a.userId === currentUser.userid).slice(0, 10).map(a => (
+                            <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between'}}>
+                                <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red'}}>
+                                    {a.type.toUpperCase()}
+                                </span>
+                                <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -576,30 +583,56 @@ export default function App() {
                                <td>
                                    {l.status === 'pending' ? (
                                        <div style={{display:'flex', gap:'5px'}}>
-                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'approved'})} className="btn green" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                                               <i className="fa-solid fa-check"></i> Approve
-                                           </button>
-                                           <button onClick={() => setRejectModal(l)} className="btn red" style={{padding:'6px 12px', fontSize:'0.85rem'}}>
-                                               <i className="fa-solid fa-xmark"></i> Reject
-                                           </button>
+                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'approved'})} className="btn green" style={{padding:'5px'}}>✓</button>
+                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'rejected'})} className="btn red" style={{padding:'5px'}}>✕</button>
                                        </div>
                                    ) : (
-                                       <div>
-                                           <span style={{fontWeight:'bold', color: l.status==='approved'?'#10b981':'#ef4444'}}>
-                                               {l.status.toUpperCase()}
-                                           </span>
-                                           {l.rejectionReason && (
-                                               <div style={{fontSize:'0.8rem', color:'#666', marginTop:'4px'}}>
-                                                   Reason: {l.rejectionReason}
-                                               </div>
-                                           )}
-                                       </div>
+                                       <span style={{fontWeight:'bold', color: l.status==='approved'?'green':'red'}}>{l.status.toUpperCase()}</span>
                                    )}
                                </td>
                            </tr>
                        ))}
                    </tbody>
                </table>
+            </div>
+          </div>
+
+          {/* BULK UPLOAD SECTION */}
+          <div className="floor-section">
+            <h2 className="floor-title">
+              <span><i className="fa-solid fa-file-excel"></i> Bulk Maintenance Upload</span>
+              <button onClick={downloadTemplate} className="btn blue" style={{fontSize:'0.85rem', padding:'8px 14px'}}>
+                <i className="fa-solid fa-download"></i> Download Template
+              </button>
+            </h2>
+            <div style={{background:'#f0f9ff', padding:'20px', borderRadius:'10px', border:'2px dashed #3b82f6'}}>
+              <p style={{margin:'0 0 15px 0', color:'#1e40af', fontWeight:'600'}}>
+                <i className="fa-solid fa-info-circle"></i> Upload Excel file with maintenance tickets
+              </p>
+              <div style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>
+                <strong>Required columns:</strong> roomId, issue<br/>
+                <strong>Optional columns:</strong> status (open/resolved), reportedDate, resolvedDate, resolvedBy
+              </div>
+              <input 
+                type="file" 
+                accept=".xlsx,.xls" 
+                onChange={handleBulkUpload}
+                disabled={uploading}
+                style={{
+                  padding:'12px',
+                  border:'2px solid #3b82f6',
+                  borderRadius:'8px',
+                  background:'white',
+                  cursor: uploading ? 'not-allowed' : 'pointer',
+                  width:'100%',
+                  boxSizing:'border-box'
+                }}
+              />
+              {uploading && (
+                <div style={{marginTop:'10px', color:'#3b82f6', fontWeight:'600'}}>
+                  <i className="fa-solid fa-spinner fa-spin"></i> Uploading...
+                </div>
+              )}
             </div>
           </div>
 
@@ -615,6 +648,7 @@ export default function App() {
                     <th>Status</th>
                     <th>Reported</th>
                     <th>Resolved</th>
+                    <th>Source</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -632,6 +666,15 @@ export default function App() {
                       </td>
                       <td>{formatTime(t.createdAt)}</td>
                       <td>{t.resolvedAt ? formatTime(t.resolvedAt) : '-'}</td>
+                      <td>
+                        {t.bulkUpload ? (
+                          <span style={{fontSize:'0.75rem', background:'#e0e7ff', color:'#3730a3', padding:'3px 8px', borderRadius:'4px', fontWeight:'600'}}>
+                            <i className="fa-solid fa-file-excel"></i> Bulk
+                          </span>
+                        ) : (
+                          <span style={{fontSize:'0.75rem', color:'#666'}}>Manual</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -749,66 +792,6 @@ export default function App() {
               )}
             </div>
             <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666'}} onClick={() => setSelectedRoom(null)}>Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* REJECT LEAVE MODAL */}
-      {rejectModal && (
-        <div className="modal-overlay" onClick={() => setRejectModal(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2 style={{color:'#ef4444'}}>Reject Leave Application</h2>
-            <p style={{marginBottom:'15px'}}>
-              <strong>{rejectModal.userName}</strong> - {rejectModal.type}
-            </p>
-            <form onSubmit={handleRejectLeave} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              <textarea 
-                name="reason" 
-                placeholder="Reason for rejection..." 
-                required 
-                rows="3"
-                style={{resize:'vertical'}}
-              />
-              <div style={{display:'flex', gap:'10px'}}>
-                <button type="submit" className="btn red" style={{flex:1, justifyContent:'center'}}>
-                  <i className="fa-solid fa-xmark"></i> Confirm Reject
-                </button>
-                <button type="button" onClick={() => setRejectModal(null)} className="btn grey" style={{flex:1, justifyContent:'center'}}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* COMPLETE REQUEST MODAL */}
-      {completeModal && (
-        <div className="modal-overlay" onClick={() => setCompleteModal(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2 style={{color:'#3b82f6'}}>Complete Request</h2>
-            <p style={{marginBottom:'15px'}}>
-              From: <strong>{completeModal.senderName}</strong>
-            </p>
-            <div style={{background:'#f9fafb', padding:'10px', borderRadius:'8px', marginBottom:'15px'}}>
-              {completeModal.content}
-            </div>
-            <form onSubmit={handleCompleteRequest} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              <textarea 
-                name="remark" 
-                placeholder="Optional completion note/remark..." 
-                rows="3"
-                style={{resize:'vertical'}}
-              />
-              <div style={{display:'flex', gap:'10px'}}>
-                <button type="submit" className="btn blue" style={{flex:1, justifyContent:'center'}}>
-                  <i className="fa-solid fa-circle-check"></i> Mark Completed
-                </button>
-                <button type="button" onClick={() => setCompleteModal(null)} className="btn grey" style={{flex:1, justifyContent:'center'}}>
-                  Cancel
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

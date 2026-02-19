@@ -71,6 +71,39 @@ export default function App() {
   // Attendance UI
   const [lastClock, setLastClock] = useState(null);
 
+  const [ticketSearch, setTicketSearch] = useState('');
+  const [ticketSort, setTicketSort] = useState('date-desc');
+
+  // --- SORT & FILTER LOGIC ---
+  const getProcessedTickets = () => {
+    let processed = [...tickets];
+
+    // 1. Filter by Room
+    if (ticketSearch) {
+      processed = processed.filter(t => t.roomId.toString().includes(ticketSearch));
+    }
+
+    // 2. Sort
+    processed.sort((a, b) => {
+      const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
+      const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0);
+      const roomA = parseInt(a.roomId) || 0;
+      const roomB = parseInt(b.roomId) || 0;
+
+      switch (ticketSort) {
+        case 'date-desc': return dateB - dateA;
+        case 'date-asc': return dateA - dateB;
+        case 'room-asc': return roomA - roomB;
+        case 'room-desc': return roomB - roomA;
+        default: return 0;
+      }
+    });
+
+    return processed;
+  };
+
+  const processedTickets = getProcessedTickets();
+
   // --- 1. PERSISTENCE & CLOCK ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
@@ -597,48 +630,30 @@ export default function App() {
             </div>
           </div>
 
-          {/* BULK UPLOAD SECTION */}
-          <div className="floor-section">
-            <h2 className="floor-title">
-              <span><i className="fa-solid fa-file-excel"></i> Bulk Maintenance Upload</span>
-              <button onClick={downloadTemplate} className="btn blue" style={{fontSize:'0.85rem', padding:'8px 14px'}}>
-                <i className="fa-solid fa-download"></i> Download Template
-              </button>
-            </h2>
-            <div style={{background:'#f0f9ff', padding:'20px', borderRadius:'10px', border:'2px dashed #3b82f6'}}>
-              <p style={{margin:'0 0 15px 0', color:'#1e40af', fontWeight:'600'}}>
-                <i className="fa-solid fa-info-circle"></i> Upload Excel file with maintenance tickets
-              </p>
-              <div style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>
-                <strong>Required columns:</strong> roomId, issue<br/>
-                <strong>Optional columns:</strong> status (open/resolved), reportedDate, resolvedDate, resolvedBy
-              </div>
-              <input 
-                type="file" 
-                accept=".xlsx,.xls" 
-                onChange={handleBulkUpload}
-                disabled={uploading}
-                style={{
-                  padding:'12px',
-                  border:'2px solid #3b82f6',
-                  borderRadius:'8px',
-                  background:'white',
-                  cursor: uploading ? 'not-allowed' : 'pointer',
-                  width:'100%',
-                  boxSizing:'border-box'
-                }}
-              />
-              {uploading && (
-                <div style={{marginTop:'10px', color:'#3b82f6', fontWeight:'600'}}>
-                  <i className="fa-solid fa-spinner fa-spin"></i> Uploading...
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* MAINTENANCE TICKETS HISTORY */}
+          {/* MAINTENANCE TICKETS HISTORY (UPDATED) */}
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> Maintenance Tickets History</h2>
+            
+            {/* SEARCH & FILTER CONTROLS */}
+            <div style={{display:'flex', gap:'10px', marginBottom:'15px'}}>
+                <input 
+                    placeholder="Search Room No..." 
+                    value={ticketSearch}
+                    onChange={e => setTicketSearch(e.target.value)}
+                    style={{flex:1, padding:'8px', border:'1px solid #ddd', borderRadius:'4px'}}
+                />
+                <select 
+                    value={ticketSort} 
+                    onChange={e => setTicketSort(e.target.value)}
+                    style={{padding:'8px', border:'1px solid #ddd', borderRadius:'4px'}}
+                >
+                    <option value="date-desc">Date (Newest)</option>
+                    <option value="date-asc">Date (Oldest)</option>
+                    <option value="room-asc">Room (Asc)</option>
+                    <option value="room-desc">Room (Desc)</option>
+                </select>
+            </div>
+
             <div className="admin-table-container">
               <table>
                 <thead>
@@ -648,13 +663,13 @@ export default function App() {
                     <th>Status</th>
                     <th>Reported</th>
                     <th>Resolved</th>
-                    <th>Source</th>
+                    <th>Resolved By</th> {/* REPLACED SOURCE */}
                   </tr>
                 </thead>
                 <tbody>
-                  {tickets.map(t => (
+                  {processedTickets.map(t => (
                     <tr key={t.id}>
-                      <td><strong>Room {t.roomId}</strong></td>
+                      <td><strong>{t.roomId}</strong></td>
                       <td>{t.issue}</td>
                       <td>
                         <span style={{
@@ -664,22 +679,14 @@ export default function App() {
                           {t.status.toUpperCase()}
                         </span>
                       </td>
-                      {/* CHANGED: Used formatDate instead of formatTime */}
                       <td>{formatDate(t.createdAt)}</td>
                       <td>{t.resolvedAt ? formatDate(t.resolvedAt) : '-'}</td>
-                      <td>
-                        {t.bulkUpload ? (
-                          <span style={{fontSize:'0.75rem', background:'#e0e7ff', color:'#3730a3', padding:'3px 8px', borderRadius:'4px', fontWeight:'600'}}>
-                            <i className="fa-solid fa-file-excel"></i> Bulk
-                          </span>
-                        ) : (
-                          <span style={{fontSize:'0.75rem', color:'#666'}}>
-                             {t.resolvedBy || 'Manual'}
-                          </span>
-                        )}
-                      </td>
+                      <td>{t.resolvedBy || '-'}</td> {/* SHOW RESOLVED BY */}
                     </tr>
                   ))}
+                  {processedTickets.length === 0 && (
+                      <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No tickets found</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -630,22 +630,20 @@ export default function App() {
             </div>
           </div>
 
-          {/* MAINTENANCE TICKETS HISTORY (UPDATED) */}
+          {/* MAINTENANCE TICKETS HISTORY */}
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> Maintenance Tickets History</h2>
             
-            {/* SEARCH & FILTER CONTROLS */}
-            <div style={{display:'flex', gap:'10px', marginBottom:'15px'}}>
+            {/* SEARCH & FILTER CONTROLS (UPDATED) */}
+            <div className="filter-bar">
                 <input 
                     placeholder="Search Room No..." 
                     value={ticketSearch}
                     onChange={e => setTicketSearch(e.target.value)}
-                    style={{flex:1, padding:'8px', border:'1px solid #ddd', borderRadius:'4px'}}
                 />
                 <select 
                     value={ticketSort} 
                     onChange={e => setTicketSort(e.target.value)}
-                    style={{padding:'8px', border:'1px solid #ddd', borderRadius:'4px'}}
                 >
                     <option value="date-desc">Date (Newest)</option>
                     <option value="date-asc">Date (Oldest)</option>

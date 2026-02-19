@@ -260,6 +260,48 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
 .login-container { display: flex; justify-content: center; align-items: center; height: 80vh; }
 .login-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; color: #333; }
 
+/* FILTERS & TOOLS BAR */
+.filter-bar {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 15px;
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 10px;
+  border: 1px solid #e9ecef;
+  align-items: center;
+}
+
+.filter-bar input,
+.filter-bar select {
+  margin-bottom: 0; /* Override global input margin */
+  height: 48px;     /* Ensure equal height */
+  border-color: #ced4da;
+}
+
+.filter-bar input {
+  flex: 3; /* Search bar takes 75% width */
+}
+
+.filter-bar select {
+  flex: 1; /* Sort dropdown takes 25% width */
+  cursor: pointer;
+  background-color: white;
+}
+
+/* Mobile: Stack them */
+@media (max-width: 600px) {
+  .filter-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .filter-bar input, 
+  .filter-bar select {
+    width: 100%;
+    flex: none;
+  }
+}
+
 @media (max-width: 768px) {
   body { padding-top: 130px; }
   .app-container { width: 100%; padding: 10px; }

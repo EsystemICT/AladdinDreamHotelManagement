@@ -664,15 +664,18 @@ export default function App() {
                           {t.status.toUpperCase()}
                         </span>
                       </td>
-                      <td>{formatTime(t.createdAt)}</td>
-                      <td>{t.resolvedAt ? formatTime(t.resolvedAt) : '-'}</td>
+                      {/* CHANGED: Used formatDate instead of formatTime */}
+                      <td>{formatDate(t.createdAt)}</td>
+                      <td>{t.resolvedAt ? formatDate(t.resolvedAt) : '-'}</td>
                       <td>
                         {t.bulkUpload ? (
                           <span style={{fontSize:'0.75rem', background:'#e0e7ff', color:'#3730a3', padding:'3px 8px', borderRadius:'4px', fontWeight:'600'}}>
                             <i className="fa-solid fa-file-excel"></i> Bulk
                           </span>
                         ) : (
-                          <span style={{fontSize:'0.75rem', color:'#666'}}>Manual</span>
+                          <span style={{fontSize:'0.75rem', color:'#666'}}>
+                             {t.resolvedBy || 'Manual'}
+                          </span>
                         )}
                       </td>
                     </tr>

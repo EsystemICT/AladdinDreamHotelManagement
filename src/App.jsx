@@ -403,8 +403,16 @@ export default function App() {
             {/* ADDED 'Public' TO THE MAP ARRAY */}
             {[1, 2, 3, 'Public'].map(floorNum => {
                // UPDATED SORTING TO HANDLE LETTERS AND NUMBERS
-               const floorRooms = filteredRooms.filter(r => r.floor === floorNum).sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               
+              const floorRooms = filteredRooms.filter(r => r.floor === floorNum).sort((a, b) => {
+                  // 1. If 'a' is a STORE and 'b' is not, push 'a' to the bottom
+                  if (a.type === 'STORE' && b.type !== 'STORE') return 1;
+                  // 2. If 'b' is a STORE and 'a' is not, keep 'a' at the top
+                  if (a.type !== 'STORE' && b.type === 'STORE') return -1;
+                  
+                  // 3. Otherwise, sort them normally by ID (101 before 102, 1A before 1B)
+                  return String(a.id).localeCompare(String(b.id), undefined, {numeric: true});
+              });
+          
                if (floorRooms.length === 0) return null;
                
                return (
@@ -613,13 +621,6 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
-
-          {/* TEMPORARY DATABASE BUTTON */}
-          <div style={{marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '12px', border: '1px dashed #ddbd88', textAlign: 'center'}}>
-             <button onClick={addPublicRooms} className="btn orange" style={{margin: '0 auto'}}>
-                <i className="fa-solid fa-database"></i> Add Public Rooms & Storerooms (Click Once)
-             </button>
-          </div>
           
           {/* MANAGE STAFF */}
           <div className="floor-section">

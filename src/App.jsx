@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit, writeBatch } from 'firebase/firestore';
 import './App.css';
-import * as XLSX from 'xlsx';
 
-// UPDATED ICONS & TABS
+// ICONS & TABS
 const ICONS = { 
   ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
   TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
-  REQ: { icon: "fa-solid fa-paper-plane", label: "Requests" },
+  ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
+  REQ: { icon: "fa-solid fa-paper-plane", label: "Msg Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
 
@@ -16,7 +16,7 @@ const ICONS = {
 const getStatusColor = (status) => {
   switch(status) {
     case 'maintenance': return 'bg-gray-800';
-    default: return 'bg-green-500'; // Default is Ready
+    default: return 'bg-green-500'; 
   }
 };
 
@@ -38,8 +38,6 @@ export default function App() {
   // STATE
   const [currentUser, setCurrentUser] = useState(null);
   const [view, setView] = useState('ROOMS');
-  
-  // Real-time Clock
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Data
@@ -49,60 +47,25 @@ export default function App() {
   const [users, setUsers] = useState([]); 
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const [inventory, setInventory] = useState([]); // New Items State
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
-  const [rejectModal, setRejectModal] = useState(null);
-  const [completeModal, setCompleteModal] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  
-  // Requests UI
-  const [reqReceiver, setReqReceiver] = useState('');
-  const [reqContent, setReqContent] = useState('');
   
   // Login UI
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Attendance UI
+  // Forms UI
   const [lastClock, setLastClock] = useState(null);
-
+  const [reqReceiver, setReqReceiver] = useState('');
+  const [reqContent, setReqContent] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
-
-  // --- SORT & FILTER LOGIC ---
-  const getProcessedTickets = () => {
-    let processed = [...tickets];
-
-    // 1. Filter by Room
-    if (ticketSearch) {
-      processed = processed.filter(t => t.roomId.toString().includes(ticketSearch));
-    }
-
-    // 2. Sort
-    processed.sort((a, b) => {
-      const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
-      const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0);
-      const roomA = parseInt(a.roomId) || 0;
-      const roomB = parseInt(b.roomId) || 0;
-
-      switch (ticketSort) {
-        case 'date-desc': return dateB - dateA;
-        case 'date-asc': return dateA - dateB;
-        case 'room-asc': return roomA - roomB;
-        case 'room-desc': return roomB - roomA;
-        default: return 0;
-      }
-    });
-
-    return processed;
-  };
-
-  const processedTickets = getProcessedTickets();
 
   // --- 1. PERSISTENCE & CLOCK ---
   useEffect(() => {
@@ -112,8 +75,6 @@ export default function App() {
       setCurrentUser(userObj);
       setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     }
-
-    // Real-time clock ticker
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -129,7 +90,6 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
 
-    // Listeners for Data
     const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
     const unsubTickets = onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -138,7 +98,6 @@ export default function App() {
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => setUsers(snap.docs.map(d => ({ dbId: d.id, ...d.data() }))));
     
-    // Attendance
     const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(500));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -152,7 +111,11 @@ export default function App() {
     const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"));
     const unsubLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); };
+    // NEW: Inventory Request Listener
+    const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"));
+    const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); };
   }, [currentUser]);
 
   // --- 3. AUTH ---
@@ -193,14 +156,11 @@ export default function App() {
     alert("Password updated!");
   };
 
-  // --- 4. ATTENDANCE & LEAVES ---
+  // --- 4. ATTENDANCE, LEAVES & ITEMS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), {
-          userId: currentUser.userid,
-          userName: currentUser.name,
-          type: type, 
-          timestamp: serverTimestamp()
+          userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp()
       });
   };
 
@@ -208,118 +168,50 @@ export default function App() {
       e.preventDefault();
       const f = e.target;
       await addDoc(collection(db, "leaves"), {
-          userId: currentUser.userid,
-          userName: currentUser.name,
-          type: f.leaveType.value,
-          remarks: f.remarks.value,
-          status: 'pending',
-          createdAt: serverTimestamp()
+          userId: currentUser.userid, userName: currentUser.name, type: f.leaveType.value, remarks: f.remarks.value, status: 'pending', createdAt: serverTimestamp()
       });
-      f.reset();
-      alert("Leave Application Sent!");
+      f.reset(); alert("Leave Application Sent!");
   };
 
-  // --- 5. BULK UPLOAD HANDLERS ---
-  const handleBulkUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    setUploading(true);
-    
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data);
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
-      
-      // Validate and upload using batch
-      const batch = writeBatch(db);
-      let successCount = 0;
-      let errorCount = 0;
-      
-      for (const row of jsonData) {
-        // Expected columns: roomId, issue, status (optional), reportedDate (optional)
-        if (!row.roomId || !row.issue) {
-          errorCount++;
-          continue;
+  // NEW: Item Request submission
+  const handleItemRequest = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    await addDoc(collection(db, "inventory"), {
+        department: f.department.value,
+        item: f.item.value,
+        qty: f.qty.value || '',
+        remark: f.remark.value || '',
+        bought: false,
+        buyRemark: '',
+        requestedBy: currentUser.name,
+        createdAt: serverTimestamp()
+    });
+    f.reset();
+  };
+
+  // NEW: Toggle Bought Checkbox
+  const toggleItemBought = async (invItem) => {
+    if (!invItem.bought) {
+        const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
+        if (remark === null) return; // cancelled
+        await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark });
+    } else {
+        if(confirm("Unmark this item as bought?")) {
+            await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '' });
         }
-        
-        const ticketRef = doc(collection(db, "tickets"));
-        const ticketData = {
-          roomId: String(row.roomId),
-          issue: String(row.issue),
-          status: row.status === 'resolved' ? 'resolved' : 'open',
-          createdAt: row.reportedDate ? new Date(row.reportedDate) : serverTimestamp(),
-          uploadedBy: currentUser.name,
-          bulkUpload: true
-        };
-        
-        // Add resolvedAt if status is resolved
-        if (row.status === 'resolved' && row.resolvedDate) {
-          ticketData.resolvedAt = new Date(row.resolvedDate);
-          ticketData.resolvedBy = row.resolvedBy || 'Bulk Upload';
-        }
-        
-        batch.set(ticketRef, ticketData);
-        successCount++;
-      }
-      
-      await batch.commit();
-      
-      alert(`Bulk upload complete!\n✓ ${successCount} tickets added\n${errorCount > 0 ? `✗ ${errorCount} rows skipped (missing data)` : ''}`);
-      
-      // Reset file input
-      e.target.value = '';
-      
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Error uploading file. Please check the format and try again.');
-    } finally {
-      setUploading(false);
     }
   };
 
-  const downloadTemplate = () => {
-    const template = [
-      {
-        roomId: '101',
-        issue: 'Broken AC',
-        status: 'open',
-        reportedDate: '2024-01-15',
-        resolvedDate: '',
-        resolvedBy: ''
-      },
-      {
-        roomId: '102',
-        issue: 'Leaking faucet',
-        status: 'resolved',
-        reportedDate: '2024-01-14',
-        resolvedDate: '2024-01-15',
-        resolvedBy: 'John Doe'
-      }
-    ];
-    
-    const ws = XLSX.utils.json_to_sheet(template);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Template");
-    XLSX.writeFile(wb, "maintenance_log_template.xlsx");
-  };
-
-  // --- 6. CORE LOGIC ---
+  // --- 5. CORE LOGIC ---
   const handleSendRequest = async (e) => {
     e.preventDefault();
     if (!reqReceiver || !reqContent) { alert("Select receiver and enter details."); return; }
     const receiverUser = users.find(u => u.dbId === reqReceiver);
     await addDoc(collection(db, "requests"), {
-      senderId: currentUser.dbId,
-      senderName: currentUser.name,
-      receiverId: reqReceiver, 
-      receiverName: receiverUser.name, 
-      content: reqContent,
-      status: 'pending',
-      createdAt: serverTimestamp()
+      senderId: currentUser.dbId, senderName: currentUser.name, receiverId: reqReceiver, receiverName: receiverUser.name, content: reqContent, status: 'pending', createdAt: serverTimestamp()
     });
-    setReqContent(''); setReqReceiver(''); alert("Request Sent!");
+    setReqContent(''); setReqReceiver(''); alert("Message Sent!");
   };
 
   const updateRoomStatus = async (roomId, newStatus) => {
@@ -336,12 +228,7 @@ export default function App() {
 
   const resolveTicket = async (ticket) => {
     if(!confirm("Mark this ticket as Resolved?")) return;
-    await updateDoc(doc(db, "tickets", ticket.id), { 
-      status: 'resolved', 
-      resolvedAt: serverTimestamp(),
-      resolvedBy: currentUser.name // Record WHO did it
-    });
-    // Auto-set room to Vacant/Ready (No dirty status)
+    await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
@@ -352,11 +239,40 @@ export default function App() {
     f.reset(); alert("User Created!");
   };
 
-  // --- FILTERED DATA ---
+  // --- PROCESS DATA ---
   const filteredRooms = rooms.filter(r => r.id.includes(roomSearch));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
-  // Count Pending Requests for Current User
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
+
+  const getProcessedTickets = () => {
+    let processed = [...tickets];
+    if (ticketSearch) processed = processed.filter(t => t.roomId.toString().includes(ticketSearch));
+    processed.sort((a, b) => {
+      const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
+      const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0);
+      const roomA = parseInt(a.roomId) || 0;
+      const roomB = parseInt(b.roomId) || 0;
+      switch (ticketSort) {
+        case 'date-desc': return dateB - dateA;
+        case 'date-asc': return dateA - dateB;
+        case 'room-asc': return roomA - roomB;
+        case 'room-desc': return roomB - roomA;
+        default: return 0;
+      }
+    });
+    return processed;
+  };
+  const processedTickets = getProcessedTickets();
+
+  // Inventory logic (Filter for Current Month/Year)
+  const currentMonthName = currentTime.toLocaleString('en-MY', { month: 'long', year: 'numeric' }).toUpperCase();
+  const currentMonthIndex = currentTime.getMonth();
+  const currentYear = currentTime.getFullYear();
+  
+  const currentMonthInventory = inventory.filter(inv => {
+      const d = inv.createdAt ? (inv.createdAt.toDate ? inv.createdAt.toDate() : new Date(inv.createdAt)) : new Date();
+      return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
+  });
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -444,48 +360,110 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: TICKETS (SEPARATED) --- */}
+      {/* --- VIEW: TICKETS (SEPARATED WITH SCROLLPANES) --- */}
       {view === 'TICKETS' && (
         <div className="dashboard">
-          {/* ACTIVE ISSUES */}
           <div className="list-view">
             <h2><i className="fa-solid fa-triangle-exclamation"></i> Active Issues</h2>
-            {tickets.filter(t => t.status === 'open').length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No active issues.</p> :
-              tickets.filter(t => t.status === 'open').map(ticket => (
-                <div key={ticket.id} className="ticket-card open">
-                  <div>
-                    <strong>Room {ticket.roomId}</strong> - <span style={{color:'#666'}}>{ticket.issue}</span>
-                    <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>Reported: {formatTime(ticket.createdAt)}</div>
+            <div className="scroll-pane scroll-pane-tall">
+              {tickets.filter(t => t.status === 'open').length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No active issues.</p> :
+                tickets.filter(t => t.status === 'open').map(ticket => (
+                  <div key={ticket.id} className="ticket-card open">
+                    <div>
+                      <strong>Room {ticket.roomId}</strong> - <span style={{color:'#666'}}>{ticket.issue}</span>
+                      <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>Reported: {formatTime(ticket.createdAt)}</div>
+                    </div>
+                    <button onClick={() => resolveTicket(ticket)} className="btn blue">Resolve</button>
                   </div>
-                  <button onClick={() => resolveTicket(ticket)} className="btn blue">Resolve</button>
-                </div>
-              ))
-            }
+                ))
+              }
+            </div>
           </div>
 
-          {/* HISTORY */}
           <div className="list-view">
-            <h2><i className="fa-solid fa-clock-rotate-left"></i> Resolved History (Recent)</h2>
-            {tickets.filter(t => t.status === 'resolved').slice(0, 10).map(ticket => (
-                <div key={ticket.id} className="ticket-card resolved">
-                  <div>
-                    <strong>Room {ticket.roomId}</strong> - {ticket.issue}
-                    <div style={{fontSize:'0.8rem', color:'#666', marginTop:'5px'}}>
-                        Fixed by <b>{ticket.resolvedBy || 'Unknown'}</b> on {formatTime(ticket.resolvedAt)}
+            <h2><i className="fa-solid fa-clock-rotate-left"></i> Resolved History</h2>
+            <div className="scroll-pane scroll-pane-tall">
+              {tickets.filter(t => t.status === 'resolved').map(ticket => (
+                  <div key={ticket.id} className="ticket-card resolved">
+                    <div>
+                      <strong>Room {ticket.roomId}</strong> - {ticket.issue}
+                      <div style={{fontSize:'0.8rem', color:'#666', marginTop:'5px'}}>
+                          Fixed by <b>{ticket.resolvedBy || 'Unknown'}</b> on {formatTime(ticket.resolvedAt)}
+                      </div>
                     </div>
+                    <div style={{color:'green', fontWeight:'bold', fontSize:'0.8rem'}}>FIXED</div>
                   </div>
-                  <div style={{color:'green', fontWeight:'bold', fontSize:'0.8rem'}}>FIXED</div>
-                </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* --- VIEW: REQUESTS --- */}
+      {/* --- VIEW: ITEMS INVENTORY --- */}
+      {view === 'ITEMS' && (
+        <div className="dashboard">
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-cart-plus"></i> Request New Item</h2>
+            <form onSubmit={handleItemRequest} style={{display:'flex', gap:'10px', flexWrap:'wrap'}}>
+              <select name="department" required style={{flex:'1', minWidth:'150px'}}>
+                <option value="">-- Department --</option>
+                <option value="Frontdesk">Frontdesk</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Housekeeping">Housekeeping</option>
+              </select>
+              <input name="item" placeholder="Item Name" required style={{flex:'2', minWidth:'200px'}} />
+              <input name="qty" placeholder="Qty (Opt)" style={{flex:'1', minWidth:'100px'}} />
+              <input name="remark" placeholder="Remark (Opt)" style={{flex:'2', minWidth:'150px'}} />
+              <button type="submit" className="btn blue">Add List</button>
+            </form>
+          </div>
+
+          <div className="list-view">
+            <h2 style={{textAlign: 'center', marginBottom: '25px'}}>REQUEST ITEM {currentMonthName}</h2>
+            <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '15px'}}>
+                
+                {['Frontdesk', 'Maintenance', 'Housekeeping'].map(dept => {
+                    const deptItems = currentMonthInventory.filter(i => i.department === dept);
+                    if(deptItems.length === 0) return null;
+                    
+                    return (
+                        <div key={dept} className="inv-group">
+                            <div className="inv-dept-title">{dept}</div>
+                            {deptItems.map((item, idx) => (
+                                <div key={item.id} className="inv-item">
+                                    <span style={{color:'#888', width:'25px'}}>{idx + 1})</span>
+                                    <div className="inv-content">
+                                        <span className={item.bought ? "inv-bought" : ""}>
+                                            {item.item} {item.qty && ` - ${item.qty}`}
+                                        </span>
+                                        {item.remark && <span className="inv-note">Note: {item.remark}</span>}
+                                        {item.bought && item.buyRemark && <span className="inv-remark">- {item.buyRemark} ✅</span>}
+                                        {item.bought && !item.buyRemark && <span className="inv-remark">✅</span>}
+                                    </div>
+                                    <input 
+                                        type="checkbox" 
+                                        className="inv-checkbox"
+                                        checked={item.bought}
+                                        onChange={() => toggleItemBought(item)}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
+
+                {currentMonthInventory.length === 0 && <p style={{textAlign:'center', color:'#999'}}>No items requested this month.</p>}
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- VIEW: MESSAGES/REQUESTS --- */}
       {view === 'REQ' && (
         <div className="list-view">
           <div className="floor-section" style={{marginBottom:'20px', border:'1px solid #eee'}}>
-            <h2 className="floor-title">New Request</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> Message Staff</h2>
             <form onSubmit={handleSendRequest} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
               <select value={reqReceiver} onChange={e => setReqReceiver(e.target.value)} required>
                 <option value="">-- Select Recipient --</option>
@@ -500,35 +478,32 @@ export default function App() {
 
           <h2 className="floor-title">Inbox</h2>
           {requests.filter(r => r.receiverId === currentUser.dbId).length === 0 && <p style={{color:'#999', textAlign:'center'}}>No incoming requests.</p>}
-          {requests.filter(r => r.receiverId === currentUser.dbId).map(req => (
-            <div key={req.id} className="req-card">
-              <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}>
-                <span className={`req-status status-${req.status}`}>{req.status}</span>
-                <span style={{fontSize:'0.8rem', color:'#666'}}>From: <b>{req.senderName}</b></span>
-              </div>
-              <p style={{margin:'5px 0', fontSize:'1rem'}}>{req.content}</p>
-              <div style={{fontSize:'0.75rem', color:'#666', marginTop:'5px'}}>{formatTime(req.createdAt)}</div>
-            </div>
-          ))}
+          <div className="scroll-pane">
+              {requests.filter(r => r.receiverId === currentUser.dbId).map(req => (
+                <div key={req.id} className="req-card">
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}>
+                    <span className={`req-status status-${req.status}`}>{req.status}</span>
+                    <span style={{fontSize:'0.8rem', color:'#666'}}>From: <b>{req.senderName}</b></span>
+                  </div>
+                  <p style={{margin:'5px 0', fontSize:'1rem'}}>{req.content}</p>
+                  <div style={{fontSize:'0.75rem', color:'#666', marginTop:'5px'}}>{formatTime(req.createdAt)}</div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
 
       {/* --- VIEW: MY SHIFT (ATTENDANCE) --- */}
       {view === 'SHIFT' && (
         <div className="dashboard">
-            {/* REAL TIME CLOCK */}
             <div className="clock-card">
                 <div className="clock-display">
                     <div className="clock-date">{currentTime.toLocaleDateString('en-MY', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
                     <div className="clock-time">{currentTime.toLocaleTimeString('en-MY', {hour12:false})}</div>
                 </div>
                 <div style={{display:'flex', gap:'20px', justifyContent:'center'}}>
-                    <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={lastClock?.type === 'in'}>
-                         Clock IN
-                    </button>
-                    <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={lastClock?.type !== 'in'}>
-                         Clock OUT
-                    </button>
+                    <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={lastClock?.type === 'in'}>Clock IN</button>
+                    <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={lastClock?.type !== 'in'}>Clock OUT</button>
                 </div>
                 <p style={{marginTop:'15px', color:'#666'}}>
                     Status: <strong>{lastClock?.type === 'in' ? 'Working' : 'Off Duty'}</strong>
@@ -536,7 +511,6 @@ export default function App() {
             </div>
 
             <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
-                {/* LEAVE APP */}
                 <div className="leave-form">
                     <h3>Apply Leave / MC</h3>
                     <form onSubmit={handleApplyLeave}>
@@ -552,15 +526,12 @@ export default function App() {
                     </form>
                 </div>
 
-                {/* MY LOGS */}
                 <div className="list-view" style={{margin:0}}>
                     <h3>My Logs</h3>
-                    <div style={{maxHeight:'300px', overflowY:'auto'}}>
-                        {attendance.filter(a => a.userId === currentUser.userid).slice(0, 10).map(a => (
+                    <div className="scroll-pane">
+                        {attendance.filter(a => a.userId === currentUser.userid).map(a => (
                             <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between'}}>
-                                <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red'}}>
-                                    {a.type.toUpperCase()}
-                                </span>
+                                <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red'}}>{a.type.toUpperCase()}</span>
                                 <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
                             </div>
                         ))}
@@ -573,7 +544,7 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
-          {/* MANAGE STAFF */}
+          
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
             <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
@@ -600,10 +571,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* LEAVE APPROVALS */}
           <div className="floor-section">
             <h2 className="floor-title">Leave Applications</h2>
-            <div className="admin-table-container">
+            <div className="admin-table-container scroll-pane">
                <table>
                    <thead><tr><th>Staff</th><th>Type</th><th>Remarks</th><th>Date</th><th>Status</th></tr></thead>
                    <tbody>
@@ -630,96 +600,51 @@ export default function App() {
             </div>
           </div>
 
-          {/* MAINTENANCE TICKETS HISTORY */}
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-wrench"></i> Maintenance Tickets History</h2>
-            
-            {/* SEARCH & FILTER CONTROLS (UPDATED) */}
             <div className="filter-bar">
-                <input 
-                    placeholder="Search Room No..." 
-                    value={ticketSearch}
-                    onChange={e => setTicketSearch(e.target.value)}
-                />
-                <select 
-                    value={ticketSort} 
-                    onChange={e => setTicketSort(e.target.value)}
-                >
+                <input placeholder="Search Room No..." value={ticketSearch} onChange={e => setTicketSearch(e.target.value)} />
+                <select value={ticketSort} onChange={e => setTicketSort(e.target.value)}>
                     <option value="date-desc">Date (Newest)</option>
                     <option value="date-asc">Date (Oldest)</option>
                     <option value="room-asc">Room (Asc)</option>
                     <option value="room-desc">Room (Desc)</option>
                 </select>
             </div>
-
-            <div className="admin-table-container">
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table>
                 <thead>
-                  <tr>
-                    <th>Room</th>
-                    <th>Issue</th>
-                    <th>Status</th>
-                    <th>Reported</th>
-                    <th>Resolved</th>
-                    <th>Resolved By</th> {/* REPLACED SOURCE */}
-                  </tr>
+                  <tr><th>Room</th><th>Issue</th><th>Status</th><th>Reported</th><th>Resolved</th><th>Resolved By</th></tr>
                 </thead>
                 <tbody>
                   {processedTickets.map(t => (
                     <tr key={t.id}>
                       <td><strong>{t.roomId}</strong></td>
                       <td>{t.issue}</td>
-                      <td>
-                        <span style={{
-                          fontWeight:'bold', 
-                          color: t.status === 'open' ? '#ef4444' : '#10b981'
-                        }}>
-                          {t.status.toUpperCase()}
-                        </span>
-                      </td>
+                      <td><span style={{fontWeight:'bold', color: t.status === 'open' ? '#ef4444' : '#10b981'}}>{t.status.toUpperCase()}</span></td>
                       <td>{formatDate(t.createdAt)}</td>
                       <td>{t.resolvedAt ? formatDate(t.resolvedAt) : '-'}</td>
-                      <td>{t.resolvedBy || '-'}</td> {/* SHOW RESOLVED BY */}
+                      <td>{t.resolvedBy || '-'}</td>
                     </tr>
                   ))}
-                  {processedTickets.length === 0 && (
-                      <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No tickets found</td></tr>
-                  )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* REQUESTS HISTORY */}
           <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Requests History</h2>
-            <div className="admin-table-container">
+            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Staff Messages</h2>
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table>
-                <thead>
-                  <tr>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Content</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Completion Note</th>
-                  </tr>
-                </thead>
+                <thead><tr><th>From</th><th>To</th><th>Content</th><th>Status</th><th>Date</th></tr></thead>
                 <tbody>
                   {requests.map(r => (
                     <tr key={r.id}>
                       <td><strong>{r.senderName}</strong></td>
                       <td>{r.receiverName}</td>
                       <td style={{maxWidth:'300px'}}>{r.content}</td>
-                      <td>
-                        <span className={`req-status status-${r.status}`}>
-                          {r.status}
-                        </span>
-                      </td>
+                      <td><span className={`req-status status-${r.status}`}>{r.status}</span></td>
                       <td>{formatTime(r.createdAt)}</td>
-                      <td style={{fontSize:'0.85rem', color:'#666'}}>
-                        {r.completionRemark || '-'}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -731,14 +656,13 @@ export default function App() {
 
       {/* --- MODALS --- */}
       
-      {/* STAFF DETAIL MODAL */}
       {staffModal && (
           <div className="modal-overlay" onClick={() => setStaffModal(null)}>
               <div className="modal-content" onClick={e => e.stopPropagation()}>
                   <h2>{staffModal.name}</h2>
                   
                   <h3 style={{fontSize:'1rem', marginTop:'20px', borderBottom:'2px solid #eee'}}>Attendance History</h3>
-                  <div style={{maxHeight:'200px', overflowY:'auto', marginBottom:'20px'}}>
+                  <div className="scroll-pane scroll-pane-modal" style={{marginBottom:'20px'}}>
                       <table style={{fontSize:'0.85rem'}}>
                           <thead><tr><th>Type</th><th>Time</th></tr></thead>
                           <tbody>
@@ -753,15 +677,12 @@ export default function App() {
                   </div>
 
                   <h3 style={{fontSize:'1rem', borderBottom:'2px solid #eee'}}>Leave History</h3>
-                  <div style={{maxHeight:'200px', overflowY:'auto'}}>
+                  <div className="scroll-pane scroll-pane-modal">
                       <table style={{fontSize:'0.85rem'}}>
                           <thead><tr><th>Type</th><th>Status</th></tr></thead>
                           <tbody>
                               {leaves.filter(l => l.userId === staffModal.userid).map(l => (
-                                  <tr key={l.id}>
-                                      <td>{l.type}</td>
-                                      <td>{l.status}</td>
-                                  </tr>
+                                  <tr key={l.id}><td>{l.type}</td><td>{l.status}</td></tr>
                               ))}
                           </tbody>
                       </table>
@@ -771,7 +692,6 @@ export default function App() {
           </div>
       )}
 
-      {/* CHANGE PASSWORD */}
       {showPasswordModal && (
         <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -784,22 +704,43 @@ export default function App() {
         </div>
       )}
 
-      {/* ROOM MODAL */}
+      {/* ROOM MODAL WITH HISTORY */}
       {selectedRoom && (
         <div className="modal-overlay" onClick={() => setSelectedRoom(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2>Room {selectedRoom.id}</h2>
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
             
-            <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              {/* Only 2 Actions: Maintenance OR Ready */}
+            <div style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom: '20px'}}>
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (
                   <button className="btn grey" onClick={() => reportIssue(selectedRoom.id)} style={{justifyContent:'center', padding:'15px'}}>Report Issue</button>
               )}
             </div>
-            <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666'}} onClick={() => setSelectedRoom(null)}>Close</button>
+
+            {/* NEW: Scrollable Room History inside Modal */}
+            <h3 style={{fontSize:'1rem', borderBottom:'2px solid #eee', paddingBottom:'5px'}}>Maintenance History</h3>
+            <div className="scroll-pane scroll-pane-modal" style={{textAlign: 'left'}}>
+                {tickets.filter(t => t.roomId === selectedRoom.id).length === 0 ? (
+                    <p style={{color: '#999', fontSize: '0.85rem'}}>No history recorded.</p>
+                ) : (
+                    tickets.filter(t => t.roomId === selectedRoom.id).map(t => (
+                        <div key={t.id} style={{padding: '10px 0', borderBottom: '1px dashed #eee'}}>
+                            <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                                <strong>{t.issue}</strong>
+                                <span style={{fontSize: '0.7rem', color: t.status === 'open' ? 'red' : 'green', fontWeight: 'bold'}}>{t.status.toUpperCase()}</span>
+                            </div>
+                            <div style={{fontSize: '0.8rem', color: '#666', marginTop: '5px'}}>
+                                Reported: {formatDate(t.createdAt)}<br/>
+                                {t.resolvedAt && <>Resolved: {formatDate(t.resolvedAt)} by {t.resolvedBy || 'Unknown'}</>}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+
+            <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666', width: '100%'}} onClick={() => setSelectedRoom(null)}>Close</button>
           </div>
         </div>
       )}

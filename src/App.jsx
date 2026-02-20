@@ -400,30 +400,46 @@ export default function App() {
               />
             </h2>
             
-            {/* ADDED 'Public' TO THE MAP ARRAY */}
-            {[1, 2, 3, 'Public'].map(floorNum => {
-               // UPDATED SORTING TO HANDLE LETTERS AND NUMBERS
-              const floorRooms = filteredRooms.filter(r => r.floor === floorNum).sort((a, b) => {
-                  // 1. If 'a' is a STORE and 'b' is not, push 'a' to the bottom
-                  if (a.type === 'STORE' && b.type !== 'STORE') return 1;
-                  // 2. If 'b' is a STORE and 'a' is not, keep 'a' at the top
-                  if (a.type !== 'STORE' && b.type === 'STORE') return -1;
-                  
-                  // 3. Otherwise, sort them normally by ID (101 before 102, 1A before 1B)
-                  return String(a.id).localeCompare(String(b.id), undefined, {numeric: true});
-              });
-          
+            {/* ADDED 'Store' TO THE MAP ARRAY */}
+            {[1, 2, 3, 'Public', 'Store'].map(floorNum => {
+               
+               let floorRooms = [];
+
+               // 1. If it's the "Store" section, grab ALL rooms with type "STORE"
+               if (floorNum === 'Store') {
+                   floorRooms = filteredRooms
+                       .filter(r => r.type === 'STORE')
+                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+               } 
+               // 2. If it's the "Public" section, grab rooms where floor is "Public"
+               else if (floorNum === 'Public') {
+                   floorRooms = filteredRooms
+                       .filter(r => r.floor === 'Public')
+                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+               } 
+               // 3. Normal floors (1, 2, 3) - but EXCLUDE the "STORE" rooms so they don't show up twice
+               else {
+                   floorRooms = filteredRooms
+                       .filter(r => r.floor === floorNum && r.type !== 'STORE')
+                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+               }
+               
                if (floorRooms.length === 0) return null;
+
+               // Set the section titles
+               let sectionTitle = `Level ${floorNum}`;
+               if (floorNum === 'Public') sectionTitle = 'Public Areas & Facilities';
+               if (floorNum === 'Store') sectionTitle = 'Storerooms';
                
                return (
                  <div key={floorNum} style={{marginBottom:'20px'}}>
                    <h3 style={{fontSize:'1rem', color:'#666', borderBottom:'1px solid #eee'}}>
-                     {floorNum === 'Public' ? 'Public Areas & Facilities' : `Level ${floorNum}`}
+                     {sectionTitle}
                    </h3>
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
-                          {/* DYNAMIC FONT SIZE FOR LONG TEXT LIKE "Comfort Area" */}
+                          {/* DYNAMIC FONT SIZE FOR LONG TEXT */}
                           <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}

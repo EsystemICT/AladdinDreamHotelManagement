@@ -271,13 +271,32 @@ export default function App() {
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
-  // NEW: Today's Clock Ins Logic
+  // NEW: Today's Clock In & Out Logic
   const todayDateString = currentTime.toLocaleDateString('en-MY');
-  const todaysClockIns = attendance.filter(a => {
-      if (a.type !== 'in') return false;
+  const todaysAttendanceMap = {};
+  
+  // Group attendance by user for the current day
+  attendance.forEach(a => {
       const d = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)) : new Date();
-      return d.toLocaleDateString('en-MY') === todayDateString;
+      if (d.toLocaleDateString('en-MY') === todayDateString) {
+          if (!todaysAttendanceMap[a.userId]) {
+              todaysAttendanceMap[a.userId] = { userName: a.userName, inTime: null, outTime: null, inRaw: 0, outRaw: 0 };
+          }
+          const timeMs = d.getTime();
+          if (a.type === 'in') {
+              if (!todaysAttendanceMap[a.userId].inRaw || timeMs < todaysAttendanceMap[a.userId].inRaw) {
+                  todaysAttendanceMap[a.userId].inRaw = timeMs;
+                  todaysAttendanceMap[a.userId].inTime = formatTime(a.timestamp);
+              }
+          } else if (a.type === 'out') {
+              if (!todaysAttendanceMap[a.userId].outRaw || timeMs > todaysAttendanceMap[a.userId].outRaw) {
+                  todaysAttendanceMap[a.userId].outRaw = timeMs;
+                  todaysAttendanceMap[a.userId].outTime = formatTime(a.timestamp);
+              }
+          }
+      }
   });
+  const todaysAttendanceData = Object.values(todaysAttendanceMap);
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -550,57 +569,65 @@ export default function App() {
       {view === 'ADMIN' && (
         <div className="dashboard">
           
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px'}}>
-              
-              {/* MANAGE STAFF */}
-              <div className="floor-section" style={{margin:0}}>
-                <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
-                <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
-                  <input name="userid" placeholder="ID" required style={{flex:1}} />
-                  <input name="name" placeholder="Name" required style={{flex:1}} />
-                  <input name="password" placeholder="Pass" required style={{width:'100px'}} />
-                  <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
-                  <button className="btn green">Add</button>
-                </form>
-                <div className="admin-table-container scroll-pane scroll-pane-tall">
-                  <table>
-                    <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
-                    <tbody>
-                      {users.map(u => (
-                        <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
-                          <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
-                          <td onClick={(e) => e.stopPropagation()}>
-                              {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
+          {/* MANAGE STAFF */}
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
+            <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
+              <input name="userid" placeholder="ID" required style={{flex:1}} />
+              <input name="name" placeholder="Name" required style={{flex:1}} />
+              <input name="password" placeholder="Pass" required style={{width:'100px'}} />
+              <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
+              <button className="btn green">Add</button>
+            </form>
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
+              <table>
+                <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
+                      <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                          {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* TODAY'S ATTENDANCE - Moved underneath Manage Staff */}
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Attendance</h2>
+            <div className="admin-table-container scroll-pane">
+              <table>
+                <thead><tr><th>Staff Name</th><th>Clock In</th><th>Clock Out</th></tr></thead>
+                <tbody>
+                  {todaysAttendanceData.length === 0 ? (
+                      <tr><td colSpan="3" style={{textAlign:'center', color:'#999'}}>No staff clocked in today.</td></tr>
+                  ) : (
+                      todaysAttendanceData.map((a, idx) => (
+                        <tr key={idx}>
+                          <td><strong>{a.userName}</strong></td>
+                          <td>{a.inTime ? a.inTime : <span style={{color: '#999'}}>-</span>}</td>
+                          <td>
+                            {a.outTime ? (
+                                a.outTime
+                            ) : (
+                                <span style={{
+                                    backgroundColor: '#fee2e2', color: '#dc2626', 
+                                    padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold'
+                                }}>
+                                    Still Working
+                                </span>
+                            )}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* TODAY'S CLOCK INS */}
-              <div className="floor-section" style={{margin:0}}>
-                <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Clock-Ins</h2>
-                <div className="admin-table-container scroll-pane scroll-pane-tall">
-                  <table>
-                    <thead><tr><th>Staff Name</th><th>Clock In Time</th></tr></thead>
-                    <tbody>
-                      {todaysClockIns.length === 0 ? (
-                          <tr><td colSpan="2" style={{textAlign:'center', color:'#999'}}>No staff clocked in today.</td></tr>
-                      ) : (
-                          todaysClockIns.map(a => (
-                            <tr key={a.id}>
-                              <td><strong>{a.userName}</strong></td>
-                              <td>{formatTime(a.timestamp)}</td>
-                            </tr>
-                          ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="floor-section" style={{marginTop: '20px'}}>
@@ -744,6 +771,7 @@ export default function App() {
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
             
             <div style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom: '20px'}}>
+              {/* Only 2 Actions: Maintenance OR Ready */}
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (

@@ -54,6 +54,12 @@ export default function App() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
+  const [rejectModal, setRejectModal] = useState({ show: false, reqId: null });
+  const [rejectReason, setRejectReason] = useState('');
+  
+  // Requests UI
+  const [reqReceiver, setReqReceiver] = useState('');
+  const [reqContent, setReqContent] = useState('');
   
   // Login UI
   const [loginId, setLoginId] = useState('');
@@ -62,8 +68,6 @@ export default function App() {
 
   // Forms UI
   const [lastClock, setLastClock] = useState(null);
-  const [reqReceiver, setReqReceiver] = useState('');
-  const [reqContent, setReqContent] = useState('');
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
 
@@ -156,17 +160,41 @@ export default function App() {
   };
 
   const handleAdminChangePassword = async (staffDocId, staffName) => {
-      const newPass = prompt(`Enter new password for ${staffName}:`);
-      if (newPass === null) return; // User clicked Cancel
-      if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
-      
-      try {
-          await updateDoc(doc(db, "users", staffDocId), { password: newPass });
-          alert(`Password for ${staffName} updated successfully!`);
-      } catch (error) {
-          console.error("Error updating password:", error);
-          alert("Failed to update password.");
-      }
+    const newPass = prompt(`Enter new password for ${staffName}:`);
+    if (newPass === null) return; 
+    if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
+    
+    try {
+        await updateDoc(doc(db, "users", staffDocId), { password: newPass });
+        alert(`Password for ${staffName} updated successfully!`);
+    } catch (error) {
+        console.error("Error updating password:", error);
+        alert("Failed to update password.");
+    }
+  };
+
+  // --- ADD PUBLIC ROOMS / STOREROOMS (ADMIN FUNCTION) ---
+  const addPublicRooms = async () => {
+    const newRooms = [
+      { id: "1A", type: "STORE", floor: 1, status: "vacant" },
+      { id: "1B", type: "STORE", floor: 1, status: "vacant" },
+      { id: "2A", type: "STORE", floor: 2, status: "vacant" },
+      { id: "2B", type: "STORE", floor: 2, status: "vacant" },
+      { id: "3A", type: "STORE", floor: 3, status: "vacant" },
+      { id: "3B", type: "STORE", floor: 3, status: "vacant" },
+      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
+    ];
+
+    const batch = writeBatch(db);
+    newRooms.forEach(r => {
+       const ref = doc(db, "rooms", r.id);
+       batch.set(ref, r);
+    });
+    await batch.commit();
+    alert("New rooms and facilities added to Database!");
   };
 
   // --- 4. ATTENDANCE, LEAVES & ITEMS ---
@@ -190,14 +218,7 @@ export default function App() {
     e.preventDefault();
     const f = e.target;
     await addDoc(collection(db, "inventory"), {
-        department: f.department.value,
-        item: f.item.value,
-        qty: f.qty.value || '',
-        remark: f.remark.value || '',
-        bought: false,
-        buyRemark: '',
-        requestedBy: currentUser.name,
-        createdAt: serverTimestamp()
+        department: f.department.value, item: f.item.value, qty: f.qty.value || '', remark: f.remark.value || '', bought: false, buyRemark: '', requestedBy: currentUser.name, createdAt: serverTimestamp()
     });
     f.reset();
   };
@@ -225,6 +246,23 @@ export default function App() {
     setReqContent(''); setReqReceiver(''); alert("Message Sent!");
   };
 
+  const handleAcceptRequest = async (reqId) => {
+    if(!confirm("Accept this request?")) return;
+    await updateDoc(doc(db, "requests", reqId), { status: 'accepted', acceptedAt: serverTimestamp() });
+  };
+
+  const handleCompleteRequest = async (reqId) => {
+    const remark = prompt("Optional completion note:");
+    if(remark === null) return; 
+    await updateDoc(doc(db, "requests", reqId), { status: 'completed', completedAt: serverTimestamp(), completionRemark: remark });
+  };
+
+  const submitReject = async () => {
+    if(!rejectReason) return alert("Please enter reason.");
+    await updateDoc(doc(db, "requests", rejectModal.reqId), { status: 'rejected', rejectionReason: rejectReason, completedAt: serverTimestamp() });
+    setRejectModal({ show: false, reqId: null });
+  };
+
   const updateRoomStatus = async (roomId, newStatus) => {
     await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
     setSelectedRoom(null);
@@ -233,7 +271,13 @@ export default function App() {
   const reportIssue = async (roomId) => {
     const issue = prompt(`Issue description for Room ${roomId}?`);
     if (!issue) return;
-    await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp() });
+    await addDoc(collection(db, "tickets"), { 
+      roomId, 
+      issue, 
+      status: 'open', 
+      createdAt: serverTimestamp(),
+      reportedBy: currentUser.name // NEW: Recorded who created the ticket
+    });
     await updateRoomStatus(roomId, 'maintenance');
   };
 
@@ -250,38 +294,14 @@ export default function App() {
     f.reset(); alert("User Created!");
   };
 
-  // --- ADD NEW ROOMS TO DATABASE ---
-  const addPublicRooms = async () => {
-    const newRooms = [
-      { id: "1A", type: "STORE", floor: 1, status: "vacant" },
-      { id: "1B", type: "STORE", floor: 1, status: "vacant" },
-      { id: "2A", type: "STORE", floor: 2, status: "vacant" },
-      { id: "2B", type: "STORE", floor: 2, status: "vacant" },
-      { id: "3A", type: "STORE", floor: 3, status: "vacant" },
-      { id: "3B", type: "STORE", floor: 3, status: "vacant" },
-      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
-    ];
-
-    const batch = writeBatch(db);
-    newRooms.forEach(r => {
-       const ref = doc(db, "rooms", r.id);
-       batch.set(ref, r);
-    });
-    await batch.commit();
-    alert("New rooms and facilities added to Database!");
-  };
-
   // --- PROCESS DATA ---
-  const filteredRooms = rooms.filter(r => r.id.includes(roomSearch));
+  const filteredRooms = rooms.filter(r => r.id.toLowerCase().includes(roomSearch.toLowerCase()));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
 
   const getProcessedTickets = () => {
     let processed = [...tickets];
-    if (ticketSearch) processed = processed.filter(t => t.roomId.toString().includes(ticketSearch));
+    if (ticketSearch) processed = processed.filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase()));
     processed.sort((a, b) => {
       const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
       const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0);
@@ -309,11 +329,10 @@ export default function App() {
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
-  // NEW: Today's Clock In & Out Logic
+  // TODAY'S CLOCK INS & OUTS
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
   
-  // Group attendance by user for the current day
   attendance.forEach(a => {
       const d = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)) : new Date();
       if (d.toLocaleDateString('en-MY') === todayDateString) {
@@ -334,7 +353,12 @@ export default function App() {
           }
       }
   });
-  const todaysAttendanceData = Object.values(todaysAttendanceMap);
+
+  const todaysAttendanceData = Object.values(todaysAttendanceMap).sort((a, b) => {
+    if (!a.inRaw) return 1;
+    if (!b.inRaw) return -1;
+    return a.inRaw - b.inRaw;
+  });
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -400,25 +424,20 @@ export default function App() {
               />
             </h2>
             
-            {/* ADDED 'Store' TO THE MAP ARRAY */}
+            {/* UPDATED: Group Mappings including Public and Store */}
             {[1, 2, 3, 'Public', 'Store'].map(floorNum => {
                
                let floorRooms = [];
 
-               // 1. If it's the "Store" section, grab ALL rooms with type "STORE"
                if (floorNum === 'Store') {
                    floorRooms = filteredRooms
                        .filter(r => r.type === 'STORE')
                        .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               } 
-               // 2. If it's the "Public" section, grab rooms where floor is "Public"
-               else if (floorNum === 'Public') {
+               } else if (floorNum === 'Public') {
                    floorRooms = filteredRooms
                        .filter(r => r.floor === 'Public')
                        .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               } 
-               // 3. Normal floors (1, 2, 3) - but EXCLUDE the "STORE" rooms so they don't show up twice
-               else {
+               } else {
                    floorRooms = filteredRooms
                        .filter(r => r.floor === floorNum && r.type !== 'STORE')
                        .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
@@ -426,7 +445,6 @@ export default function App() {
                
                if (floorRooms.length === 0) return null;
 
-               // Set the section titles
                let sectionTitle = `Level ${floorNum}`;
                if (floorNum === 'Public') sectionTitle = 'Public Areas & Facilities';
                if (floorNum === 'Store') sectionTitle = 'Storerooms';
@@ -439,7 +457,6 @@ export default function App() {
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
-                          {/* DYNAMIC FONT SIZE FOR LONG TEXT */}
                           <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
@@ -464,7 +481,9 @@ export default function App() {
                   <div key={ticket.id} className="ticket-card open">
                     <div>
                       <strong>Room {ticket.roomId}</strong> - <span style={{color:'#666'}}>{ticket.issue}</span>
-                      <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>Reported: {formatTime(ticket.createdAt)}</div>
+                      <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>
+                          Reported by <b>{ticket.reportedBy || 'Unknown'}</b> on {formatTime(ticket.createdAt)}
+                      </div>
                     </div>
                     <button onClick={() => resolveTicket(ticket)} className="btn blue">Resolve</button>
                   </div>
@@ -481,6 +500,7 @@ export default function App() {
                     <div>
                       <strong>Room {ticket.roomId}</strong> - {ticket.issue}
                       <div style={{fontSize:'0.8rem', color:'#666', marginTop:'5px'}}>
+                          Reported by <b>{ticket.reportedBy || 'Unknown'}</b> on {formatDate(ticket.createdAt)}<br/>
                           Fixed by <b>{ticket.resolvedBy || 'Unknown'}</b> on {formatTime(ticket.resolvedAt)}
                       </div>
                     </div>
@@ -579,7 +599,38 @@ export default function App() {
                     <span style={{fontSize:'0.8rem', color:'#666'}}>From: <b>{req.senderName}</b></span>
                   </div>
                   <p style={{margin:'5px 0', fontSize:'1rem'}}>{req.content}</p>
-                  <div style={{fontSize:'0.75rem', color:'#666', marginTop:'5px'}}>{formatTime(req.createdAt)}</div>
+
+                  {req.status === 'pending' && (
+                    <div style={{display:'flex', gap:'10px', marginTop:'10px'}}>
+                      <button onClick={() => handleAcceptRequest(req.id)} className="btn green" style={{flex:1, justifyContent:'center'}}>Accept</button>
+                      <button onClick={() => { setRejectModal({show:true, reqId:req.id}); setRejectReason(''); }} className="btn red" style={{flex:1, justifyContent:'center'}}>Reject</button>
+                    </div>
+                  )}
+                  {req.status === 'accepted' && (
+                    <button onClick={() => handleCompleteRequest(req.id)} className="btn blue" style={{width:'100%', justifyContent:'center', marginTop:'10px'}}>Mark Complete</button>
+                  )}
+                  {req.status === 'rejected' && <div style={{background:'#fff', borderLeft:'3px solid red', padding:'5px', marginTop:'5px', fontSize:'0.9rem'}}>Reason: {req.rejectionReason}</div>}
+                  {req.status === 'completed' && req.completionRemark && <div style={{background:'#fff', borderLeft:'3px solid green', padding:'5px', marginTop:'5px', fontSize:'0.9rem'}}>Note: {req.completionRemark}</div>}
+
+                  <div style={{fontSize:'0.75rem', color:'#666', marginTop:'10px', borderTop:'1px solid #eee', paddingTop:'5px'}}>
+                      Sent: {formatTime(req.createdAt)}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          <h2 className="floor-title" style={{marginTop:'30px'}}>Sent History</h2>
+          <div className="scroll-pane">
+              {requests.filter(r => r.senderId === currentUser.dbId).map(req => (
+                <div key={req.id} className="req-card" style={{opacity:0.9}}>
+                    <div style={{display:'flex', justifyContent:'space-between'}}>
+                    <span className={`req-status status-${req.status}`}>{req.status}</span>
+                    <span style={{fontSize:'0.8rem', color:'#666'}}>To: <b>{req.receiverName}</b></span>
+                    </div>
+                    <p style={{margin:'5px 0', color:'#555'}}>{req.content}</p>
+                    {req.status === 'rejected' && <div style={{color:'red', fontSize:'0.85rem'}}>Rejected: {req.rejectionReason}</div>}
+                    {req.status === 'completed' && req.completionRemark && <div style={{color:'green', fontSize:'0.85rem'}}>Note: {req.completionRemark}</div>}
+                    <div style={{fontSize:'0.75rem', color:'#888', marginTop:'5px'}}>Sent: {formatTime(req.createdAt)}</div>
                 </div>
               ))}
           </div>
@@ -638,65 +689,76 @@ export default function App() {
       {view === 'ADMIN' && (
         <div className="dashboard">
           
-          {/* MANAGE STAFF */}
-          <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
-            <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
-              <input name="userid" placeholder="ID" required style={{flex:1}} />
-              <input name="name" placeholder="Name" required style={{flex:1}} />
-              <input name="password" placeholder="Pass" required style={{width:'100px'}} />
-              <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
-              <button className="btn green">Add</button>
-            </form>
-            <div className="admin-table-container scroll-pane scroll-pane-tall">
-              <table>
-                <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
-                      <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                          {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {/* TEMPORARY DATABASE BUTTON */}
+          <div style={{marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '12px', border: '1px dashed #ddbd88', textAlign: 'center'}}>
+             <button onClick={addPublicRooms} className="btn orange" style={{margin: '0 auto'}}>
+                <i className="fa-solid fa-database"></i> Add Public Rooms & Storerooms (Click Once)
+             </button>
           </div>
 
-          {/* TODAY'S ATTENDANCE - Moved underneath Manage Staff */}
-          <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Attendance</h2>
-            <div className="admin-table-container scroll-pane">
-              <table>
-                <thead><tr><th>Staff Name</th><th>Clock In</th><th>Clock Out</th></tr></thead>
-                <tbody>
-                  {todaysAttendanceData.length === 0 ? (
-                      <tr><td colSpan="3" style={{textAlign:'center', color:'#999'}}>No staff clocked in today.</td></tr>
-                  ) : (
-                      todaysAttendanceData.map((a, idx) => (
-                        <tr key={idx}>
-                          <td><strong>{a.userName}</strong></td>
-                          <td>{a.inTime ? a.inTime : <span style={{color: '#999'}}>-</span>}</td>
-                          <td>
-                            {a.outTime ? (
-                                a.outTime
-                            ) : (
-                                <span style={{
-                                    backgroundColor: '#fee2e2', color: '#dc2626', 
-                                    padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold'
-                                }}>
-                                    Still Working
-                                </span>
-                            )}
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px'}}>
+              
+              {/* MANAGE STAFF */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
+                <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
+                  <input name="userid" placeholder="ID" required style={{flex:1}} />
+                  <input name="name" placeholder="Name" required style={{flex:1}} />
+                  <input name="password" placeholder="Pass" required style={{width:'100px'}} />
+                  <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
+                  <button className="btn green">Add</button>
+                </form>
+                <div className="admin-table-container scroll-pane scroll-pane-tall">
+                  <table>
+                    <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
+                    <tbody>
+                      {users.map(u => (
+                        <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
+                          <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                              {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
                           </td>
                         </tr>
-                      ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* TODAY'S CLOCK INS */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Attendance</h2>
+                <div className="admin-table-container scroll-pane scroll-pane-tall">
+                  <table>
+                    <thead><tr><th>Staff Name</th><th>Clock In</th><th>Clock Out</th></tr></thead>
+                    <tbody>
+                      {todaysAttendanceData.length === 0 ? (
+                          <tr><td colSpan="3" style={{textAlign:'center', color:'#999'}}>No staff clocked in today.</td></tr>
+                      ) : (
+                          todaysAttendanceData.map((a, idx) => (
+                            <tr key={idx}>
+                              <td><strong>{a.userName}</strong></td>
+                              <td>{a.inTime ? a.inTime : <span style={{color: '#999'}}>-</span>}</td>
+                              <td>
+                                {a.outTime ? (
+                                    a.outTime
+                                ) : (
+                                    <span style={{
+                                        backgroundColor: '#fee2e2', color: '#dc2626', 
+                                        padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold'
+                                    }}>
+                                        Still Working
+                                    </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
           </div>
 
           <div className="floor-section" style={{marginTop: '20px'}}>
@@ -742,7 +804,7 @@ export default function App() {
             <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table>
                 <thead>
-                  <tr><th>Room</th><th>Issue</th><th>Status</th><th>Reported</th><th>Resolved</th><th>Resolved By</th></tr>
+                  <tr><th>Room</th><th>Issue</th><th>Status</th><th>Reported By</th><th>Reported</th><th>Resolved</th><th>Resolved By</th></tr>
                 </thead>
                 <tbody>
                   {processedTickets.map(t => (
@@ -750,6 +812,7 @@ export default function App() {
                       <td><strong>{t.roomId}</strong></td>
                       <td>{t.issue}</td>
                       <td><span style={{fontWeight:'bold', color: t.status === 'open' ? '#ef4444' : '#10b981'}}>{t.status.toUpperCase()}</span></td>
+                      <td>{t.reportedBy || '-'}</td>
                       <td>{formatDate(t.createdAt)}</td>
                       <td>{t.resolvedAt ? formatDate(t.resolvedAt) : '-'}</td>
                       <td>{t.resolvedBy || '-'}</td>
@@ -783,6 +846,19 @@ export default function App() {
       )}
 
       {/* --- MODALS --- */}
+
+      {rejectModal.show && (
+        <div className="modal-overlay" onClick={() => setRejectModal({show:false, reqId:null})}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2 style={{color:'#dc3545'}}>Reject Request</h2>
+            <textarea placeholder="Reason..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows="3" autoFocus />
+            <div style={{display:'flex', gap:'10px', marginTop:'15px'}}>
+              <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => setRejectModal({show:false, reqId:null})}>Cancel</button>
+              <button className="btn red" style={{flex:1, justifyContent:'center'}} onClick={submitReject}>Reject</button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {staffModal && (
           <div className="modal-overlay" onClick={() => setStaffModal(null)}>
@@ -823,8 +899,8 @@ export default function App() {
                   >
                       <i className="fa-solid fa-key"></i> Change Staff Password
                   </button>
-                
-                  <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}>Close</button>
+
+                  <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>
       )}
@@ -869,7 +945,7 @@ export default function App() {
                                 <span style={{fontSize: '0.7rem', color: t.status === 'open' ? 'red' : 'green', fontWeight: 'bold'}}>{t.status.toUpperCase()}</span>
                             </div>
                             <div style={{fontSize: '0.8rem', color: '#666', marginTop: '5px'}}>
-                                Reported: {formatDate(t.createdAt)}<br/>
+                                Reported by <b>{t.reportedBy || 'Unknown'}</b> on {formatDate(t.createdAt)}<br/>
                                 {t.resolvedAt && <>Resolved: {formatDate(t.resolvedAt)} by {t.resolvedBy || 'Unknown'}</>}
                             </div>
                         </div>

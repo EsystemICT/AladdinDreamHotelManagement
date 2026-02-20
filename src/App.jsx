@@ -155,6 +155,20 @@ export default function App() {
     alert("Password updated!");
   };
 
+  const handleAdminChangePassword = async (staffDocId, staffName) => {
+      const newPass = prompt(`Enter new password for ${staffName}:`);
+      if (newPass === null) return; // User clicked Cancel
+      if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
+      
+      try {
+          await updateDoc(doc(db, "users", staffDocId), { password: newPass });
+          alert(`Password for ${staffName} updated successfully!`);
+      } catch (error) {
+          console.error("Error updating password:", error);
+          alert("Failed to update password.");
+      }
+  };
+
   // --- 4. ATTENDANCE, LEAVES & ITEMS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
@@ -746,6 +760,15 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
+
+                  <button 
+                      onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} 
+                      className="btn blue" 
+                      style={{width:'100%', marginTop:'20px', justifyContent:'center'}}
+                  >
+                      <i className="fa-solid fa-key"></i> Change Staff Password
+                  </button>
+                
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}>Close</button>
               </div>
           </div>

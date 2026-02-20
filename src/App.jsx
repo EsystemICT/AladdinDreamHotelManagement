@@ -8,7 +8,7 @@ const ICONS = {
   ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
   TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
-  REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
+  REQ: { icon: "fa-solid fa-paper-plane", label: "Msg Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
 
@@ -47,7 +47,7 @@ export default function App() {
   const [users, setUsers] = useState([]); 
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
-  const [inventory, setInventory] = useState([]); // New Items State
+  const [inventory, setInventory] = useState([]); 
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -111,7 +111,6 @@ export default function App() {
     const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"));
     const unsubLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // NEW: Inventory Request Listener
     const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"));
     const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -173,7 +172,6 @@ export default function App() {
       f.reset(); alert("Leave Application Sent!");
   };
 
-  // NEW: Item Request submission
   const handleItemRequest = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -190,11 +188,10 @@ export default function App() {
     f.reset();
   };
 
-  // NEW: Toggle Bought Checkbox
   const toggleItemBought = async (invItem) => {
     if (!invItem.bought) {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
-        if (remark === null) return; // cancelled
+        if (remark === null) return; 
         await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark });
     } else {
         if(confirm("Unmark this item as bought?")) {
@@ -264,7 +261,7 @@ export default function App() {
   };
   const processedTickets = getProcessedTickets();
 
-  // Inventory logic (Filter for Current Month/Year)
+  // Inventory logic
   const currentMonthName = currentTime.toLocaleString('en-MY', { month: 'long', year: 'numeric' }).toUpperCase();
   const currentMonthIndex = currentTime.getMonth();
   const currentYear = currentTime.getFullYear();
@@ -274,13 +271,21 @@ export default function App() {
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
+  // NEW: Today's Clock Ins Logic
+  const todayDateString = currentTime.toLocaleDateString('en-MY');
+  const todaysClockIns = attendance.filter(a => {
+      if (a.type !== 'in') return false;
+      const d = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)) : new Date();
+      return d.toLocaleDateString('en-MY') === todayDateString;
+  });
+
   // --- RENDER LOGIN ---
   if (!currentUser) {
     return (
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
             <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
             <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
             <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
@@ -298,7 +303,7 @@ export default function App() {
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Dream Hotel
+             Aladdin Hotel
              <div className="user-profile" onClick={() => setShowPasswordModal(true)}>
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span style={{fontWeight: 'bold'}}>{currentUser.name}</span>
@@ -545,33 +550,60 @@ export default function App() {
       {view === 'ADMIN' && (
         <div className="dashboard">
           
-          <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
-            <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
-              <input name="userid" placeholder="ID" required style={{flex:1}} />
-              <input name="name" placeholder="Name" required style={{flex:1}} />
-              <input name="password" placeholder="Pass" required style={{width:'100px'}} />
-              <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
-              <button className="btn green">Add</button>
-            </form>
-            <div className="admin-table-container">
-              <table>
-                <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
-                      <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                          {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px'}}>
+              
+              {/* MANAGE STAFF */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
+                <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
+                  <input name="userid" placeholder="ID" required style={{flex:1}} />
+                  <input name="name" placeholder="Name" required style={{flex:1}} />
+                  <input name="password" placeholder="Pass" required style={{width:'100px'}} />
+                  <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
+                  <button className="btn green">Add</button>
+                </form>
+                <div className="admin-table-container scroll-pane scroll-pane-tall">
+                  <table>
+                    <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
+                    <tbody>
+                      {users.map(u => (
+                        <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
+                          <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                              {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* TODAY'S CLOCK INS */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Clock-Ins</h2>
+                <div className="admin-table-container scroll-pane scroll-pane-tall">
+                  <table>
+                    <thead><tr><th>Staff Name</th><th>Clock In Time</th></tr></thead>
+                    <tbody>
+                      {todaysClockIns.length === 0 ? (
+                          <tr><td colSpan="2" style={{textAlign:'center', color:'#999'}}>No staff clocked in today.</td></tr>
+                      ) : (
+                          todaysClockIns.map(a => (
+                            <tr key={a.id}>
+                              <td><strong>{a.userName}</strong></td>
+                              <td>{formatTime(a.timestamp)}</td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
           </div>
 
-          <div className="floor-section">
+          <div className="floor-section" style={{marginTop: '20px'}}>
             <h2 className="floor-title">Leave Applications</h2>
             <div className="admin-table-container scroll-pane">
                <table>
@@ -719,7 +751,6 @@ export default function App() {
               )}
             </div>
 
-            {/* NEW: Scrollable Room History inside Modal */}
             <h3 style={{fontSize:'1rem', borderBottom:'2px solid #eee', paddingBottom:'5px'}}>Maintenance History</h3>
             <div className="scroll-pane scroll-pane-modal" style={{textAlign: 'left'}}>
                 {tickets.filter(t => t.roomId === selectedRoom.id).length === 0 ? (

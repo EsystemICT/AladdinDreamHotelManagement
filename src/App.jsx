@@ -8,7 +8,7 @@ const ICONS = {
   ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
   TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
-  REQ: { icon: "fa-solid fa-paper-plane", label: "Msg Staff" },
+  REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
 
@@ -366,7 +366,7 @@ export default function App() {
       <div className="app-container">
         <div className="login-container">
           <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Hotel</h1>
+            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
             <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
             <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
             <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
@@ -384,7 +384,7 @@ export default function App() {
       <header className="header">
         <div className="header-content">
           <h1>
-             Aladdin Hotel
+             Aladdin Dream Hotel
              <div className="user-profile" onClick={() => setShowPasswordModal(true)}>
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span style={{fontWeight: 'bold'}}>{currentUser.name}</span>

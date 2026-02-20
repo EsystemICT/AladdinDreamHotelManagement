@@ -250,6 +250,30 @@ export default function App() {
     f.reset(); alert("User Created!");
   };
 
+  // --- ADD NEW ROOMS TO DATABASE ---
+  const addPublicRooms = async () => {
+    const newRooms = [
+      { id: "1A", type: "STORE", floor: 1, status: "vacant" },
+      { id: "1B", type: "STORE", floor: 1, status: "vacant" },
+      { id: "2A", type: "STORE", floor: 2, status: "vacant" },
+      { id: "2B", type: "STORE", floor: 2, status: "vacant" },
+      { id: "3A", type: "STORE", floor: 3, status: "vacant" },
+      { id: "3B", type: "STORE", floor: 3, status: "vacant" },
+      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
+    ];
+
+    const batch = writeBatch(db);
+    newRooms.forEach(r => {
+       const ref = doc(db, "rooms", r.id);
+       batch.set(ref, r);
+    });
+    await batch.commit();
+    alert("New rooms and facilities added to Database!");
+  };
+
   // --- PROCESS DATA ---
   const filteredRooms = rooms.filter(r => r.id.includes(roomSearch));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
@@ -376,16 +400,23 @@ export default function App() {
               />
             </h2>
             
-            {[1, 2, 3].map(floorNum => {
-               const floorRooms = filteredRooms.filter(r => r.floor === floorNum).sort((a,b) => a.id - b.id);
+            {/* ADDED 'Public' TO THE MAP ARRAY */}
+            {[1, 2, 3, 'Public'].map(floorNum => {
+               // UPDATED SORTING TO HANDLE LETTERS AND NUMBERS
+               const floorRooms = filteredRooms.filter(r => r.floor === floorNum).sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+               
                if (floorRooms.length === 0) return null;
+               
                return (
                  <div key={floorNum} style={{marginBottom:'20px'}}>
-                   <h3 style={{fontSize:'1rem', color:'#666', borderBottom:'1px solid #eee'}}>Level {floorNum}</h3>
+                   <h3 style={{fontSize:'1rem', color:'#666', borderBottom:'1px solid #eee'}}>
+                     {floorNum === 'Public' ? 'Public Areas & Facilities' : `Level ${floorNum}`}
+                   </h3>
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
-                          <div className="room-number">{room.id}</div>
+                          {/* DYNAMIC FONT SIZE FOR LONG TEXT LIKE "Comfort Area" */}
+                          <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
                         </div>
@@ -582,6 +613,13 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
+
+          {/* TEMPORARY DATABASE BUTTON */}
+          <div style={{marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '12px', border: '1px dashed #ddbd88', textAlign: 'center'}}>
+             <button onClick={addPublicRooms} className="btn orange" style={{margin: '0 auto'}}>
+                <i className="fa-solid fa-database"></i> Add Public Rooms & Storerooms (Click Once)
+             </button>
+          </div>
           
           {/* MANAGE STAFF */}
           <div className="floor-section">

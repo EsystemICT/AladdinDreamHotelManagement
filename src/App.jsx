@@ -690,7 +690,7 @@ export default function App() {
         <div className="dashboard">
               
             {/* MANAGE STAFF */}
-            <div className="floor-section" style={{margin:0}}>
+            <div className="floor-section" style={{marginTop: '20px'}}>
               <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
                 <input name="userid" placeholder="ID" required style={{flex:1}} />
@@ -717,7 +717,7 @@ export default function App() {
             </div>
           
             {/* TODAY'S CLOCK INS */}
-            <div className="floor-section" style={{margin:0}}>
+            <div className="floor-section" style={{marginTop: '20px'}}>
               <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Attendance</h2>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
                 <table>

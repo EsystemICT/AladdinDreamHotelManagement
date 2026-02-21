@@ -595,21 +595,18 @@ export default function App() {
 
       {/* --- NAVBAR --- */}
       <div className="navbar">
-        {Object.entries(ICONS).map(([key, { icon, label }]) => {
-          if (key === 'CLAIMS' && currentUser.role !== 'admin') return null;
-          return (
-            <button
-              key={key}
-              className={`nav-item ${view === key ? 'active' : ''}`}
-              onClick={() => setView(key)}
-            >
-              <i className={icon}></i>
-              <span>{label}</span>
-              {key === 'TICKETS' && openTickets.length > 0 && <span className="badge">{openTickets.length}</span>}
-              {key === 'REQ' && myRequests.length > 0 && <span className="badge">{myRequests.length}</span>}
-            </button>
-          );
-        })}
+        {Object.entries(ICONS).map(([key, { icon, label }]) => (
+          <button
+            key={key}
+            className={`nav-item ${view === key ? 'active' : ''}`}
+            onClick={() => setView(key)}
+          >
+            <i className={icon}></i>
+            <span>{label}</span>
+            {key === 'TICKETS' && openTickets.length > 0 && <span className="badge">{openTickets.length}</span>}
+            {key === 'REQ' && myRequests.length > 0 && <span className="badge">{myRequests.length}</span>}
+          </button>
+        ))}
         {currentUser.role === 'admin' && (
           <button className={`nav-item ${view === 'ADMIN' ? 'active' : ''}`} onClick={() => setView('ADMIN')}>
             <i className="fa-solid fa-user-shield"></i>
@@ -885,8 +882,8 @@ export default function App() {
         </div>
       )}
 
-      {/* --- CLAIM DAYS VIEW (ADMIN ONLY) --- */}
-      {view === 'CLAIMS' && currentUser.role === 'admin' && (
+      {/* --- CLAIM DAYS VIEW --- */}
+      {view === 'CLAIMS' && (
         <div className="content">
           <div className="floor-section">
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>

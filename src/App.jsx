@@ -1198,7 +1198,7 @@ export default function App() {
               <div>
                 <label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label>
                 <input
-                  type="date"
+                  type="calendar"
                   value={claimForm.bookingDate}
                   onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})}
                   placeholder="Walk-in Date"

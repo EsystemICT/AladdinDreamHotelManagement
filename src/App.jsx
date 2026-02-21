@@ -247,10 +247,20 @@ export default function App() {
     if (!invItem.bought) {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
         if (remark === null) return; 
-        await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark, checkedBy: currentUser.name, checkedAt: serverTimestamp() });
+        await updateDoc(doc(db, "inventory", invItem.id), { 
+            bought: true, 
+            buyRemark: remark,
+            boughtBy: currentUser.name,       // NEW: Records who checked it
+            boughtAt: serverTimestamp()       // NEW: Records when they checked it
+        });
     } else {
         if(confirm("Unmark this item as bought?")) {
-            await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '', checkedBy: null, checkedAt: null });
+            await updateDoc(doc(db, "inventory", invItem.id), { 
+                bought: false, 
+                buyRemark: '',
+                boughtBy: null,               // Clears the record if unchecked
+                boughtAt: null
+            });
         }
     }
   };
@@ -677,6 +687,13 @@ export default function App() {
                                         {item.remark && <span className="inv-note">Note: {item.remark}</span>}
                                         {item.bought && item.buyRemark && <span className="inv-remark">- {item.buyRemark} ✅</span>}
                                         {item.bought && !item.buyRemark && <span className="inv-remark">✅</span>}
+                                        
+                                        {/* ADD THIS NEW LINE TO DISPLAY THE TRACKING INFO */}
+                                        {item.bought && item.boughtBy && (
+                                            <span style={{display: 'block', fontSize: '0.75rem', color: '#999', marginTop: '2px'}}>
+                                                Checked by {item.boughtBy} on {formatDate(item.boughtAt)}
+                                            </span>
+                                        )}
                                     </div>
                                     <input 
                                         type="checkbox" 

@@ -691,7 +691,7 @@ export default function App() {
                                         {/* ADD THIS NEW LINE TO DISPLAY THE TRACKING INFO */}
                                         {item.bought && item.boughtBy && (
                                             <span style={{display: 'block', fontSize: '0.75rem', color: '#999', marginTop: '2px'}}>
-                                                Checked by {item.boughtBy} on {formatDate(item.boughtAt)}
+                                                Checked by {item.boughtBy} on {formatTime(item.boughtAt)}
                                             </span>
                                         )}
                                     </div>

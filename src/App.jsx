@@ -1198,10 +1198,12 @@ export default function App() {
               <div>
                 <label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label>
                 <input
-                  type="calendar"
+                  type="date"
                   value={claimForm.bookingDate}
                   onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})}
-                  placeholder="Walk-in Date"
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{ cursor: 'pointer' }}
+                  required
                 />
               </div>
               <div>

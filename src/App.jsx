@@ -8,10 +8,19 @@ const ICONS = {
   ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
   TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
+  LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
+
+// LAUNDRY ITEMS (From Receipt)
+const LAUNDRY_ITEMS = [
+  "Bed Sheet", "Duvet Cover", "Pillow Case", "Bath Towel", "Bath Mat", 
+  "Bath Towel New", "Face Towel", "Pillow Pad", "Pillow", "Comforter", 
+  "Mattress Pad", "Shower Curtain", "Duvet Insert", "Day Curtain", 
+  "Night Curtain", "Floor Mat", "Blanket", "Wiping Cloth", "Bed Runner"
+];
 
 // HELPERS
 const getStatusColor = (status) => {
@@ -50,6 +59,7 @@ export default function App() {
   const [leaves, setLeaves] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [claimDays, setClaimDays] = useState([]);
+  const [laundry, setLaundry] = useState([]);
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -73,18 +83,14 @@ export default function App() {
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
 
+  // Laundry UI
+  const [laundryForm, setLaundryForm] = useState({});
+  const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
+
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
   const [claimForm, setClaimForm] = useState({
-    guestName: '',
-    icNumber: '',
-    contactNumber: '',
-    bookingDate: '',
-    roomType: '',
-    payment: '',
-    usedDates: [],
-    balanceClaim: 0,
-    recordedBy: ''
+    guestName: '', icNumber: '', contactNumber: '', bookingDate: '', roomType: '', payment: '', usedDates: [], balanceClaim: 0, recordedBy: ''
   });
   const [editingClaim, setEditingClaim] = useState(null);
 
@@ -138,7 +144,10 @@ export default function App() {
     const qClaims = query(collection(db, "claimDays"), orderBy("createdAt", "desc"));
     const unsubClaims = onSnapshot(qClaims, (snap) => setClaimDays(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); };
+    const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"));
+    const unsubLaundry = onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); };
   }, [currentUser]);
 
   // --- 3. AUTH ---
@@ -183,41 +192,91 @@ export default function App() {
     const newPass = prompt(`Enter new password for ${staffName}:`);
     if (newPass === null) return; 
     if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
-    
     try {
         await updateDoc(doc(db, "users", staffDocId), { password: newPass });
         alert(`Password for ${staffName} updated successfully!`);
     } catch (error) {
-        console.error("Error updating password:", error);
         alert("Failed to update password.");
     }
   };
 
-  // --- ADD PUBLIC ROOMS / STOREROOMS (ADMIN FUNCTION) ---
   const addPublicRooms = async () => {
     const newRooms = [
-      { id: "1A", type: "STORE", floor: 1, status: "vacant" },
-      { id: "1B", type: "STORE", floor: 1, status: "vacant" },
-      { id: "2A", type: "STORE", floor: 2, status: "vacant" },
-      { id: "2B", type: "STORE", floor: 2, status: "vacant" },
-      { id: "3A", type: "STORE", floor: 3, status: "vacant" },
-      { id: "3B", type: "STORE", floor: 3, status: "vacant" },
-      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
+      { id: "1A", type: "STORE", floor: 1, status: "vacant" }, { id: "1B", type: "STORE", floor: 1, status: "vacant" },
+      { id: "2A", type: "STORE", floor: 2, status: "vacant" }, { id: "2B", type: "STORE", floor: 2, status: "vacant" },
+      { id: "3A", type: "STORE", floor: 3, status: "vacant" }, { id: "3B", type: "STORE", floor: 3, status: "vacant" },
+      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
     ];
-
     const batch = writeBatch(db);
-    newRooms.forEach(r => {
-       const ref = doc(db, "rooms", r.id);
-       batch.set(ref, r);
-    });
+    newRooms.forEach(r => batch.set(doc(db, "rooms", r.id), r));
     await batch.commit();
     alert("New rooms and facilities added to Database!");
   };
 
-  // --- 4. ATTENDANCE, LEAVES & ITEMS ---
+  // --- 4. LAUNDRY FUNCTIONS ---
+  const handleLaundryChange = (item, val) => {
+    setLaundryForm(prev => {
+       const updated = {...prev};
+       if (val === '' || val === '0') delete updated[item];
+       else updated[item] = parseInt(val);
+       return updated;
+    });
+  };
+
+  const handleSendLaundry = async () => {
+    const itemsToSend = {};
+    let hasItems = false;
+    
+    LAUNDRY_ITEMS.forEach(item => {
+        if (laundryForm[item] > 0) {
+            itemsToSend[item] = { sentQty: laundryForm[item], status: 'pending', remark: '' };
+            hasItems = true;
+        }
+    });
+
+    if (!hasItems) return alert("Please enter at least one item quantity.");
+
+    await addDoc(collection(db, "laundry"), {
+        items: itemsToSend,
+        status: 'pending',
+        sentBy: currentUser.name,
+        createdAt: serverTimestamp()
+    });
+    setLaundryForm({});
+    alert("Laundry Sent!");
+  };
+
+  const handleItemReceiveToggle = (itemName, status) => {
+    const updated = {...receiveLaundryModal};
+    if (status === 'correct') {
+        updated.items[itemName].status = 'correct';
+        updated.items[itemName].remark = '';
+    } else {
+        const remark = prompt(`Enter missing amount or remark for ${itemName} (Sent: ${updated.items[itemName].sentQty}):`);
+        if (remark === null) return;
+        updated.items[itemName].status = 'incorrect';
+        updated.items[itemName].remark = remark;
+    }
+    setReceiveLaundryModal(updated);
+  };
+
+  const handleSaveReceivedLaundry = async () => {
+    const allChecked = Object.values(receiveLaundryModal.items).every(i => i.status !== 'pending');
+    if(!allChecked) {
+         if(!confirm("Some items have not been verified. Mark batch as received anyway?")) return;
+    }
+    await updateDoc(doc(db, "laundry", receiveLaundryModal.id), {
+        items: receiveLaundryModal.items,
+        status: 'received',
+        receivedBy: currentUser.name,
+        receivedAt: serverTimestamp()
+    });
+    setReceiveLaundryModal(null);
+    alert("Laundry marked as received!");
+  };
+
+  // --- 5. OTHER FUNCTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), {
@@ -248,129 +307,15 @@ export default function App() {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
         if (remark === null) return; 
         await updateDoc(doc(db, "inventory", invItem.id), { 
-            bought: true, 
-            buyRemark: remark,
-            boughtBy: currentUser.name,       // NEW: Records who checked it
-            boughtAt: serverTimestamp()       // NEW: Records when they checked it
+            bought: true, buyRemark: remark, boughtBy: currentUser.name, boughtAt: serverTimestamp() 
         });
     } else {
         if(confirm("Unmark this item as bought?")) {
-            await updateDoc(doc(db, "inventory", invItem.id), { 
-                bought: false, 
-                buyRemark: '',
-                boughtBy: null,               // Clears the record if unchecked
-                boughtAt: null
-            });
+            await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '', boughtBy: null, boughtAt: null });
         }
     }
   };
 
-  // --- CLAIM DAYS FUNCTIONS ---
-  const handleAddClaim = async () => {
-    if (!claimForm.guestName || !claimForm.icNumber || !claimForm.contactNumber) {
-      alert('Please fill in guest details');
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, "claimDays"), {
-        ...claimForm,
-        recordedBy: currentUser.name,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      setClaimModal(false);
-      resetClaimForm();
-      alert('Claim day record added successfully!');
-    } catch (error) {
-      console.error("Error adding claim:", error);
-      alert("Failed to add claim record");
-    }
-  };
-
-  const handleUpdateClaim = async () => {
-    if (!editingClaim) return;
-
-    try {
-      await updateDoc(doc(db, "claimDays", editingClaim), {
-        ...claimForm,
-        updatedAt: serverTimestamp()
-      });
-      setClaimModal(false);
-      setEditingClaim(null);
-      resetClaimForm();
-      alert('Claim day record updated successfully!');
-    } catch (error) {
-      console.error("Error updating claim:", error);
-      alert("Failed to update claim record");
-    }
-  };
-
-  const handleDeleteClaim = async (claimId) => {
-    if (!window.confirm('Are you sure you want to delete this claim record?')) return;
-    
-    try {
-      await deleteDoc(doc(db, "claimDays", claimId));
-      alert('Claim record deleted successfully!');
-    } catch (error) {
-      console.error("Error deleting claim:", error);
-      alert("Failed to delete claim record");
-    }
-  };
-
-  const openEditClaim = (claim) => {
-    setClaimForm({
-      guestName: claim.guestName,
-      icNumber: claim.icNumber,
-      contactNumber: claim.contactNumber,
-      bookingDate: claim.bookingDate,
-      roomType: claim.roomType,
-      payment: claim.payment,
-      usedDates: claim.usedDates || [],
-      balanceClaim: claim.balanceClaim,
-      recordedBy: claim.recordedBy
-    });
-    setEditingClaim(claim.id);
-    setClaimModal(true);
-  };
-
-  const resetClaimForm = () => {
-    setClaimForm({
-      guestName: '',
-      icNumber: '',
-      contactNumber: '',
-      bookingDate: '',
-      roomType: '',
-      payment: '',
-      usedDates: [],
-      balanceClaim: 0,
-      recordedBy: ''
-    });
-    setEditingClaim(null);
-  };
-
-  const addUsedDate = () => {
-    const date = prompt('Enter used date (e.g., 29/1/2026):');
-    const roomType = prompt('Enter room type (e.g., deluxe, s/king):');
-    const roomNumber = prompt('Enter room number (e.g., 115, 216):');
-    const staff = prompt('Enter staff name (e.g., emma/alisya):');
-    
-    if (date && roomType && roomNumber && staff) {
-      setClaimForm(prev => ({
-        ...prev,
-        usedDates: [...prev.usedDates, { date, roomType, roomNumber, staff }]
-      }));
-    }
-  };
-
-  const removeUsedDate = (index) => {
-    setClaimForm(prev => ({
-      ...prev,
-      usedDates: prev.usedDates.filter((_, i) => i !== index)
-    }));
-  };
-
-  // --- 5. CORE LOGIC ---
   const handleSendRequest = async (e) => {
     e.preventDefault();
     if (!reqReceiver || !reqContent) { alert("Select receiver and enter details."); return; }
@@ -406,13 +351,7 @@ export default function App() {
   const reportIssue = async (roomId) => {
     const issue = prompt(`Issue description for Room ${roomId}?`);
     if (!issue) return;
-    await addDoc(collection(db, "tickets"), { 
-      roomId, 
-      issue, 
-      status: 'open', 
-      createdAt: serverTimestamp(),
-      reportedBy: currentUser.name // NEW: Recorded who created the ticket
-    });
+    await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp(), reportedBy: currentUser.name });
     await updateRoomStatus(roomId, 'maintenance');
   };
 
@@ -427,6 +366,52 @@ export default function App() {
     const f = e.target;
     await addDoc(collection(db, "users"), { userid: f.userid.value, name: f.name.value, password: f.password.value, role: f.role.value });
     f.reset(); alert("User Created!");
+  };
+
+  // --- CLAIM DAYS LOGIC ---
+  const handleAddClaim = async () => {
+    if (!claimForm.guestName || !claimForm.icNumber || !claimForm.contactNumber) { alert('Please fill in guest details'); return; }
+    try {
+      await addDoc(collection(db, "claimDays"), { ...claimForm, recordedBy: currentUser.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      setClaimModal(false); resetClaimForm(); alert('Record added successfully!');
+    } catch (error) { alert("Failed to add claim record"); }
+  };
+
+  const handleUpdateClaim = async () => {
+    if (!editingClaim) return;
+    try {
+      await updateDoc(doc(db, "claimDays", editingClaim), { ...claimForm, updatedAt: serverTimestamp() });
+      setClaimModal(false); setEditingClaim(null); resetClaimForm(); alert('Record updated successfully!');
+    } catch (error) { alert("Failed to update claim record"); }
+  };
+
+  const handleDeleteClaim = async (claimId) => {
+    if (!window.confirm('Are you sure you want to delete this claim record?')) return;
+    try { await deleteDoc(doc(db, "claimDays", claimId)); alert('Record deleted!'); } catch (error) { alert("Failed to delete record"); }
+  };
+
+  const openEditClaim = (claim) => {
+    setClaimForm({ ...claim, usedDates: claim.usedDates || [] });
+    setEditingClaim(claim.id); setClaimModal(true);
+  };
+
+  const resetClaimForm = () => {
+    setClaimForm({ guestName: '', icNumber: '', contactNumber: '', bookingDate: '', roomType: '', payment: '', usedDates: [], balanceClaim: 0, recordedBy: '' });
+    setEditingClaim(null);
+  };
+
+  const addUsedDate = () => {
+    const date = prompt('Enter used date (e.g., 29/1/2026):');
+    const roomType = prompt('Enter room type (e.g., deluxe, s/king):');
+    const roomNumber = prompt('Enter room number (e.g., 115, 216):');
+    const staff = prompt('Enter staff name (e.g., emma/alisya):');
+    if (date && roomType && roomNumber && staff) {
+      setClaimForm(prev => ({ ...prev, usedDates: [...prev.usedDates, { date, roomType, roomNumber, staff }] }));
+    }
+  };
+
+  const removeUsedDate = (index) => {
+    setClaimForm(prev => ({ ...prev, usedDates: prev.usedDates.filter((_, i) => i !== index) }));
   };
 
   // --- PROCESS DATA ---
@@ -454,45 +439,47 @@ export default function App() {
   };
   const processedTickets = getProcessedTickets();
 
-  // Inventory logic
   const currentMonthName = currentTime.toLocaleString('en-MY', { month: 'long', year: 'numeric' }).toUpperCase();
   const currentMonthIndex = currentTime.getMonth();
   const currentYear = currentTime.getFullYear();
-  
   const currentMonthInventory = inventory.filter(inv => {
       const d = inv.createdAt ? (inv.createdAt.toDate ? inv.createdAt.toDate() : new Date(inv.createdAt)) : new Date();
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
-  // TODAY'S CLOCK INS & OUTS
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
   
   attendance.forEach(a => {
       const d = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)) : new Date();
       if (d.toLocaleDateString('en-MY') === todayDateString) {
-          if (!todaysAttendanceMap[a.userId]) {
-              todaysAttendanceMap[a.userId] = { userName: a.userName, inTime: null, outTime: null, inRaw: 0, outRaw: 0 };
-          }
+          if (!todaysAttendanceMap[a.userId]) todaysAttendanceMap[a.userId] = { userName: a.userName, inTime: null, outTime: null, inRaw: 0, outRaw: 0 };
           const timeMs = d.getTime();
           if (a.type === 'in') {
               if (!todaysAttendanceMap[a.userId].inRaw || timeMs < todaysAttendanceMap[a.userId].inRaw) {
-                  todaysAttendanceMap[a.userId].inRaw = timeMs;
-                  todaysAttendanceMap[a.userId].inTime = formatTime(a.timestamp);
+                  todaysAttendanceMap[a.userId].inRaw = timeMs; todaysAttendanceMap[a.userId].inTime = formatTime(a.timestamp);
               }
           } else if (a.type === 'out') {
               if (!todaysAttendanceMap[a.userId].outRaw || timeMs > todaysAttendanceMap[a.userId].outRaw) {
-                  todaysAttendanceMap[a.userId].outRaw = timeMs;
-                  todaysAttendanceMap[a.userId].outTime = formatTime(a.timestamp);
+                  todaysAttendanceMap[a.userId].outRaw = timeMs; todaysAttendanceMap[a.userId].outTime = formatTime(a.timestamp);
               }
           }
       }
   });
 
   const todaysAttendanceData = Object.values(todaysAttendanceMap).sort((a, b) => {
-    if (!a.inRaw) return 1;
-    if (!b.inRaw) return -1;
-    return a.inRaw - b.inRaw;
+    if (!a.inRaw) return 1; if (!b.inRaw) return -1; return a.inRaw - b.inRaw;
+  });
+
+  // Laundry 7-Day History Logic
+  const oneWeekAgo = new Date(currentTime);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  
+  const pendingLaundry = laundry.filter(l => l.status === 'pending');
+  const historyLaundry = laundry.filter(l => {
+      if (l.status !== 'received') return false;
+      const d = l.createdAt ? (l.createdAt.toDate ? l.createdAt.toDate() : new Date(l.createdAt)) : new Date();
+      return d >= oneWeekAgo;
   });
 
   // --- RENDER LOGIN ---
@@ -551,44 +538,26 @@ export default function App() {
           <div className="floor-section">
             <h2 className="floor-title">
               <span><i className="fa-solid fa-bed"></i> Room Status</span>
-              <input 
-                className="search-bar"
-                placeholder="Search Room..." 
-                value={roomSearch}
-                onChange={e => setRoomSearch(e.target.value)}
-              />
+              <input className="search-bar" placeholder="Search Room..." value={roomSearch} onChange={e => setRoomSearch(e.target.value)} />
             </h2>
             
-            {/* UPDATED: Group Mappings including Public and Store */}
             {[1, 2, 3, 'Public', 'Store'].map(floorNum => {
-               
                let floorRooms = [];
-
                if (floorNum === 'Store') {
-                   floorRooms = filteredRooms
-                       .filter(r => r.type === 'STORE')
-                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   floorRooms = filteredRooms.filter(r => r.type === 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else if (floorNum === 'Public') {
-                   floorRooms = filteredRooms
-                       .filter(r => r.floor === 'Public')
-                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   floorRooms = filteredRooms.filter(r => r.floor === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else {
-                   floorRooms = filteredRooms
-                       .filter(r => r.floor === floorNum && r.type !== 'STORE')
-                       .sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   floorRooms = filteredRooms.filter(r => r.floor === floorNum && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                }
-               
                if (floorRooms.length === 0) return null;
-
                let sectionTitle = `Level ${floorNum}`;
                if (floorNum === 'Public') sectionTitle = 'Public Areas & Facilities';
                if (floorNum === 'Store') sectionTitle = 'Storerooms';
                
                return (
                  <div key={floorNum} style={{marginBottom:'20px'}}>
-                   <h3 style={{fontSize:'1rem', color:'#666', borderBottom:'1px solid #eee'}}>
-                     {sectionTitle}
-                   </h3>
+                   <h3 style={{fontSize:'1rem', color:'#666', borderBottom:'1px solid #eee'}}>{sectionTitle}</h3>
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
@@ -605,7 +574,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: TICKETS (SEPARATED WITH SCROLLPANES) --- */}
+      {/* --- VIEW: TICKETS --- */}
       {view === 'TICKETS' && (
         <div className="dashboard">
           <div className="list-view">
@@ -616,9 +585,7 @@ export default function App() {
                   <div key={ticket.id} className="ticket-card open">
                     <div>
                       <strong>Room {ticket.roomId}</strong> - <span style={{color:'#666'}}>{ticket.issue}</span>
-                      <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>
-                          Reported by <b>{ticket.reportedBy || 'Unknown'}</b> on {formatTime(ticket.createdAt)}
-                      </div>
+                      <div style={{fontSize:'0.8rem', color:'#888', marginTop:'5px'}}>Reported by <b>{ticket.reportedBy || 'Unknown'}</b> on {formatTime(ticket.createdAt)}</div>
                     </div>
                     <button onClick={() => resolveTicket(ticket)} className="btn blue">Resolve</button>
                   </div>
@@ -669,7 +636,6 @@ export default function App() {
           <div className="list-view">
             <h2 style={{textAlign: 'center', marginBottom: '25px'}}>REQUEST ITEM {currentMonthName}</h2>
             <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '15px'}}>
-                
                 {['Frontdesk', 'Maintenance', 'Housekeeping'].map(dept => {
                     const deptItems = currentMonthInventory.filter(i => i.department === dept);
                     if(deptItems.length === 0) return null;
@@ -681,36 +647,110 @@ export default function App() {
                                 <div key={item.id} className="inv-item">
                                     <span style={{color:'#888', width:'25px'}}>{idx + 1})</span>
                                     <div className="inv-content">
-                                        <span className={item.bought ? "inv-bought" : ""}>
-                                            {item.item} {item.qty && ` - ${item.qty}`}
-                                        </span>
+                                        <span className={item.bought ? "inv-bought" : ""}>{item.item} {item.qty && ` - ${item.qty}`}</span>
                                         {item.remark && <span className="inv-note">Note: {item.remark}</span>}
                                         {item.bought && item.buyRemark && <span className="inv-remark">- {item.buyRemark} ✅</span>}
                                         {item.bought && !item.buyRemark && <span className="inv-remark">✅</span>}
-                                        
-                                        {/* ADD THIS NEW LINE TO DISPLAY THE TRACKING INFO */}
                                         {item.bought && item.boughtBy && (
                                             <span style={{display: 'block', fontSize: '0.75rem', color: '#999', marginTop: '2px'}}>
                                                 Checked by {item.boughtBy} on {formatTime(item.boughtAt)}
                                             </span>
                                         )}
                                     </div>
-                                    <input 
-                                        type="checkbox" 
-                                        className="inv-checkbox"
-                                        checked={item.bought}
-                                        onChange={() => toggleItemBought(item)}
-                                    />
+                                    <input type="checkbox" className="inv-checkbox" checked={item.bought} onChange={() => toggleItemBought(item)} />
                                 </div>
                             ))}
                         </div>
                     );
                 })}
-
                 {currentMonthInventory.length === 0 && <p style={{textAlign:'center', color:'#999'}}>No items requested this month.</p>}
-
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- VIEW: LAUNDRY (NEW) --- */}
+      {view === 'LAUNDRY' && (
+        <div className="dashboard">
+          
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px'}}>
+              
+              {/* SEND LAUNDRY FORM */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-truck-fast"></i> Send Laundry</h2>
+                <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
+                    <div className="laundry-grid">
+                        {LAUNDRY_ITEMS.map(item => (
+                            <div key={item} className="laundry-input-card">
+                                <label>{item}</label>
+                                <input 
+                                    type="number" 
+                                    min="0"
+                                    placeholder="0"
+                                    value={laundryForm[item] || ''}
+                                    onChange={(e) => handleLaundryChange(item, e.target.value)}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <button onClick={handleSendLaundry} className="btn blue" style={{width: '100%', justifyContent: 'center', marginTop: '15px'}}>
+                    Submit Laundry Batch
+                </button>
+              </div>
+
+              {/* PENDING / RECEIVE QUEUE */}
+              <div className="floor-section" style={{margin:0}}>
+                <h2 className="floor-title"><i className="fa-solid fa-spinner"></i> Pending Received</h2>
+                <div className="scroll-pane scroll-pane-tall">
+                    {pendingLaundry.length === 0 ? <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No pending laundry batches.</p> : 
+                        pendingLaundry.map(batch => (
+                            <div key={batch.id} className="req-card" style={{borderLeftColor: '#f59e0b'}}>
+                                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
+                                    <strong>Sent by: {batch.sentBy}</strong>
+                                    <span style={{fontSize:'0.75rem', color:'#666'}}>{formatTime(batch.createdAt)}</span>
+                                </div>
+                                <div style={{fontSize:'0.85rem', color:'#555', marginBottom:'15px'}}>
+                                    Contains {Object.keys(batch.items).length} types of items.
+                                </div>
+                                <button className="btn green" style={{width:'100%', justifyContent:'center'}} onClick={() => setReceiveLaundryModal(JSON.parse(JSON.stringify(batch)))}>
+                                    <i className="fa-solid fa-clipboard-check"></i> Verify & Receive
+                                </button>
+                            </div>
+                        ))
+                    }
+                </div>
+              </div>
+          </div>
+
+          {/* 7 DAY HISTORY */}
+          <div className="floor-section" style={{marginTop: '20px'}}>
+             <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> 7-Day Laundry History</h2>
+             <div className="scroll-pane scroll-pane-tall">
+                {historyLaundry.length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No history in the last 7 days.</p> : 
+                    historyLaundry.map(batch => (
+                        <div key={batch.id} className="req-card" style={{borderLeftColor: '#10b981'}}>
+                            <div style={{display:'flex', justifyContent:'space-between', borderBottom:'1px solid #eee', paddingBottom:'8px', marginBottom:'10px'}}>
+                                <div>
+                                    <span style={{fontSize:'0.8rem', color:'#666', display:'block'}}>Sent: {batch.sentBy} ({formatTime(batch.createdAt)})</span>
+                                    <span style={{fontSize:'0.8rem', color:'#10b981', display:'block', fontWeight:'bold'}}>Received: {batch.receivedBy} ({formatTime(batch.receivedAt)})</span>
+                                </div>
+                            </div>
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'5px'}}>
+                                {Object.entries(batch.items).map(([itemName, data]) => (
+                                    <div key={itemName} style={{fontSize:'0.8rem', padding:'4px', color: data.status === 'incorrect' ? '#ef4444' : '#333'}}>
+                                        <strong>{itemName}:</strong> Sent {data.sentQty} 
+                                        {data.status === 'incorrect' && <span> (Issue: {data.remark})</span>}
+                                        {data.status === 'correct' && <span> ✓</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))
+                }
+             </div>
+          </div>
+
         </div>
       )}
 
@@ -748,15 +788,11 @@ export default function App() {
                       <button onClick={() => { setRejectModal({show:true, reqId:req.id}); setRejectReason(''); }} className="btn red" style={{flex:1, justifyContent:'center'}}>Reject</button>
                     </div>
                   )}
-                  {req.status === 'accepted' && (
-                    <button onClick={() => handleCompleteRequest(req.id)} className="btn blue" style={{width:'100%', justifyContent:'center', marginTop:'10px'}}>Mark Complete</button>
-                  )}
+                  {req.status === 'accepted' && <button onClick={() => handleCompleteRequest(req.id)} className="btn blue" style={{width:'100%', justifyContent:'center', marginTop:'10px'}}>Mark Complete</button>}
                   {req.status === 'rejected' && <div style={{background:'#fff', borderLeft:'3px solid red', padding:'5px', marginTop:'5px', fontSize:'0.9rem'}}>Reason: {req.rejectionReason}</div>}
                   {req.status === 'completed' && req.completionRemark && <div style={{background:'#fff', borderLeft:'3px solid green', padding:'5px', marginTop:'5px', fontSize:'0.9rem'}}>Note: {req.completionRemark}</div>}
 
-                  <div style={{fontSize:'0.75rem', color:'#666', marginTop:'10px', borderTop:'1px solid #eee', paddingTop:'5px'}}>
-                      Sent: {formatTime(req.createdAt)}
-                  </div>
+                  <div style={{fontSize:'0.75rem', color:'#666', marginTop:'10px', borderTop:'1px solid #eee', paddingTop:'5px'}}>Sent: {formatTime(req.createdAt)}</div>
                 </div>
               ))}
           </div>
@@ -878,19 +914,11 @@ export default function App() {
                   </div>
 
                   <div style={{display:'flex', gap:'5px', marginTop:'10px'}}>
-                    <button 
-                      className="btn blue" 
-                      style={{flex:1, fontSize:'0.8rem', padding:'8px'}}
-                      onClick={() => openEditClaim(claim)}
-                    >
+                    <button className="btn blue" style={{flex:1, fontSize:'0.8rem', padding:'8px'}} onClick={() => openEditClaim(claim)}>
                       <i className="fa-solid fa-edit"></i> Edit
                     </button>
                     {currentUser.role === 'admin' && (
-                      <button 
-                        className="btn red" 
-                        style={{flex:1, fontSize:'0.8rem', padding:'8px'}}
-                        onClick={() => handleDeleteClaim(claim.id)}
-                      >
+                      <button className="btn red" style={{flex:1, fontSize:'0.8rem', padding:'8px'}} onClick={() => handleDeleteClaim(claim.id)}>
                         <i className="fa-solid fa-trash"></i> Delete
                       </button>
                     )}
@@ -905,8 +933,6 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
-              
-            {/* MANAGE STAFF */}
             <div className="floor-section" style={{marginTop: '20px'}}>
               <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
@@ -933,7 +959,6 @@ export default function App() {
               </div>
             </div>
           
-            {/* TODAY'S CLOCK INS */}
             <div className="floor-section" style={{marginTop: '20px'}}>
               <h2 className="floor-title"><i className="fa-solid fa-clock"></i> Today's Attendance</h2>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
@@ -948,15 +973,8 @@ export default function App() {
                             <td><strong>{a.userName}</strong></td>
                             <td>{a.inTime ? a.inTime : <span style={{color: '#999'}}>-</span>}</td>
                             <td>
-                              {a.outTime ? (
-                                  a.outTime
-                              ) : (
-                                  <span style={{
-                                      backgroundColor: '#fee2e2', color: '#dc2626', 
-                                      padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold'
-                                  }}>
-                                      Still Working
-                                  </span>
+                              {a.outTime ? a.outTime : (
+                                  <span style={{ backgroundColor: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 'bold' }}>Still Working</span>
                               )}
                             </td>
                           </tr>
@@ -1028,30 +1046,52 @@ export default function App() {
               </table>
             </div>
           </div>
-
-          <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-paper-plane"></i> All Staff Messages</h2>
-            <div className="admin-table-container scroll-pane scroll-pane-tall">
-              <table>
-                <thead><tr><th>From</th><th>To</th><th>Content</th><th>Status</th><th>Date</th></tr></thead>
-                <tbody>
-                  {requests.map(r => (
-                    <tr key={r.id}>
-                      <td><strong>{r.senderName}</strong></td>
-                      <td>{r.receiverName}</td>
-                      <td style={{maxWidth:'300px'}}>{r.content}</td>
-                      <td><span className={`req-status status-${r.status}`}>{r.status}</span></td>
-                      <td>{formatTime(r.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
 
       {/* --- MODALS --- */}
+
+      {/* LAUNDRY RECEIVE MODAL */}
+      {receiveLaundryModal && (
+        <div className="modal-overlay" onClick={() => setReceiveLaundryModal(null)}>
+          <div className="modal-content large-modal" onClick={e => e.stopPropagation()}>
+            <h2>Verify Received Laundry</h2>
+            <p style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>
+               Sent by {receiveLaundryModal.sentBy} on {formatTime(receiveLaundryModal.createdAt)}
+            </p>
+            
+            <div className="scroll-pane scroll-pane-modal" style={{maxHeight:'400px', paddingRight:'10px'}}>
+               {Object.entries(receiveLaundryModal.items).map(([itemName, data]) => (
+                   <div key={itemName} className={`laundry-item-row ${data.status === 'correct' ? 'correct' : data.status === 'incorrect' ? 'incorrect' : ''}`}>
+                       <div style={{flex: 1}}>
+                           <div style={{fontWeight:'bold', fontSize:'0.9rem'}}>{itemName}</div>
+                           <div style={{fontSize:'0.75rem', color:'#666'}}>Sent: {data.sentQty}</div>
+                           {data.status === 'incorrect' && <div style={{fontSize:'0.75rem', color:'#ef4444', marginTop:'3px'}}><b>Note:</b> {data.remark}</div>}
+                       </div>
+                       <div className="laundry-actions">
+                           <button 
+                              className={`btn ${data.status === 'correct' ? 'green' : 'grey'}`} 
+                              style={{padding: '6px 12px'}}
+                              onClick={() => handleItemReceiveToggle(itemName, 'correct')}
+                           ><i className="fa-solid fa-check"></i></button>
+                           
+                           <button 
+                              className={`btn ${data.status === 'incorrect' ? 'red' : 'grey'}`} 
+                              style={{padding: '6px 12px'}}
+                              onClick={() => handleItemReceiveToggle(itemName, 'incorrect')}
+                           ><i className="fa-solid fa-times"></i></button>
+                       </div>
+                   </div>
+               ))}
+            </div>
+
+            <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
+              <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => setReceiveLaundryModal(null)}>Cancel</button>
+              <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={handleSaveReceivedLaundry}>Save Verification</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {rejectModal.show && (
         <div className="modal-overlay" onClick={() => setRejectModal({show:false, reqId:null})}>
@@ -1098,14 +1138,9 @@ export default function App() {
                       </table>
                   </div>
 
-                  <button 
-                      onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} 
-                      className="btn blue" 
-                      style={{width:'100%', marginTop:'20px', justifyContent:'center'}}
-                  >
+                  <button onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}>
                       <i className="fa-solid fa-key"></i> Change Staff Password
                   </button>
-
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>
@@ -1131,7 +1166,6 @@ export default function App() {
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
             
             <div style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom: '20px'}}>
-              {/* Only 2 Actions: Maintenance OR Ready */}
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (
@@ -1158,7 +1192,6 @@ export default function App() {
                     ))
                 )}
             </div>
-
             <button style={{marginTop:'15px', background:'none', border:'none', textDecoration:'underline', cursor:'pointer', color:'#666', width: '100%'}} onClick={() => setSelectedRoom(null)}>Close</button>
           </div>
         </div>
@@ -1171,75 +1204,19 @@ export default function App() {
             <h2>{editingClaim ? 'Edit' : 'Add'} Claim Day Record</h2>
             
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginTop:'15px'}}>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label>
-                <input
-                  value={claimForm.guestName}
-                  onChange={e => setClaimForm({...claimForm, guestName: e.target.value})}
-                  placeholder="Full Name"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label>
-                <input
-                  value={claimForm.icNumber}
-                  onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})}
-                  placeholder="IC/Passport No"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label>
-                <input
-                  value={claimForm.contactNumber}
-                  onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})}
-                  placeholder="Phone Number"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label>
-                <input
-                  type="date"
-                  value={claimForm.bookingDate}
-                  onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})}
-                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                  style={{ cursor: 'pointer' }}
-                  required
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label>
-                <input
-                  value={claimForm.roomType}
-                  onChange={e => setClaimForm({...claimForm, roomType: e.target.value})}
-                  placeholder="e.g., Deluxe, Suite"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label>
-                <input
-                  type="number"
-                  value={claimForm.payment}
-                  onChange={e => setClaimForm({...claimForm, payment: e.target.value})}
-                  placeholder="550"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label>
-                <input
-                  type="number"
-                  value={claimForm.balanceClaim}
-                  onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})}
-                  placeholder="0"
-                />
-              </div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label><input value={claimForm.guestName} onChange={e => setClaimForm({...claimForm, guestName: e.target.value})} placeholder="Full Name" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label><input value={claimForm.icNumber} onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})} placeholder="IC/Passport No" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label><input value={claimForm.contactNumber} onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})} placeholder="Phone Number" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label><input type="date" value={claimForm.bookingDate} onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ cursor: 'pointer' }} required /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label><input value={claimForm.roomType} onChange={e => setClaimForm({...claimForm, roomType: e.target.value})} placeholder="e.g., Deluxe, Suite" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label><input type="number" value={claimForm.payment} onChange={e => setClaimForm({...claimForm, payment: e.target.value})} placeholder="550" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label><input type="number" value={claimForm.balanceClaim} onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})} placeholder="0" /></div>
             </div>
 
             <div style={{marginTop:'20px'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                 <label style={{fontSize:'0.85rem', color:'#666', fontWeight:'bold'}}>Used Dates</label>
-                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}>
-                  <i className="fa-solid fa-plus"></i> Add Date
-                </button>
+                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}><i className="fa-solid fa-plus"></i> Add Date</button>
               </div>
               {claimForm.usedDates.length === 0 ? (
                 <p style={{color:'#999', fontSize:'0.85rem', textAlign:'center', padding:'20px'}}>No dates added yet</p>
@@ -1247,16 +1224,8 @@ export default function App() {
                 <div style={{maxHeight:'200px', overflowY:'auto', border:'1px solid #eee', borderRadius:'5px', padding:'10px'}}>
                   {claimForm.usedDates.map((used, idx) => (
                     <div key={idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px', background:'#f8f9fa', marginBottom:'5px', borderRadius:'3px'}}>
-                      <span style={{fontSize:'0.85rem'}}>
-                        {used.date} - {used.roomType} {used.roomNumber} ({used.staff})
-                      </span>
-                      <button 
-                        className="btn red" 
-                        style={{fontSize:'0.7rem', padding:'3px 8px'}}
-                        onClick={() => removeUsedDate(idx)}
-                      >
-                        <i className="fa-solid fa-trash"></i>
-                      </button>
+                      <span style={{fontSize:'0.85rem'}}>{used.date} - {used.roomType} {used.roomNumber} ({used.staff})</span>
+                      <button className="btn red" style={{fontSize:'0.7rem', padding:'3px 8px'}} onClick={() => removeUsedDate(idx)}><i className="fa-solid fa-trash"></i></button>
                     </div>
                   ))}
                 </div>
@@ -1264,20 +1233,8 @@ export default function App() {
             </div>
 
             <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
-              <button 
-                className="btn grey" 
-                style={{flex:1, justifyContent:'center'}} 
-                onClick={() => { setClaimModal(false); resetClaimForm(); }}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn blue" 
-                style={{flex:1, justifyContent:'center'}} 
-                onClick={editingClaim ? handleUpdateClaim : handleAddClaim}
-              >
-                {editingClaim ? 'Update' : 'Add'} Record
-              </button>
+              <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => { setClaimModal(false); resetClaimForm(); }}>Cancel</button>
+              <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={editingClaim ? handleUpdateClaim : handleAddClaim}>{editingClaim ? 'Update' : 'Add'} Record</button>
             </div>
           </div>
         </div>

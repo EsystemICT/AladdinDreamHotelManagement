@@ -634,3 +634,56 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   .tabs button span { display: inline; }
   .nav-item span { display: inline; }
 }
+
+/* LAUNDRY SYSTEM */
+.laundry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.laundry-input-card {
+  display: flex;
+  flex-direction: column;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.laundry-input-card label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #333;
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.laundry-input-card input {
+  margin: 0;
+  padding: 8px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.laundry-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #f9fafb;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  border-left: 3px solid #ccc;
+}
+
+.laundry-item-row.correct { border-left-color: #10b981; }
+.laundry-item-row.incorrect { border-left-color: #ef4444; }
+
+.laundry-actions {
+  display: flex;
+  gap: 5px;
+}

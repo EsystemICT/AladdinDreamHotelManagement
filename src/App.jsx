@@ -60,8 +60,8 @@ export default function App() {
   const [inventory, setInventory] = useState([]);
   const [claimDays, setClaimDays] = useState([]);
   const [laundry, setLaundry] = useState([]);
-  const [laundryItems, setLaundryItems] = useState([]);
   const [stockItems, setStockItems] = useState([]);
+  const [laundryItemDetails, setLaundryItemDetails] = useState({});
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -88,7 +88,6 @@ export default function App() {
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
   const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
-  const [editLaundryItemModal, setEditLaundryItemModal] = useState(null);
   const [editStockModal, setEditStockModal] = useState(null);
 
   // Claim Days UI
@@ -151,13 +150,17 @@ export default function App() {
     const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"));
     const unsubLaundry = onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    const qLaundryItems = query(collection(db, "laundryItems"), orderBy("order", "asc"));
-    const unsubLaundryItems = onSnapshot(qLaundryItems, (snap) => setLaundryItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    // Listener for laundry item opening stock details
+    const unsubLaundryDetails = onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
+      if (snap.exists()) {
+        setLaundryItemDetails(snap.data().items || {});
+      }
+    });
 
     const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
     const unsubStock = onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryItems(); unsubStock(); };
+    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); };
   }, [currentUser]);
 
   // --- 3. AUTH ---
@@ -238,10 +241,7 @@ export default function App() {
     const itemsToSend = {};
     let hasItems = false;
     
-    const allItems = laundryItems.length > 0 ? laundryItems : LAUNDRY_ITEMS.map(name => ({ name }));
-    
-    allItems.forEach(item => {
-        const itemName = item.name;
+    LAUNDRY_ITEMS.forEach(itemName => {
         if (laundryForm[itemName] > 0) {
             itemsToSend[itemName] = { sentQty: laundryForm[itemName], status: 'pending', remark: '' };
             hasItems = true;
@@ -289,41 +289,29 @@ export default function App() {
     alert("Laundry marked as received!");
   };
 
-  // Admin Laundry Item Management
-  const handleAddLaundryItem = async () => {
-    const name = prompt("Enter laundry item name:");
-    if (!name) return;
-    const details = prompt("Enter opening stock details (e.g., '100 Single, 100 Queen'):");
+  // Admin Opening Stock Management for Laundry Items
+  const handleUpdateLaundryItemDetails = async (itemName) => {
+    const currentDetails = laundryItemDetails[itemName] || '';
+    const newDetails = prompt(`Enter opening stock details for ${itemName} (e.g., "Single 100, Queen 200"):`, currentDetails);
+    if (newDetails === null) return;
     
-    const maxOrder = laundryItems.length > 0 ? Math.max(...laundryItems.map(i => i.order || 0)) : 0;
-    
-    await addDoc(collection(db, "laundryItems"), {
-      name: name,
-      details: details || '',
-      order: maxOrder + 1,
-      createdAt: serverTimestamp()
-    });
-    alert("Laundry item added!");
-  };
-
-  const handleUpdateLaundryItem = async () => {
-    if (!editLaundryItemModal) return;
-    const name = prompt("Edit item name:", editLaundryItemModal.name);
-    if (name === null) return;
-    const details = prompt("Edit opening stock details:", editLaundryItemModal.details);
-    if (details === null) return;
-    
-    await updateDoc(doc(db, "laundryItems", editLaundryItemModal.id), {
-      name: name,
-      details: details
-    });
-    setEditLaundryItemModal(null);
-    alert("Item updated!");
-  };
-
-  const handleDeleteLaundryItem = async (itemId) => {
-    if (!confirm("Delete this laundry item?")) return;
-    await deleteDoc(doc(db, "laundryItems", itemId));
+    try {
+      await updateDoc(doc(db, "settings", "laundryDetails"), {
+        [`items.${itemName}`]: newDetails
+      });
+      alert("Opening stock updated!");
+    } catch (error) {
+      // If document doesn't exist, create it
+      try {
+        await addDoc(collection(db, "settings"), {
+          id: "laundryDetails",
+          items: { [itemName]: newDetails }
+        });
+        alert("Opening stock updated!");
+      } catch (e) {
+        alert("Failed to update opening stock");
+      }
+    }
   };
 
   // Stock Management
@@ -570,9 +558,6 @@ export default function App() {
       return d >= oneWeekAgo;
   });
 
-  // Get laundry display items (use admin-created or fallback to default)
-  const displayLaundryItems = laundryItems.length > 0 ? laundryItems : LAUNDRY_ITEMS.map((name, idx) => ({ name, details: '', order: idx }));
-
   // --- RENDER LOGIN ---
   if (!currentUser) {
     return (
@@ -770,44 +755,36 @@ export default function App() {
               <div className="floor-section" style={{margin:0}}>
                 <h2 className="floor-title">
                   <span><i className="fa-solid fa-truck-fast"></i> Send Laundry</span>
-                  {currentUser.role === 'admin' && (
-                    <button className="btn green" style={{fontSize:'0.8rem', padding:'6px 12px'}} onClick={handleAddLaundryItem}>
-                      <i className="fa-solid fa-plus"></i> Add Item
-                    </button>
-                  )}
                 </h2>
                 <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
                     <div className="laundry-grid">
-                        {displayLaundryItems.map(item => (
-                            <div key={item.name} className="laundry-input-card">
+                        {LAUNDRY_ITEMS.map(itemName => (
+                            <div key={itemName} className="laundry-input-card">
                                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:'5px'}}>
                                   <label style={{flex: 1}}>
-                                    {item.name}
-                                    {item.details && <span style={{display:'block', fontSize:'0.7rem', color:'#666', fontWeight:'normal'}}>({item.details})</span>}
+                                    {itemName}
+                                    {laundryItemDetails[itemName] && (
+                                      <span style={{display:'block', fontSize:'0.7rem', color:'#666', fontWeight:'normal'}}>
+                                        ({laundryItemDetails[itemName]})
+                                      </span>
+                                    )}
                                   </label>
-                                  {currentUser.role === 'admin' && item.id && (
-                                    <div style={{display:'flex', gap:'3px'}}>
-                                      <button 
-                                        onClick={() => setEditLaundryItemModal(item)} 
-                                        style={{background:'none', border:'none', color:'#3b82f6', cursor:'pointer', fontSize:'0.75rem'}}
-                                      >
-                                        <i className="fa-solid fa-edit"></i>
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteLaundryItem(item.id)} 
-                                        style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:'0.75rem'}}
-                                      >
-                                        <i className="fa-solid fa-trash"></i>
-                                      </button>
-                                    </div>
+                                  {currentUser.role === 'admin' && (
+                                    <button 
+                                      onClick={() => handleUpdateLaundryItemDetails(itemName)} 
+                                      style={{background:'none', border:'none', color:'#3b82f6', cursor:'pointer', fontSize:'0.75rem', padding: '2px 4px'}}
+                                      title="Edit opening stock"
+                                    >
+                                      <i className="fa-solid fa-edit"></i>
+                                    </button>
                                   )}
                                 </div>
                                 <input 
                                     type="number" 
                                     min="0"
                                     placeholder="0"
-                                    value={laundryForm[item.name] || ''}
-                                    onChange={(e) => handleLaundryChange(item.name, e.target.value)}
+                                    value={laundryForm[itemName] || ''}
+                                    onChange={(e) => handleLaundryChange(itemName, e.target.value)}
                                 />
                             </div>
                         ))}
@@ -1218,21 +1195,6 @@ export default function App() {
       )}
 
       {/* --- MODALS --- */}
-
-      {/* LAUNDRY ITEM EDIT MODAL */}
-      {editLaundryItemModal && (
-        <div className="modal-overlay" onClick={() => setEditLaundryItemModal(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>Edit Laundry Item</h2>
-            <button className="btn blue" style={{width:'100%', justifyContent:'center', marginTop:'10px'}} onClick={handleUpdateLaundryItem}>
-              Update Item
-            </button>
-            <button className="btn grey" style={{width:'100%', justifyContent:'center', marginTop:'10px'}} onClick={() => setEditLaundryItemModal(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* STOCK EDIT MODAL */}
       {editStockModal && (

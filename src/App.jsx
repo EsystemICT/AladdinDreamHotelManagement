@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit, writeBatch, setDoc } from 'firebase/firestore';
 import './App.css';
 
 // ICONS & TABS
@@ -292,25 +292,21 @@ export default function App() {
   // Admin Opening Stock Management for Laundry Items
   const handleUpdateLaundryItemDetails = async (itemName) => {
     const currentDetails = laundryItemDetails[itemName] || '';
-    const newDetails = prompt(`Enter opening stock details for ${itemName} (e.g., "Single 100, Queen 200"):`, currentDetails);
+    const newDetails = prompt(`Enter opening stock details for ${itemName} (e.g., "100" or "100 Single, 100 Queen"):`, currentDetails);
     if (newDetails === null) return;
     
     try {
-      await updateDoc(doc(db, "settings", "laundryDetails"), {
-        [`items.${itemName}`]: newDetails
-      });
+      // setDoc with { merge: true } creates the doc if it doesn't exist, or updates it if it does!
+      await setDoc(doc(db, "settings", "laundryDetails"), {
+        items: {
+          [itemName]: newDetails
+        }
+      }, { merge: true });
+      
       alert("Opening stock updated!");
     } catch (error) {
-      // If document doesn't exist, create it
-      try {
-        await addDoc(collection(db, "settings"), {
-          id: "laundryDetails",
-          items: { [itemName]: newDetails }
-        });
-        alert("Opening stock updated!");
-      } catch (e) {
-        alert("Failed to update opening stock");
-      }
+      console.error("Error updating stock:", error);
+      alert("Failed to update opening stock");
     }
   };
 
@@ -759,15 +755,10 @@ export default function App() {
                 <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
                     <div className="laundry-grid">
                         {LAUNDRY_ITEMS.map(itemName => (
-                            <div key={itemName} className="laundry-input-card">
+                            <div className="laundry-input-card">
                                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:'5px'}}>
-                                  <label style={{flex: 1}}>
-                                    {itemName}
-                                    {laundryItemDetails[itemName] && (
-                                      <span style={{display:'block', fontSize:'0.7rem', color:'#666', fontWeight:'normal'}}>
-                                        ({laundryItemDetails[itemName]})
-                                      </span>
-                                    )}
+                                  <label style={{flex: 1, whiteSpace: 'normal', wordWrap: 'break-word'}}>
+                                    {itemName} {laundryItemDetails[itemName] ? <span style={{color:'#0056b3'}}>({laundryItemDetails[itemName]})</span> : ''}
                                   </label>
                                   {currentUser.role === 'admin' && (
                                     <button 

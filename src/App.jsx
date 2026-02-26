@@ -14,7 +14,7 @@ const ICONS = {
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
 
-// LAUNDRY ITEMS (From Receipt)
+// LAUNDRY ITEMS
 const LAUNDRY_ITEMS = [
   "Bed Sheet", "Duvet Cover", "Pillow Case", "Bath Towel", "Bath Mat", 
   "Bath Towel New", "Face Towel", "Pillow Pad", "Pillow", "Comforter", 
@@ -85,7 +85,7 @@ export default function App() {
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
 
-  // Laundry UI
+  // Laundry/Stock UI
   const [laundryForm, setLaundryForm] = useState({});
   const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
   const [editStockModal, setEditStockModal] = useState(null);
@@ -150,11 +150,8 @@ export default function App() {
     const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"));
     const unsubLaundry = onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // Listener for laundry item opening stock details
     const unsubLaundryDetails = onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
-      if (snap.exists()) {
-        setLaundryItemDetails(snap.data().items || {});
-      }
+      if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
     });
 
     const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
@@ -211,20 +208,6 @@ export default function App() {
     } catch (error) {
         alert("Failed to update password.");
     }
-  };
-
-  const addPublicRooms = async () => {
-    const newRooms = [
-      { id: "1A", type: "STORE", floor: 1, status: "vacant" }, { id: "1B", type: "STORE", floor: 1, status: "vacant" },
-      { id: "2A", type: "STORE", floor: 2, status: "vacant" }, { id: "2B", type: "STORE", floor: 2, status: "vacant" },
-      { id: "3A", type: "STORE", floor: 3, status: "vacant" }, { id: "3B", type: "STORE", floor: 3, status: "vacant" },
-      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
-    ];
-    const batch = writeBatch(db);
-    newRooms.forEach(r => batch.set(doc(db, "rooms", r.id), r));
-    await batch.commit();
-    alert("New rooms and facilities added to Database!");
   };
 
   // --- 4. LAUNDRY & STOCK FUNCTIONS ---
@@ -289,55 +272,44 @@ export default function App() {
     alert("Laundry marked as received!");
   };
 
-  // Admin Opening Stock Management for Laundry Items
   const handleUpdateLaundryItemDetails = async (itemName) => {
     const currentDetails = laundryItemDetails[itemName] || '';
     const newDetails = prompt(`Enter opening stock details for ${itemName} (e.g., "100" or "100 Single, 100 Queen"):`, currentDetails);
     if (newDetails === null) return;
-    
     try {
-      // setDoc with { merge: true } creates the doc if it doesn't exist, or updates it if it does!
-      await setDoc(doc(db, "settings", "laundryDetails"), {
-        items: {
-          [itemName]: newDetails
-        }
-      }, { merge: true });
-      
+      await setDoc(doc(db, "settings", "laundryDetails"), { items: { [itemName]: newDetails } }, { merge: true });
       alert("Opening stock updated!");
     } catch (error) {
-      console.error("Error updating stock:", error);
       alert("Failed to update opening stock");
     }
   };
 
-  // Stock Management
-  const handleAddStock = async () => {
-    const name = prompt("Enter stock item name:");
-    if (!name) return;
-    const quantity = prompt("Enter opening quantity:");
-    if (!quantity) return;
-    
+  // Stock Management (New Categorized Logic)
+  const handleAddStock = async (e) => {
+    e.preventDefault();
+    const f = e.target;
     const maxOrder = stockItems.length > 0 ? Math.max(...stockItems.map(i => i.order || 0)) : 0;
     
     await addDoc(collection(db, "stock"), {
-      name: name,
-      quantity: parseInt(quantity) || 0,
+      name: f.name.value,
+      quantity: parseInt(f.quantity.value) || 0,
+      category: f.category.value || "General",
+      subcategory: f.subcategory.value || "",
       order: maxOrder + 1,
       createdAt: serverTimestamp()
     });
+    f.reset();
     alert("Stock item added!");
   };
 
-  const handleUpdateStock = async () => {
+  const handleUpdateStock = async (e) => {
+    e.preventDefault();
     if (!editStockModal) return;
-    const name = prompt("Edit item name:", editStockModal.name);
-    if (name === null) return;
-    const quantity = prompt("Edit quantity:", editStockModal.quantity);
-    if (quantity === null) return;
-    
     await updateDoc(doc(db, "stock", editStockModal.id), {
-      name: name,
-      quantity: parseInt(quantity) || 0
+      name: editStockModal.name,
+      quantity: parseInt(editStockModal.quantity) || 0,
+      category: editStockModal.category || "General",
+      subcategory: editStockModal.subcategory || ""
     });
     setEditStockModal(null);
     alert("Stock updated!");
@@ -348,7 +320,42 @@ export default function App() {
     await deleteDoc(doc(db, "stock", itemId));
   };
 
-  // --- 5. OTHER FUNCTIONS ---
+  const openEditStock = (item) => {
+    setEditStockModal({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        category: item.category || 'General',
+        subcategory: item.subcategory || ''
+    });
+  };
+
+  // --- 5. ROOM & TICKETS LOGIC ---
+  const toggleRoomKey = async (room) => {
+    const newHasKey = !room.hasKey;
+    await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
+    setSelectedRoom({...room, hasKey: newHasKey}); 
+  };
+
+  const updateRoomStatus = async (roomId, newStatus) => {
+    await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
+    setSelectedRoom(null);
+  };
+
+  const reportIssue = async (roomId) => {
+    const issue = prompt(`Issue description for Room ${roomId}?`);
+    if (!issue) return;
+    await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp(), reportedBy: currentUser.name });
+    await updateRoomStatus(roomId, 'maintenance');
+  };
+
+  const resolveTicket = async (ticket) => {
+    if(!confirm("Mark this ticket as Resolved?")) return;
+    await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
+    await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
+  };
+
+  // --- 6. OTHER ACTIONS (Clock, Leaves, Requests, Claims) ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), {
@@ -378,9 +385,7 @@ export default function App() {
     if (!invItem.bought) {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
         if (remark === null) return; 
-        await updateDoc(doc(db, "inventory", invItem.id), { 
-            bought: true, buyRemark: remark, boughtBy: currentUser.name, boughtAt: serverTimestamp() 
-        });
+        await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark, boughtBy: currentUser.name, boughtAt: serverTimestamp() });
     } else {
         if(confirm("Unmark this item as bought?")) {
             await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '', boughtBy: null, boughtAt: null });
@@ -415,24 +420,6 @@ export default function App() {
     setRejectModal({ show: false, reqId: null });
   };
 
-  const updateRoomStatus = async (roomId, newStatus) => {
-    await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
-    setSelectedRoom(null);
-  };
-
-  const reportIssue = async (roomId) => {
-    const issue = prompt(`Issue description for Room ${roomId}?`);
-    if (!issue) return;
-    await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp(), reportedBy: currentUser.name });
-    await updateRoomStatus(roomId, 'maintenance');
-  };
-
-  const resolveTicket = async (ticket) => {
-    if(!confirm("Mark this ticket as Resolved?")) return;
-    await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
-    await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
-  };
-
   const handleCreateUser = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -440,7 +427,6 @@ export default function App() {
     f.reset(); alert("User Created!");
   };
 
-  // --- CLAIM DAYS LOGIC ---
   const handleAddClaim = async () => {
     if (!claimForm.guestName || !claimForm.icNumber || !claimForm.contactNumber) { alert('Please fill in guest details'); return; }
     try {
@@ -486,15 +472,13 @@ export default function App() {
     setClaimForm(prev => ({ ...prev, usedDates: prev.usedDates.filter((_, i) => i !== index) }));
   };
 
-  // --- PROCESS DATA ---
+
+  // --- DATA PROCESSING ---
   const filteredRooms = rooms.filter(r => r.id.toLowerCase().includes(roomSearch.toLowerCase()));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
 
-  const getProcessedTickets = () => {
-    let processed = [...tickets];
-    if (ticketSearch) processed = processed.filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase()));
-    processed.sort((a, b) => {
+  const processedTickets = [...tickets].filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase())).sort((a, b) => {
       const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
       const dateB = b.createdAt ? b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt) : new Date(0);
       const roomA = parseInt(a.roomId) || 0;
@@ -506,10 +490,7 @@ export default function App() {
         case 'room-desc': return roomB - roomA;
         default: return 0;
       }
-    });
-    return processed;
-  };
-  const processedTickets = getProcessedTickets();
+  });
 
   const currentMonthName = currentTime.toLocaleString('en-MY', { month: 'long', year: 'numeric' }).toUpperCase();
   const currentMonthIndex = currentTime.getMonth();
@@ -519,9 +500,18 @@ export default function App() {
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
+  // Group Stock By Category and Subcategory
+  const groupedStock = {};
+  stockItems.forEach(item => {
+      const cat = item.category || 'General';
+      const sub = item.subcategory || '';
+      if (!groupedStock[cat]) groupedStock[cat] = {};
+      if (!groupedStock[cat][sub]) groupedStock[cat][sub] = [];
+      groupedStock[cat][sub].push(item);
+  });
+
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
-  
   attendance.forEach(a => {
       const d = a.timestamp ? (a.timestamp.toDate ? a.timestamp.toDate() : new Date(a.timestamp)) : new Date();
       if (d.toLocaleDateString('en-MY') === todayDateString) {
@@ -538,15 +528,12 @@ export default function App() {
           }
       }
   });
-
   const todaysAttendanceData = Object.values(todaysAttendanceMap).sort((a, b) => {
     if (!a.inRaw) return 1; if (!b.inRaw) return -1; return a.inRaw - b.inRaw;
   });
 
-  // Laundry 7-Day History Logic
   const oneWeekAgo = new Date(currentTime);
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  
   const pendingLaundry = laundry.filter(l => l.status === 'pending');
   const historyLaundry = laundry.filter(l => {
       if (l.status !== 'received') return false;
@@ -633,6 +620,12 @@ export default function App() {
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
+                          
+                          {/* KEY ICON OVERLAY */}
+                          {room.hasKey && (
+                            <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>
+                          )}
+
                           <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
@@ -741,10 +734,9 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: LAUNDRY/STOCK (UPDATED) --- */}
+      {/* --- VIEW: LAUNDRY & CATEGORIZED STOCK --- */}
       {view === 'LAUNDRY' && (
         <div className="dashboard">
-          
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px'}}>
               
               {/* SEND LAUNDRY FORM */}
@@ -755,7 +747,7 @@ export default function App() {
                 <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
                     <div className="laundry-grid">
                         {LAUNDRY_ITEMS.map(itemName => (
-                            <div className="laundry-input-card">
+                            <div key={itemName} className="laundry-input-card">
                                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:'5px'}}>
                                   <label style={{flex: 1, whiteSpace: 'normal', wordWrap: 'break-word'}}>
                                     {itemName} {laundryItemDetails[itemName] ? <span style={{color:'#0056b3'}}>({laundryItemDetails[itemName]})</span> : ''}
@@ -770,65 +762,72 @@ export default function App() {
                                     </button>
                                   )}
                                 </div>
-                                <input 
-                                    type="number" 
-                                    min="0"
-                                    placeholder="0"
-                                    value={laundryForm[itemName] || ''}
-                                    onChange={(e) => handleLaundryChange(itemName, e.target.value)}
-                                />
+                                <input type="number" min="0" placeholder="0" value={laundryForm[itemName] || ''} onChange={(e) => handleLaundryChange(itemName, e.target.value)} />
                             </div>
                         ))}
                     </div>
                 </div>
-                <button onClick={handleSendLaundry} className="btn blue" style={{width: '100%', justifyContent: 'center', marginTop: '15px'}}>
-                    Submit Laundry Batch
-                </button>
+                <button onClick={handleSendLaundry} className="btn blue" style={{width: '100%', justifyContent: 'center', marginTop: '15px'}}>Submit Laundry Batch</button>
               </div>
 
-              {/* STOCK MANAGEMENT */}
+              {/* STOCK MANAGEMENT (WITH CATEGORIES) */}
               <div className="floor-section" style={{margin:0}}>
                 <h2 className="floor-title">
-                  <span><i className="fa-solid fa-box"></i> Stock Inventory</span>
-                  {currentUser.role === 'admin' && (
-                    <button className="btn green" style={{fontSize:'0.8rem', padding:'6px 12px'}} onClick={handleAddStock}>
-                      <i className="fa-solid fa-plus"></i> Add Item
-                    </button>
-                  )}
+                  <span><i className="fa-solid fa-box"></i> Hotel Stock</span>
                 </h2>
-                <div className="scroll-pane scroll-pane-tall">
+                <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
+                    
+                    {/* INLINE ADD FORM FOR ADMINS */}
+                    {currentUser.role === 'admin' && (
+                      <form onSubmit={handleAddStock} style={{display:'flex', gap:'8px', flexWrap:'wrap', marginBottom:'20px', paddingBottom:'20px', borderBottom:'2px solid #eee'}}>
+                        <input name="category" placeholder="Category (e.g. Toiletries)" required style={{flex:'1', minWidth:'130px'}} />
+                        <input name="subcategory" placeholder="Sub-category (Opt)" style={{flex:'1', minWidth:'130px'}} />
+                        <input name="name" placeholder="Item Name" required style={{flex:'2', minWidth:'150px'}} />
+                        <input name="quantity" placeholder="Qty" type="number" required style={{width:'80px', flex:'none'}} />
+                        <button type="submit" className="btn green" style={{flex:'1', justifyContent:'center'}}>Add</button>
+                      </form>
+                    )}
+
                     {stockItems.length === 0 ? (
-                      <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No stock items yet.</p>
+                      <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No stock items configured.</p>
                     ) : (
-                      <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
-                        {stockItems.map((item, idx) => (
-                          <div key={item.id} className="stock-item-row">
-                            <div style={{display:'flex', alignItems:'center', gap:'10px', flex:1}}>
-                              <span style={{color:'#888', minWidth:'25px'}}>{idx + 1})</span>
-                              <div style={{flex:1}}>
-                                <span style={{fontWeight:'bold', color:'#333'}}>{item.name}</span>
-                              </div>
-                              <span style={{fontWeight:'bold', color:'#3b82f6', fontSize:'1.1rem'}}>{item.quantity}</span>
+                      <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
+                        {Object.keys(groupedStock).sort().map(cat => (
+                            <div key={cat}>
+                                {/* Category Header */}
+                                <h3 style={{fontSize: '1rem', color: '#1e3a8a', borderBottom: '2px solid #eff6ff', paddingBottom: '4px', marginBottom: '10px', textTransform:'uppercase'}}>
+                                  <i className="fa-solid fa-folder-open" style={{marginRight:'8px'}}></i>{cat}
+                                </h3>
+                                
+                                {Object.keys(groupedStock[cat]).sort().map(sub => (
+                                    <div key={sub} style={{marginBottom: '12px', paddingLeft: '10px'}}>
+                                        {/* Subcategory Header */}
+                                        {sub && <h4 style={{fontSize: '0.85rem', color: '#6b7280', margin: '0 0 8px 0', textTransform: 'uppercase'}}><i className="fa-solid fa-angle-right" style={{marginRight:'5px'}}></i>{sub}</h4>}
+                                        
+                                        {/* Items List */}
+                                        <div style={{display:'flex', flexDirection:'column', gap:'6px', paddingLeft: sub ? '15px' : '0'}}>
+                                          {groupedStock[cat][sub].map((item, idx) => (
+                                              <div key={item.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:'6px'}}>
+                                                  <div style={{display:'flex', alignItems:'center', gap:'10px', flex:1}}>
+                                                    <span style={{fontWeight:'bold', color:'#333'}}>{item.name}</span>
+                                                  </div>
+                                                  
+                                                  <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
+                                                    <span style={{fontWeight:'bold', color:'#3b82f6', fontSize:'1.1rem', background:'#eff6ff', padding:'2px 8px', borderRadius:'12px'}}>{item.quantity}</span>
+                                                    
+                                                    {currentUser.role === 'admin' && (
+                                                      <div style={{display:'flex', gap:'5px', borderLeft:'1px solid #ddd', paddingLeft:'10px'}}>
+                                                        <button onClick={() => openEditStock(item)} className="btn blue" style={{fontSize:'0.75rem', padding:'4px 8px'}}><i className="fa-solid fa-edit"></i></button>
+                                                        <button onClick={() => handleDeleteStock(item.id)} className="btn red" style={{fontSize:'0.75rem', padding:'4px 8px'}}><i className="fa-solid fa-trash"></i></button>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                              </div>
+                                          ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            {currentUser.role === 'admin' && (
-                              <div style={{display:'flex', gap:'5px', marginLeft:'10px'}}>
-                                <button 
-                                  onClick={() => setEditStockModal(item)} 
-                                  className="btn blue"
-                                  style={{fontSize:'0.75rem', padding:'4px 8px'}}
-                                >
-                                  <i className="fa-solid fa-edit"></i>
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteStock(item.id)} 
-                                  className="btn red"
-                                  style={{fontSize:'0.75rem', padding:'4px 8px'}}
-                                >
-                                  <i className="fa-solid fa-trash"></i>
-                                </button>
-                              </div>
-                            )}
-                          </div>
                         ))}
                       </div>
                     )}
@@ -836,9 +835,9 @@ export default function App() {
               </div>
           </div>
 
-          {/* PENDING RECEIVED */}
+          {/* PENDING RECEIVED LAUNDRY */}
           <div className="floor-section" style={{marginTop: '20px'}}>
-            <h2 className="floor-title"><i className="fa-solid fa-spinner"></i> Pending Received</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-spinner"></i> Pending Received Laundry</h2>
             <div className="scroll-pane">
                 {pendingLaundry.length === 0 ? <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No pending laundry batches.</p> : 
                     pendingLaundry.map(batch => (
@@ -859,7 +858,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 7 DAY HISTORY */}
+          {/* 7 DAY LAUNDRY HISTORY */}
           <div className="floor-section" style={{marginTop: '20px'}}>
              <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> 7-Day Laundry History</h2>
              <div className="scroll-pane scroll-pane-tall">
@@ -886,7 +885,6 @@ export default function App() {
                 }
              </div>
           </div>
-
         </div>
       )}
 
@@ -1187,17 +1185,20 @@ export default function App() {
 
       {/* --- MODALS --- */}
 
-      {/* STOCK EDIT MODAL */}
+      {/* EDIT STOCK MODAL */}
       {editStockModal && (
         <div className="modal-overlay" onClick={() => setEditStockModal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2>Edit Stock Item</h2>
-            <button className="btn blue" style={{width:'100%', justifyContent:'center', marginTop:'10px'}} onClick={handleUpdateStock}>
-              Update Stock
-            </button>
-            <button className="btn grey" style={{width:'100%', justifyContent:'center', marginTop:'10px'}} onClick={() => setEditStockModal(null)}>
-              Cancel
-            </button>
+            <form onSubmit={handleUpdateStock} style={{display:'flex', flexDirection:'column', gap:'10px', marginTop:'15px'}}>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Category</label><input value={editStockModal.category} onChange={e => setEditStockModal({...editStockModal, category: e.target.value})} placeholder="Category" required /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Sub-category</label><input value={editStockModal.subcategory} onChange={e => setEditStockModal({...editStockModal, subcategory: e.target.value})} placeholder="Sub-category (Optional)" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Item Name</label><input value={editStockModal.name} onChange={e => setEditStockModal({...editStockModal, name: e.target.value})} placeholder="Item Name" required /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Quantity</label><input type="number" value={editStockModal.quantity} onChange={e => setEditStockModal({...editStockModal, quantity: e.target.value})} placeholder="Quantity" required /></div>
+              
+              <button type="submit" className="btn blue" style={{justifyContent:'center', marginTop:'10px'}}>Update Stock</button>
+              <button type="button" className="btn grey" style={{justifyContent:'center'}} onClick={() => setEditStockModal(null)}>Cancel</button>
+            </form>
           </div>
         </div>
       )}
@@ -1309,14 +1310,30 @@ export default function App() {
         </div>
       )}
 
-      {/* ROOM MODAL WITH HISTORY */}
+      {/* ROOM MODAL WITH HISTORY & KEY TOGGLE */}
       {selectedRoom && (
         <div className="modal-overlay" onClick={() => setSelectedRoom(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{position: 'relative'}}>
+            
+            {/* NEW KEY TOGGLE BUTTON */}
+            <button 
+              onClick={() => toggleRoomKey(selectedRoom)}
+              style={{
+                position: 'absolute', top: '15px', right: '15px', 
+                background: 'none', border: 'none', cursor: 'pointer', 
+                fontSize: '1.5rem', color: selectedRoom.hasKey ? '#fbbf24' : '#e5e7eb',
+                transition: 'color 0.2s'
+              }}
+              title={selectedRoom.hasKey ? "Room has key (Click to remove)" : "No key (Click to flag as having key)"}
+            >
+              <i className="fa-solid fa-key"></i>
+            </button>
+
             <h2>Room {selectedRoom.id}</h2>
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
             
             <div style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom: '20px'}}>
+              {/* Only 2 Actions: Maintenance OR Ready */}
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (
@@ -1355,19 +1372,75 @@ export default function App() {
             <h2>{editingClaim ? 'Edit' : 'Add'} Claim Day Record</h2>
             
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginTop:'15px'}}>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label><input value={claimForm.guestName} onChange={e => setClaimForm({...claimForm, guestName: e.target.value})} placeholder="Full Name" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label><input value={claimForm.icNumber} onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})} placeholder="IC/Passport No" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label><input value={claimForm.contactNumber} onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})} placeholder="Phone Number" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label><input type="date" value={claimForm.bookingDate} onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ cursor: 'pointer' }} required /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label><input value={claimForm.roomType} onChange={e => setClaimForm({...claimForm, roomType: e.target.value})} placeholder="e.g., Deluxe, Suite" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label><input type="number" value={claimForm.payment} onChange={e => setClaimForm({...claimForm, payment: e.target.value})} placeholder="550" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label><input type="number" value={claimForm.balanceClaim} onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})} placeholder="0" /></div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label>
+                <input
+                  value={claimForm.guestName}
+                  onChange={e => setClaimForm({...claimForm, guestName: e.target.value})}
+                  placeholder="Full Name"
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label>
+                <input
+                  value={claimForm.icNumber}
+                  onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})}
+                  placeholder="IC/Passport No"
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label>
+                <input
+                  value={claimForm.contactNumber}
+                  onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})}
+                  placeholder="Phone Number"
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label>
+                <input
+                  type="date"
+                  value={claimForm.bookingDate}
+                  onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})}
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{ cursor: 'pointer' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label>
+                <input
+                  value={claimForm.roomType}
+                  onChange={e => setClaimForm({...claimForm, roomType: e.target.value})}
+                  placeholder="e.g., Deluxe, Suite"
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label>
+                <input
+                  type="number"
+                  value={claimForm.payment}
+                  onChange={e => setClaimForm({...claimForm, payment: e.target.value})}
+                  placeholder="550"
+                />
+              </div>
+              <div>
+                <label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label>
+                <input
+                  type="number"
+                  value={claimForm.balanceClaim}
+                  onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})}
+                  placeholder="0"
+                />
+              </div>
             </div>
 
             <div style={{marginTop:'20px'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                 <label style={{fontSize:'0.85rem', color:'#666', fontWeight:'bold'}}>Used Dates</label>
-                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}><i className="fa-solid fa-plus"></i> Add Date</button>
+                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}>
+                  <i className="fa-solid fa-plus"></i> Add Date
+                </button>
               </div>
               {claimForm.usedDates.length === 0 ? (
                 <p style={{color:'#999', fontSize:'0.85rem', textAlign:'center', padding:'20px'}}>No dates added yet</p>
@@ -1375,8 +1448,16 @@ export default function App() {
                 <div style={{maxHeight:'200px', overflowY:'auto', border:'1px solid #eee', borderRadius:'5px', padding:'10px'}}>
                   {claimForm.usedDates.map((used, idx) => (
                     <div key={idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px', background:'#f8f9fa', marginBottom:'5px', borderRadius:'3px'}}>
-                      <span style={{fontSize:'0.85rem'}}>{used.date} - {used.roomType} {used.roomNumber} ({used.staff})</span>
-                      <button className="btn red" style={{fontSize:'0.7rem', padding:'3px 8px'}} onClick={() => removeUsedDate(idx)}><i className="fa-solid fa-trash"></i></button>
+                      <span style={{fontSize:'0.85rem'}}>
+                        {used.date} - {used.roomType} {used.roomNumber} ({used.staff})
+                      </span>
+                      <button 
+                        className="btn red" 
+                        style={{fontSize:'0.7rem', padding:'3px 8px'}}
+                        onClick={() => removeUsedDate(idx)}
+                      >
+                        <i className="fa-solid fa-trash"></i>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1384,8 +1465,20 @@ export default function App() {
             </div>
 
             <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
-              <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => { setClaimModal(false); resetClaimForm(); }}>Cancel</button>
-              <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={editingClaim ? handleUpdateClaim : handleAddClaim}>{editingClaim ? 'Update' : 'Add'} Record</button>
+              <button 
+                className="btn grey" 
+                style={{flex:1, justifyContent:'center'}} 
+                onClick={() => { setClaimModal(false); resetClaimForm(); }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn blue" 
+                style={{flex:1, justifyContent:'center'}} 
+                onClick={editingClaim ? handleUpdateClaim : handleAddClaim}
+              >
+                {editingClaim ? 'Update' : 'Add'} Record
+              </button>
             </div>
           </div>
         </div>

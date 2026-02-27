@@ -510,7 +510,7 @@ export default function App() {
           </style>
         </head>
         <body>
-          <h1>Aladdin Hotel - System Audit Report</h1>
+          <h1>Aladdin Dream Hotel - System Audit Report</h1>
           <table>
             <thead>
               <tr>

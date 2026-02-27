@@ -501,8 +501,7 @@ export default function App() {
           <title>System Audit Report</title>
           <style>
             body { font-family: sans-serif; color: #333; padding: 20px; }
-            h1 { color: #1e3a8a; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-            .filters-summary { margin-bottom: 20px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 5px; }
+            h1 { color: #1e3a8a; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; }
             th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
             th { background-color: #f4f4f4; color: #111; }
@@ -512,12 +511,6 @@ export default function App() {
         </head>
         <body>
           <h1>Aladdin Hotel - System Audit Report</h1>
-          <div class="filters-summary">
-            <strong>Applied Filters:</strong><br/>
-            Month: ${auditFilterMonth || 'All Time'}<br/>
-            User: ${auditFilterUser || 'All Users'}<br/>
-            Action: ${auditFilterAction || 'All Actions'}
-          </div>
           <table>
             <thead>
               <tr>
@@ -564,7 +557,6 @@ export default function App() {
       printWindow.print();
     }, 250);
   };
-
 
   // --- DATA PROCESSING ---
   const filteredRooms = rooms.filter(r => r.id.toLowerCase().includes(roomSearch.toLowerCase()));

@@ -44,6 +44,20 @@ const formatDate = (timestamp) => {
   return date.toLocaleDateString('en-MY');
 };
 
+// --- AUDIT LOGGER HELPER ---
+const logSystemAction = async (actorName, actionType, details) => {
+  try {
+    await addDoc(collection(db, "auditLogs"), {
+      user: actorName || 'System',
+      action: actionType,
+      details: details,
+      timestamp: serverTimestamp()
+    });
+  } catch(e) {
+    console.error("Audit log failed:", e);
+  }
+};
+
 export default function App() {
   // STATE
   const [currentUser, setCurrentUser] = useState(null);
@@ -62,6 +76,7 @@ export default function App() {
   const [laundry, setLaundry] = useState([]);
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
+  const [auditLogs, setAuditLogs] = useState([]); // NEW: Audit State
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -85,7 +100,7 @@ export default function App() {
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
 
-  // Laundry/Stock UI
+  // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
   const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
   const [editStockModal, setEditStockModal] = useState(null);
@@ -157,7 +172,14 @@ export default function App() {
     const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
     const unsubStock = onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); };
+    // NEW: Audit Logs listener (Only fetch for admins to save bandwidth)
+    let unsubAudit = () => {};
+    if (currentUser.role === 'admin') {
+      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(200));
+      unsubAudit = onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    }
+
+    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); unsubAudit(); };
   }, [currentUser]);
 
   // --- 3. AUTH ---
@@ -175,13 +197,15 @@ export default function App() {
       const userObj = { dbId: docId, ...userData };
       setCurrentUser(userObj);
       localStorage.setItem('hotelUser', JSON.stringify(userObj));
-      setView(userData.role === 'admin' ? 'ADMIN' : 'ROOMS');
+      logSystemAction(userObj.name, 'LOGIN', 'Logged into the system'); // AUDIT LOG
+      setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     } else {
       setLoginError('Incorrect Password');
     }
   };
 
   const handleLogout = () => {
+    logSystemAction(currentUser.name, 'LOGOUT', 'Logged out of the system'); // AUDIT LOG
     localStorage.removeItem('hotelUser');
     setCurrentUser(null);
     setLoginId('');
@@ -194,6 +218,7 @@ export default function App() {
     const newPass = e.target.newPass.value;
     if(newPass.length < 4) return alert("Password too short");
     await updateDoc(doc(db, "users", currentUser.dbId), { password: newPass });
+    logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password'); // AUDIT LOG
     setShowPasswordModal(false);
     alert("Password updated!");
   };
@@ -204,10 +229,26 @@ export default function App() {
     if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
     try {
         await updateDoc(doc(db, "users", staffDocId), { password: newPass });
+        logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); // AUDIT LOG
         alert(`Password for ${staffName} updated successfully!`);
     } catch (error) {
         alert("Failed to update password.");
     }
+  };
+
+  const addPublicRooms = async () => {
+    const newRooms = [
+      { id: "1A", type: "STORE", floor: 1, status: "vacant" }, { id: "1B", type: "STORE", floor: 1, status: "vacant" },
+      { id: "2A", type: "STORE", floor: 2, status: "vacant" }, { id: "2B", type: "STORE", floor: 2, status: "vacant" },
+      { id: "3A", type: "STORE", floor: 3, status: "vacant" }, { id: "3B", type: "STORE", floor: 3, status: "vacant" },
+      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
+      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
+    ];
+    const batch = writeBatch(db);
+    newRooms.forEach(r => batch.set(doc(db, "rooms", r.id), r));
+    await batch.commit();
+    logSystemAction(currentUser.name, 'DB_SEED', 'Added public rooms and storerooms'); // AUDIT LOG
+    alert("New rooms and facilities added to Database!");
   };
 
   // --- 4. LAUNDRY & STOCK FUNCTIONS ---
@@ -239,6 +280,8 @@ export default function App() {
         sentBy: currentUser.name,
         createdAt: serverTimestamp()
     });
+    
+    logSystemAction(currentUser.name, 'LAUNDRY_SENT', `Sent ${Object.keys(itemsToSend).length} types of items to laundry`); // AUDIT LOG
     setLaundryForm({});
     alert("Laundry Sent!");
   };
@@ -268,6 +311,8 @@ export default function App() {
         receivedBy: currentUser.name,
         receivedAt: serverTimestamp()
     });
+    
+    logSystemAction(currentUser.name, 'LAUNDRY_RECEIVED', `Verified and received laundry batch`); // AUDIT LOG
     setReceiveLaundryModal(null);
     alert("Laundry marked as received!");
   };
@@ -278,13 +323,13 @@ export default function App() {
     if (newDetails === null) return;
     try {
       await setDoc(doc(db, "settings", "laundryDetails"), { items: { [itemName]: newDetails } }, { merge: true });
+      logSystemAction(currentUser.name, 'STOCK_CONFIG', `Updated opening stock label for ${itemName}`); // AUDIT LOG
       alert("Opening stock updated!");
     } catch (error) {
       alert("Failed to update opening stock");
     }
   };
 
-  // Stock Management (New Categorized Logic)
   const handleAddStock = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -298,6 +343,7 @@ export default function App() {
       order: maxOrder + 1,
       createdAt: serverTimestamp()
     });
+    logSystemAction(currentUser.name, 'STOCK_ADD', `Added new stock item: ${f.name.value} (${f.quantity.value})`); // AUDIT LOG
     f.reset();
     alert("Stock item added!");
   };
@@ -311,6 +357,7 @@ export default function App() {
       category: editStockModal.category || "General",
       subcategory: editStockModal.subcategory || ""
     });
+    logSystemAction(currentUser.name, 'STOCK_UPDATE', `Updated stock for: ${editStockModal.name} to qty: ${editStockModal.quantity}`); // AUDIT LOG
     setEditStockModal(null);
     alert("Stock updated!");
   };
@@ -318,6 +365,7 @@ export default function App() {
   const handleDeleteStock = async (itemId) => {
     if (!confirm("Delete this stock item?")) return;
     await deleteDoc(doc(db, "stock", itemId));
+    logSystemAction(currentUser.name, 'STOCK_DELETE', `Deleted a stock item`); // AUDIT LOG
   };
 
   const openEditStock = (item) => {
@@ -334,11 +382,13 @@ export default function App() {
   const toggleRoomKey = async (room) => {
     const newHasKey = !room.hasKey;
     await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
+    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Flagged Room ${room.id} key status as: ${newHasKey ? 'Has Key' : 'No Key'}`); // AUDIT LOG
     setSelectedRoom({...room, hasKey: newHasKey}); 
   };
 
   const updateRoomStatus = async (roomId, newStatus) => {
     await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
+    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Changed Room ${roomId} status to ${newStatus.toUpperCase()}`); // AUDIT LOG
     setSelectedRoom(null);
   };
 
@@ -346,21 +396,24 @@ export default function App() {
     const issue = prompt(`Issue description for Room ${roomId}?`);
     if (!issue) return;
     await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp(), reportedBy: currentUser.name });
+    logSystemAction(currentUser.name, 'TICKET_CREATE', `Reported issue for Room ${roomId}: ${issue}`); // AUDIT LOG
     await updateRoomStatus(roomId, 'maintenance');
   };
 
   const resolveTicket = async (ticket) => {
     if(!confirm("Mark this ticket as Resolved?")) return;
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
+    logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); // AUDIT LOG
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
-  // --- 6. OTHER ACTIONS (Clock, Leaves, Requests, Claims) ---
+  // --- 6. OTHER ACTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), {
           userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp()
       });
+      logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()}`); // AUDIT LOG
   };
 
   const handleApplyLeave = async (e) => {
@@ -369,6 +422,7 @@ export default function App() {
       await addDoc(collection(db, "leaves"), {
           userId: currentUser.userid, userName: currentUser.name, type: f.leaveType.value, remarks: f.remarks.value, status: 'pending', createdAt: serverTimestamp()
       });
+      logSystemAction(currentUser.name, 'LEAVE_APPLY', `Applied for ${f.leaveType.value}`); // AUDIT LOG
       f.reset(); alert("Leave Application Sent!");
   };
 
@@ -378,6 +432,7 @@ export default function App() {
     await addDoc(collection(db, "inventory"), {
         department: f.department.value, item: f.item.value, qty: f.qty.value || '', remark: f.remark.value || '', bought: false, buyRemark: '', requestedBy: currentUser.name, createdAt: serverTimestamp()
     });
+    logSystemAction(currentUser.name, 'ITEM_REQUEST', `Requested ${f.qty.value} ${f.item.value} for ${f.department.value}`); // AUDIT LOG
     f.reset();
   };
 
@@ -386,9 +441,11 @@ export default function App() {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
         if (remark === null) return; 
         await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark, boughtBy: currentUser.name, boughtAt: serverTimestamp() });
+        logSystemAction(currentUser.name, 'ITEM_UPDATE', `Marked requested item as bought: ${invItem.item}`); // AUDIT LOG
     } else {
         if(confirm("Unmark this item as bought?")) {
             await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '', boughtBy: null, boughtAt: null });
+            logSystemAction(currentUser.name, 'ITEM_UPDATE', `Unmarked requested item: ${invItem.item}`); // AUDIT LOG
         }
     }
   };
@@ -400,6 +457,7 @@ export default function App() {
     await addDoc(collection(db, "requests"), {
       senderId: currentUser.dbId, senderName: currentUser.name, receiverId: reqReceiver, receiverName: receiverUser.name, content: reqContent, status: 'pending', createdAt: serverTimestamp()
     });
+    logSystemAction(currentUser.name, 'MSG_SENT', `Sent message to ${receiverUser.name}`); // AUDIT LOG
     setReqContent(''); setReqReceiver(''); alert("Message Sent!");
   };
 
@@ -424,6 +482,7 @@ export default function App() {
     e.preventDefault();
     const f = e.target;
     await addDoc(collection(db, "users"), { userid: f.userid.value, name: f.name.value, password: f.password.value, role: f.role.value });
+    logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.userid.value}`); // AUDIT LOG
     f.reset(); alert("User Created!");
   };
 
@@ -431,6 +490,7 @@ export default function App() {
     if (!claimForm.guestName || !claimForm.icNumber || !claimForm.contactNumber) { alert('Please fill in guest details'); return; }
     try {
       await addDoc(collection(db, "claimDays"), { ...claimForm, recordedBy: currentUser.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      logSystemAction(currentUser.name, 'CLAIM_ADD', `Created claim record for guest: ${claimForm.guestName}`); // AUDIT LOG
       setClaimModal(false); resetClaimForm(); alert('Record added successfully!');
     } catch (error) { alert("Failed to add claim record"); }
   };
@@ -439,13 +499,18 @@ export default function App() {
     if (!editingClaim) return;
     try {
       await updateDoc(doc(db, "claimDays", editingClaim), { ...claimForm, updatedAt: serverTimestamp() });
+      logSystemAction(currentUser.name, 'CLAIM_UPDATE', `Updated claim record for guest: ${claimForm.guestName}`); // AUDIT LOG
       setClaimModal(false); setEditingClaim(null); resetClaimForm(); alert('Record updated successfully!');
     } catch (error) { alert("Failed to update claim record"); }
   };
 
   const handleDeleteClaim = async (claimId) => {
     if (!window.confirm('Are you sure you want to delete this claim record?')) return;
-    try { await deleteDoc(doc(db, "claimDays", claimId)); alert('Record deleted!'); } catch (error) { alert("Failed to delete record"); }
+    try { 
+      await deleteDoc(doc(db, "claimDays", claimId)); 
+      logSystemAction(currentUser.name, 'CLAIM_DELETE', `Deleted a guest claim record`); // AUDIT LOG
+      alert('Record deleted!'); 
+    } catch (error) { alert("Failed to delete record"); }
   };
 
   const openEditClaim = (claim) => {
@@ -500,7 +565,6 @@ export default function App() {
       return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYear;
   });
 
-  // Group Stock By Category and Subcategory
   const groupedStock = {};
   stockItems.forEach(item => {
       const cat = item.category || 'General';
@@ -620,12 +684,7 @@ export default function App() {
                    <div className="room-grid">
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
-                          
-                          {/* KEY ICON OVERLAY */}
-                          {room.hasKey && (
-                            <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>
-                          )}
-
+                          {room.hasKey && <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>}
                           <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
@@ -704,7 +763,6 @@ export default function App() {
                 {['Frontdesk', 'Maintenance', 'Housekeeping'].map(dept => {
                     const deptItems = currentMonthInventory.filter(i => i.department === dept);
                     if(deptItems.length === 0) return null;
-                    
                     return (
                         <div key={dept} className="inv-group">
                             <div className="inv-dept-title">{dept}</div>
@@ -739,7 +797,6 @@ export default function App() {
         <div className="dashboard">
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px'}}>
               
-              {/* SEND LAUNDRY FORM */}
               <div className="floor-section" style={{margin:0}}>
                 <h2 className="floor-title">
                   <span><i className="fa-solid fa-truck-fast"></i> Send Laundry</span>
@@ -753,11 +810,7 @@ export default function App() {
                                     {itemName} {laundryItemDetails[itemName] ? <span style={{color:'#0056b3'}}>({laundryItemDetails[itemName]})</span> : ''}
                                   </label>
                                   {currentUser.role === 'admin' && (
-                                    <button 
-                                      onClick={() => handleUpdateLaundryItemDetails(itemName)} 
-                                      style={{background:'none', border:'none', color:'#3b82f6', cursor:'pointer', fontSize:'0.75rem', padding: '2px 4px'}}
-                                      title="Edit opening stock"
-                                    >
+                                    <button onClick={() => handleUpdateLaundryItemDetails(itemName)} style={{background:'none', border:'none', color:'#3b82f6', cursor:'pointer', fontSize:'0.75rem', padding: '2px 4px'}} title="Edit opening stock">
                                       <i className="fa-solid fa-edit"></i>
                                     </button>
                                   )}
@@ -770,14 +823,16 @@ export default function App() {
                 <button onClick={handleSendLaundry} className="btn blue" style={{width: '100%', justifyContent: 'center', marginTop: '15px'}}>Submit Laundry Batch</button>
               </div>
 
-              {/* STOCK MANAGEMENT (WITH CATEGORIES) */}
               <div className="floor-section" style={{margin:0}}>
                 <h2 className="floor-title">
                   <span><i className="fa-solid fa-box"></i> Hotel Stock</span>
+                  {currentUser.role === 'admin' && (
+                    <button className="btn green" style={{fontSize:'0.8rem', padding:'6px 12px'}} onClick={handleAddStock}>
+                      <i className="fa-solid fa-plus"></i> Add Item
+                    </button>
+                  )}
                 </h2>
                 <div className="scroll-pane scroll-pane-tall" style={{paddingRight: '10px'}}>
-                    
-                    {/* INLINE ADD FORM FOR ADMINS */}
                     {currentUser.role === 'admin' && (
                       <form onSubmit={handleAddStock} style={{display:'flex', gap:'8px', flexWrap:'wrap', marginBottom:'20px', paddingBottom:'20px', borderBottom:'2px solid #eee'}}>
                         <input name="category" placeholder="Category (e.g. Toiletries)" required style={{flex:'1', minWidth:'130px'}} />
@@ -787,34 +842,22 @@ export default function App() {
                         <button type="submit" className="btn green" style={{flex:'1', justifyContent:'center'}}>Add</button>
                       </form>
                     )}
-
-                    {stockItems.length === 0 ? (
-                      <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No stock items configured.</p>
-                    ) : (
+                    {stockItems.length === 0 ? <p style={{textAlign:'center', color:'#999', padding:'20px'}}>No stock items configured.</p> : (
                       <div style={{display:'flex', flexDirection:'column', gap:'15px'}}>
                         {Object.keys(groupedStock).sort().map(cat => (
                             <div key={cat}>
-                                {/* Category Header */}
                                 <h3 style={{fontSize: '1rem', color: '#1e3a8a', borderBottom: '2px solid #eff6ff', paddingBottom: '4px', marginBottom: '10px', textTransform:'uppercase'}}>
                                   <i className="fa-solid fa-folder-open" style={{marginRight:'8px'}}></i>{cat}
                                 </h3>
-                                
                                 {Object.keys(groupedStock[cat]).sort().map(sub => (
                                     <div key={sub} style={{marginBottom: '12px', paddingLeft: '10px'}}>
-                                        {/* Subcategory Header */}
                                         {sub && <h4 style={{fontSize: '0.85rem', color: '#6b7280', margin: '0 0 8px 0', textTransform: 'uppercase'}}><i className="fa-solid fa-angle-right" style={{marginRight:'5px'}}></i>{sub}</h4>}
-                                        
-                                        {/* Items List */}
                                         <div style={{display:'flex', flexDirection:'column', gap:'6px', paddingLeft: sub ? '15px' : '0'}}>
                                           {groupedStock[cat][sub].map((item, idx) => (
                                               <div key={item.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:'6px'}}>
-                                                  <div style={{display:'flex', alignItems:'center', gap:'10px', flex:1}}>
-                                                    <span style={{fontWeight:'bold', color:'#333'}}>{item.name}</span>
-                                                  </div>
-                                                  
+                                                  <div style={{display:'flex', alignItems:'center', gap:'10px', flex:1}}><span style={{fontWeight:'bold', color:'#333'}}>{item.name}</span></div>
                                                   <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
                                                     <span style={{fontWeight:'bold', color:'#3b82f6', fontSize:'1.1rem', background:'#eff6ff', padding:'2px 8px', borderRadius:'12px'}}>{item.quantity}</span>
-                                                    
                                                     {currentUser.role === 'admin' && (
                                                       <div style={{display:'flex', gap:'5px', borderLeft:'1px solid #ddd', paddingLeft:'10px'}}>
                                                         <button onClick={() => openEditStock(item)} className="btn blue" style={{fontSize:'0.75rem', padding:'4px 8px'}}><i className="fa-solid fa-edit"></i></button>
@@ -835,7 +878,6 @@ export default function App() {
               </div>
           </div>
 
-          {/* PENDING RECEIVED LAUNDRY */}
           <div className="floor-section" style={{marginTop: '20px'}}>
             <h2 className="floor-title"><i className="fa-solid fa-spinner"></i> Pending Received Laundry</h2>
             <div className="scroll-pane">
@@ -846,9 +888,7 @@ export default function App() {
                                 <strong>Sent by: {batch.sentBy}</strong>
                                 <span style={{fontSize:'0.75rem', color:'#666'}}>{formatTime(batch.createdAt)}</span>
                             </div>
-                            <div style={{fontSize:'0.85rem', color:'#555', marginBottom:'15px'}}>
-                                Contains {Object.keys(batch.items).length} types of items.
-                            </div>
+                            <div style={{fontSize:'0.85rem', color:'#555', marginBottom:'15px'}}>Contains {Object.keys(batch.items).length} types of items.</div>
                             <button className="btn green" style={{width:'100%', justifyContent:'center'}} onClick={() => setReceiveLaundryModal(JSON.parse(JSON.stringify(batch)))}>
                                 <i className="fa-solid fa-clipboard-check"></i> Verify & Receive
                             </button>
@@ -858,7 +898,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 7 DAY LAUNDRY HISTORY */}
           <div className="floor-section" style={{marginTop: '20px'}}>
              <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> 7-Day Laundry History</h2>
              <div className="scroll-pane scroll-pane-tall">
@@ -1180,12 +1219,41 @@ export default function App() {
               </table>
             </div>
           </div>
+
+          {/* NEW: SYSTEM AUDIT LOG */}
+          <div className="floor-section" style={{marginTop: '20px'}}>
+            <h2 className="floor-title"><i className="fa-solid fa-list-check"></i> System Audit Trail</h2>
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Action Type</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.length === 0 ? (
+                    <tr><td colSpan="4" style={{textAlign:'center', color:'#999'}}>No logs found.</td></tr>
+                  ) : (
+                    auditLogs.map(log => (
+                      <tr key={log.id}>
+                        <td style={{whiteSpace:'nowrap'}}>{formatDate(log.timestamp)} {formatTime(log.timestamp)}</td>
+                        <td><strong>{log.user}</strong></td>
+                        <td><span className="badge blue">{log.action}</span></td>
+                        <td>{log.details}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
       {/* --- MODALS --- */}
-
-      {/* EDIT STOCK MODAL */}
       {editStockModal && (
         <div className="modal-overlay" onClick={() => setEditStockModal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
@@ -1195,7 +1263,6 @@ export default function App() {
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Sub-category</label><input value={editStockModal.subcategory} onChange={e => setEditStockModal({...editStockModal, subcategory: e.target.value})} placeholder="Sub-category (Optional)" /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Item Name</label><input value={editStockModal.name} onChange={e => setEditStockModal({...editStockModal, name: e.target.value})} placeholder="Item Name" required /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Quantity</label><input type="number" value={editStockModal.quantity} onChange={e => setEditStockModal({...editStockModal, quantity: e.target.value})} placeholder="Quantity" required /></div>
-              
               <button type="submit" className="btn blue" style={{justifyContent:'center', marginTop:'10px'}}>Update Stock</button>
               <button type="button" className="btn grey" style={{justifyContent:'center'}} onClick={() => setEditStockModal(null)}>Cancel</button>
             </form>
@@ -1203,15 +1270,11 @@ export default function App() {
         </div>
       )}
 
-      {/* LAUNDRY RECEIVE MODAL */}
       {receiveLaundryModal && (
         <div className="modal-overlay" onClick={() => setReceiveLaundryModal(null)}>
           <div className="modal-content large-modal" onClick={e => e.stopPropagation()}>
             <h2>Verify Received Laundry</h2>
-            <p style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>
-               Sent by {receiveLaundryModal.sentBy} on {formatTime(receiveLaundryModal.createdAt)}
-            </p>
-            
+            <p style={{fontSize:'0.85rem', color:'#666', marginBottom:'15px'}}>Sent by {receiveLaundryModal.sentBy} on {formatTime(receiveLaundryModal.createdAt)}</p>
             <div className="scroll-pane scroll-pane-modal" style={{maxHeight:'400px', paddingRight:'10px'}}>
                {Object.entries(receiveLaundryModal.items).map(([itemName, data]) => (
                    <div key={itemName} className={`laundry-item-row ${data.status === 'correct' ? 'correct' : data.status === 'incorrect' ? 'incorrect' : ''}`}>
@@ -1221,22 +1284,12 @@ export default function App() {
                            {data.status === 'incorrect' && <div style={{fontSize:'0.75rem', color:'#ef4444', marginTop:'3px'}}><b>Note:</b> {data.remark}</div>}
                        </div>
                        <div className="laundry-actions">
-                           <button 
-                              className={`btn ${data.status === 'correct' ? 'green' : 'grey'}`} 
-                              style={{padding: '6px 12px'}}
-                              onClick={() => handleItemReceiveToggle(itemName, 'correct')}
-                           ><i className="fa-solid fa-check"></i></button>
-                           
-                           <button 
-                              className={`btn ${data.status === 'incorrect' ? 'red' : 'grey'}`} 
-                              style={{padding: '6px 12px'}}
-                              onClick={() => handleItemReceiveToggle(itemName, 'incorrect')}
-                           ><i className="fa-solid fa-times"></i></button>
+                           <button className={`btn ${data.status === 'correct' ? 'green' : 'grey'}`} style={{padding: '6px 12px'}} onClick={() => handleItemReceiveToggle(itemName, 'correct')}><i className="fa-solid fa-check"></i></button>
+                           <button className={`btn ${data.status === 'incorrect' ? 'red' : 'grey'}`} style={{padding: '6px 12px'}} onClick={() => handleItemReceiveToggle(itemName, 'incorrect')}><i className="fa-solid fa-times"></i></button>
                        </div>
                    </div>
                ))}
             </div>
-
             <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
               <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => setReceiveLaundryModal(null)}>Cancel</button>
               <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={handleSaveReceivedLaundry}>Save Verification</button>
@@ -1262,7 +1315,6 @@ export default function App() {
           <div className="modal-overlay" onClick={() => setStaffModal(null)}>
               <div className="modal-content" onClick={e => e.stopPropagation()}>
                   <h2>{staffModal.name}</h2>
-                  
                   <h3 style={{fontSize:'1rem', marginTop:'20px', borderBottom:'2px solid #eee'}}>Attendance History</h3>
                   <div className="scroll-pane scroll-pane-modal" style={{marginBottom:'20px'}}>
                       <table style={{fontSize:'0.85rem'}}>
@@ -1277,7 +1329,6 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
-
                   <h3 style={{fontSize:'1rem', borderBottom:'2px solid #eee'}}>Leave History</h3>
                   <div className="scroll-pane scroll-pane-modal">
                       <table style={{fontSize:'0.85rem'}}>
@@ -1289,10 +1340,7 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
-
-                  <button onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}>
-                      <i className="fa-solid fa-key"></i> Change Staff Password
-                  </button>
+                  <button onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}><i className="fa-solid fa-key"></i> Change Staff Password</button>
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>
@@ -1310,42 +1358,24 @@ export default function App() {
         </div>
       )}
 
-      {/* ROOM MODAL WITH HISTORY & KEY TOGGLE */}
       {selectedRoom && (
         <div className="modal-overlay" onClick={() => setSelectedRoom(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{position: 'relative'}}>
-            
-            {/* NEW KEY TOGGLE BUTTON */}
-            <button 
-              onClick={() => toggleRoomKey(selectedRoom)}
-              style={{
-                position: 'absolute', top: '15px', right: '15px', 
-                background: 'none', border: 'none', cursor: 'pointer', 
-                fontSize: '1.5rem', color: selectedRoom.hasKey ? '#fbbf24' : '#e5e7eb',
-                transition: 'color 0.2s'
-              }}
-              title={selectedRoom.hasKey ? "Room has key (Click to remove)" : "No key (Click to flag as having key)"}
-            >
+            <button onClick={() => toggleRoomKey(selectedRoom)} style={{ position: 'absolute', top: '15px', right: '15px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: selectedRoom.hasKey ? '#fbbf24' : '#e5e7eb', transition: 'color 0.2s' }} title={selectedRoom.hasKey ? "Room has key (Click to remove)" : "No key (Click to flag as having key)"}>
               <i className="fa-solid fa-key"></i>
             </button>
-
             <h2>Room {selectedRoom.id}</h2>
             <p>Status: <strong>{selectedRoom.status.toUpperCase()}</strong></p>
-            
             <div style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom: '20px'}}>
-              {/* Only 2 Actions: Maintenance OR Ready */}
               {selectedRoom.status === 'maintenance' ? (
                   <button className="btn green" onClick={() => updateRoomStatus(selectedRoom.id, 'vacant')} style={{justifyContent:'center', padding:'15px'}}>Mark Done (Ready)</button>
               ) : (
                   <button className="btn grey" onClick={() => reportIssue(selectedRoom.id)} style={{justifyContent:'center', padding:'15px'}}>Report Issue</button>
               )}
             </div>
-
             <h3 style={{fontSize:'1rem', borderBottom:'2px solid #eee', paddingBottom:'5px'}}>Maintenance History</h3>
             <div className="scroll-pane scroll-pane-modal" style={{textAlign: 'left'}}>
-                {tickets.filter(t => t.roomId === selectedRoom.id).length === 0 ? (
-                    <p style={{color: '#999', fontSize: '0.85rem'}}>No history recorded.</p>
-                ) : (
+                {tickets.filter(t => t.roomId === selectedRoom.id).length === 0 ? <p style={{color: '#999', fontSize: '0.85rem'}}>No history recorded.</p> : (
                     tickets.filter(t => t.roomId === selectedRoom.id).map(t => (
                         <div key={t.id} style={{padding: '10px 0', borderBottom: '1px dashed #eee'}}>
                             <div style={{display: 'flex', justifyContent: 'space-between'}}>
@@ -1365,120 +1395,38 @@ export default function App() {
         </div>
       )}
 
-      {/* --- CLAIM DAYS MODAL --- */}
       {claimModal && (
         <div className="modal-overlay" onClick={() => { setClaimModal(false); resetClaimForm(); }}>
           <div className="modal-content large-modal" onClick={e => e.stopPropagation()}>
             <h2>{editingClaim ? 'Edit' : 'Add'} Claim Day Record</h2>
-            
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginTop:'15px'}}>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label>
-                <input
-                  value={claimForm.guestName}
-                  onChange={e => setClaimForm({...claimForm, guestName: e.target.value})}
-                  placeholder="Full Name"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label>
-                <input
-                  value={claimForm.icNumber}
-                  onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})}
-                  placeholder="IC/Passport No"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label>
-                <input
-                  value={claimForm.contactNumber}
-                  onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})}
-                  placeholder="Phone Number"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label>
-                <input
-                  type="date"
-                  value={claimForm.bookingDate}
-                  onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})}
-                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                  style={{ cursor: 'pointer' }}
-                  required
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label>
-                <input
-                  value={claimForm.roomType}
-                  onChange={e => setClaimForm({...claimForm, roomType: e.target.value})}
-                  placeholder="e.g., Deluxe, Suite"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label>
-                <input
-                  type="number"
-                  value={claimForm.payment}
-                  onChange={e => setClaimForm({...claimForm, payment: e.target.value})}
-                  placeholder="550"
-                />
-              </div>
-              <div>
-                <label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label>
-                <input
-                  type="number"
-                  value={claimForm.balanceClaim}
-                  onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})}
-                  placeholder="0"
-                />
-              </div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label><input value={claimForm.guestName} onChange={e => setClaimForm({...claimForm, guestName: e.target.value})} placeholder="Full Name" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label><input value={claimForm.icNumber} onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})} placeholder="IC/Passport No" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label><input value={claimForm.contactNumber} onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})} placeholder="Phone Number" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label><input type="date" value={claimForm.bookingDate} onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ cursor: 'pointer' }} required /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label><input value={claimForm.roomType} onChange={e => setClaimForm({...claimForm, roomType: e.target.value})} placeholder="e.g., Deluxe, Suite" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label><input type="number" value={claimForm.payment} onChange={e => setClaimForm({...claimForm, payment: e.target.value})} placeholder="550" /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label><input type="number" value={claimForm.balanceClaim} onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})} placeholder="0" /></div>
             </div>
-
             <div style={{marginTop:'20px'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                 <label style={{fontSize:'0.85rem', color:'#666', fontWeight:'bold'}}>Used Dates</label>
-                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}>
-                  <i className="fa-solid fa-plus"></i> Add Date
-                </button>
+                <button className="btn blue" style={{fontSize:'0.75rem', padding:'5px 10px'}} onClick={addUsedDate}><i className="fa-solid fa-plus"></i> Add Date</button>
               </div>
-              {claimForm.usedDates.length === 0 ? (
-                <p style={{color:'#999', fontSize:'0.85rem', textAlign:'center', padding:'20px'}}>No dates added yet</p>
-              ) : (
+              {claimForm.usedDates.length === 0 ? <p style={{color:'#999', fontSize:'0.85rem', textAlign:'center', padding:'20px'}}>No dates added yet</p> : (
                 <div style={{maxHeight:'200px', overflowY:'auto', border:'1px solid #eee', borderRadius:'5px', padding:'10px'}}>
                   {claimForm.usedDates.map((used, idx) => (
                     <div key={idx} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px', background:'#f8f9fa', marginBottom:'5px', borderRadius:'3px'}}>
-                      <span style={{fontSize:'0.85rem'}}>
-                        {used.date} - {used.roomType} {used.roomNumber} ({used.staff})
-                      </span>
-                      <button 
-                        className="btn red" 
-                        style={{fontSize:'0.7rem', padding:'3px 8px'}}
-                        onClick={() => removeUsedDate(idx)}
-                      >
-                        <i className="fa-solid fa-trash"></i>
-                      </button>
+                      <span style={{fontSize:'0.85rem'}}>{used.date} - {used.roomType} {used.roomNumber} ({used.staff})</span>
+                      <button className="btn red" style={{fontSize:'0.7rem', padding:'3px 8px'}} onClick={() => removeUsedDate(idx)}><i className="fa-solid fa-trash"></i></button>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-
             <div style={{display:'flex', gap:'10px', marginTop:'20px'}}>
-              <button 
-                className="btn grey" 
-                style={{flex:1, justifyContent:'center'}} 
-                onClick={() => { setClaimModal(false); resetClaimForm(); }}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn blue" 
-                style={{flex:1, justifyContent:'center'}} 
-                onClick={editingClaim ? handleUpdateClaim : handleAddClaim}
-              >
-                {editingClaim ? 'Update' : 'Add'} Record
-              </button>
+              <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => { setClaimModal(false); resetClaimForm(); }}>Cancel</button>
+              <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={editingClaim ? handleUpdateClaim : handleAddClaim}>{editingClaim ? 'Update' : 'Add'} Record</button>
             </div>
           </div>
         </div>

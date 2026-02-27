@@ -76,7 +76,7 @@ export default function App() {
   const [laundry, setLaundry] = useState([]);
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
-  const [auditLogs, setAuditLogs] = useState([]); // NEW: Audit State
+  const [auditLogs, setAuditLogs] = useState([]);
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -112,6 +112,11 @@ export default function App() {
   });
   const [editingClaim, setEditingClaim] = useState(null);
 
+  // Audit Filters UI
+  const [auditFilterMonth, setAuditFilterMonth] = useState('');
+  const [auditFilterUser, setAuditFilterUser] = useState('');
+  const [auditFilterAction, setAuditFilterAction] = useState('');
+
   // --- 1. PERSISTENCE & CLOCK ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
@@ -121,6 +126,12 @@ export default function App() {
       setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     }
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    
+    // Set default audit month filter to current month
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    setAuditFilterMonth(currentMonthStr);
+
     return () => clearInterval(timer);
   }, []);
 
@@ -172,10 +183,9 @@ export default function App() {
     const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
     const unsubStock = onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // NEW: Audit Logs listener (Only fetch for admins to save bandwidth)
     let unsubAudit = () => {};
     if (currentUser.role === 'admin') {
-      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(200));
+      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
       unsubAudit = onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
 
@@ -197,7 +207,7 @@ export default function App() {
       const userObj = { dbId: docId, ...userData };
       setCurrentUser(userObj);
       localStorage.setItem('hotelUser', JSON.stringify(userObj));
-      logSystemAction(userObj.name, 'LOGIN', 'Logged into the system'); // AUDIT LOG
+      logSystemAction(userObj.name, 'LOGIN', 'Logged into the system'); 
       setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
     } else {
       setLoginError('Incorrect Password');
@@ -205,7 +215,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    logSystemAction(currentUser.name, 'LOGOUT', 'Logged out of the system'); // AUDIT LOG
+    logSystemAction(currentUser.name, 'LOGOUT', 'Logged out of the system');
     localStorage.removeItem('hotelUser');
     setCurrentUser(null);
     setLoginId('');
@@ -218,7 +228,7 @@ export default function App() {
     const newPass = e.target.newPass.value;
     if(newPass.length < 4) return alert("Password too short");
     await updateDoc(doc(db, "users", currentUser.dbId), { password: newPass });
-    logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password'); // AUDIT LOG
+    logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password'); 
     setShowPasswordModal(false);
     alert("Password updated!");
   };
@@ -229,26 +239,11 @@ export default function App() {
     if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
     try {
         await updateDoc(doc(db, "users", staffDocId), { password: newPass });
-        logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); // AUDIT LOG
+        logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); 
         alert(`Password for ${staffName} updated successfully!`);
     } catch (error) {
         alert("Failed to update password.");
     }
-  };
-
-  const addPublicRooms = async () => {
-    const newRooms = [
-      { id: "1A", type: "STORE", floor: 1, status: "vacant" }, { id: "1B", type: "STORE", floor: 1, status: "vacant" },
-      { id: "2A", type: "STORE", floor: 2, status: "vacant" }, { id: "2B", type: "STORE", floor: 2, status: "vacant" },
-      { id: "3A", type: "STORE", floor: 3, status: "vacant" }, { id: "3B", type: "STORE", floor: 3, status: "vacant" },
-      { id: "Reception", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Pantry", type: "LOBBY", floor: "Public", status: "vacant" },
-      { id: "Lobby Toilet", type: "LOBBY", floor: "Public", status: "vacant" }, { id: "Comfort Area", type: "LEVEL 1", floor: "Public", status: "vacant" }
-    ];
-    const batch = writeBatch(db);
-    newRooms.forEach(r => batch.set(doc(db, "rooms", r.id), r));
-    await batch.commit();
-    logSystemAction(currentUser.name, 'DB_SEED', 'Added public rooms and storerooms'); // AUDIT LOG
-    alert("New rooms and facilities added to Database!");
   };
 
   // --- 4. LAUNDRY & STOCK FUNCTIONS ---
@@ -264,24 +259,15 @@ export default function App() {
   const handleSendLaundry = async () => {
     const itemsToSend = {};
     let hasItems = false;
-    
     LAUNDRY_ITEMS.forEach(itemName => {
         if (laundryForm[itemName] > 0) {
             itemsToSend[itemName] = { sentQty: laundryForm[itemName], status: 'pending', remark: '' };
             hasItems = true;
         }
     });
-
     if (!hasItems) return alert("Please enter at least one item quantity.");
-
-    await addDoc(collection(db, "laundry"), {
-        items: itemsToSend,
-        status: 'pending',
-        sentBy: currentUser.name,
-        createdAt: serverTimestamp()
-    });
-    
-    logSystemAction(currentUser.name, 'LAUNDRY_SENT', `Sent ${Object.keys(itemsToSend).length} types of items to laundry`); // AUDIT LOG
+    await addDoc(collection(db, "laundry"), { items: itemsToSend, status: 'pending', sentBy: currentUser.name, createdAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'LAUNDRY_SENT', `Sent ${Object.keys(itemsToSend).length} types of items to laundry`); 
     setLaundryForm({});
     alert("Laundry Sent!");
   };
@@ -302,17 +288,9 @@ export default function App() {
 
   const handleSaveReceivedLaundry = async () => {
     const allChecked = Object.values(receiveLaundryModal.items).every(i => i.status !== 'pending');
-    if(!allChecked) {
-         if(!confirm("Some items have not been verified. Mark batch as received anyway?")) return;
-    }
-    await updateDoc(doc(db, "laundry", receiveLaundryModal.id), {
-        items: receiveLaundryModal.items,
-        status: 'received',
-        receivedBy: currentUser.name,
-        receivedAt: serverTimestamp()
-    });
-    
-    logSystemAction(currentUser.name, 'LAUNDRY_RECEIVED', `Verified and received laundry batch`); // AUDIT LOG
+    if(!allChecked) { if(!confirm("Some items have not been verified. Mark batch as received anyway?")) return; }
+    await updateDoc(doc(db, "laundry", receiveLaundryModal.id), { items: receiveLaundryModal.items, status: 'received', receivedBy: currentUser.name, receivedAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'LAUNDRY_RECEIVED', `Verified and received laundry batch`); 
     setReceiveLaundryModal(null);
     alert("Laundry marked as received!");
   };
@@ -323,72 +301,54 @@ export default function App() {
     if (newDetails === null) return;
     try {
       await setDoc(doc(db, "settings", "laundryDetails"), { items: { [itemName]: newDetails } }, { merge: true });
-      logSystemAction(currentUser.name, 'STOCK_CONFIG', `Updated opening stock label for ${itemName}`); // AUDIT LOG
+      logSystemAction(currentUser.name, 'STOCK_CONFIG', `Updated opening stock label for ${itemName}`); 
       alert("Opening stock updated!");
-    } catch (error) {
-      alert("Failed to update opening stock");
-    }
+    } catch (error) { alert("Failed to update opening stock"); }
   };
 
   const handleAddStock = async (e) => {
     e.preventDefault();
     const f = e.target;
     const maxOrder = stockItems.length > 0 ? Math.max(...stockItems.map(i => i.order || 0)) : 0;
-    
     await addDoc(collection(db, "stock"), {
-      name: f.name.value,
-      quantity: parseInt(f.quantity.value) || 0,
-      category: f.category.value || "General",
-      subcategory: f.subcategory.value || "",
-      order: maxOrder + 1,
-      createdAt: serverTimestamp()
+      name: f.name.value, quantity: parseInt(f.quantity.value) || 0, category: f.category.value || "General", subcategory: f.subcategory.value || "", order: maxOrder + 1, createdAt: serverTimestamp()
     });
-    logSystemAction(currentUser.name, 'STOCK_ADD', `Added new stock item: ${f.name.value} (${f.quantity.value})`); // AUDIT LOG
-    f.reset();
-    alert("Stock item added!");
+    logSystemAction(currentUser.name, 'STOCK_ADD', `Added new stock item: ${f.name.value} (${f.quantity.value})`); 
+    f.reset(); alert("Stock item added!");
   };
 
   const handleUpdateStock = async (e) => {
     e.preventDefault();
     if (!editStockModal) return;
     await updateDoc(doc(db, "stock", editStockModal.id), {
-      name: editStockModal.name,
-      quantity: parseInt(editStockModal.quantity) || 0,
-      category: editStockModal.category || "General",
-      subcategory: editStockModal.subcategory || ""
+      name: editStockModal.name, quantity: parseInt(editStockModal.quantity) || 0, category: editStockModal.category || "General", subcategory: editStockModal.subcategory || ""
     });
-    logSystemAction(currentUser.name, 'STOCK_UPDATE', `Updated stock for: ${editStockModal.name} to qty: ${editStockModal.quantity}`); // AUDIT LOG
-    setEditStockModal(null);
-    alert("Stock updated!");
+    logSystemAction(currentUser.name, 'STOCK_UPDATE', `Updated stock for: ${editStockModal.name} to qty: ${editStockModal.quantity}`); 
+    setEditStockModal(null); alert("Stock updated!");
   };
 
   const handleDeleteStock = async (itemId) => {
-    if (!confirm("Delete this stock item?")) return;
+    const item = stockItems.find(i => i.id === itemId);
+    if (!confirm(`Delete stock item: ${item?.name}?`)) return;
     await deleteDoc(doc(db, "stock", itemId));
-    logSystemAction(currentUser.name, 'STOCK_DELETE', `Deleted a stock item`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'STOCK_DELETE', `Deleted stock item: ${item?.name}`); 
   };
 
   const openEditStock = (item) => {
-    setEditStockModal({
-        id: item.id,
-        name: item.name,
-        quantity: item.quantity,
-        category: item.category || 'General',
-        subcategory: item.subcategory || ''
-    });
+    setEditStockModal({ id: item.id, name: item.name, quantity: item.quantity, category: item.category || 'General', subcategory: item.subcategory || '' });
   };
 
   // --- 5. ROOM & TICKETS LOGIC ---
   const toggleRoomKey = async (room) => {
     const newHasKey = !room.hasKey;
     await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
-    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Flagged Room ${room.id} key status as: ${newHasKey ? 'Has Key' : 'No Key'}`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Flagged Room ${room.id} key status as: ${newHasKey ? 'Has Key' : 'No Key'}`); 
     setSelectedRoom({...room, hasKey: newHasKey}); 
   };
 
   const updateRoomStatus = async (roomId, newStatus) => {
     await updateDoc(doc(db, "rooms", roomId), { status: newStatus });
-    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Changed Room ${roomId} status to ${newStatus.toUpperCase()}`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Changed Room ${roomId} status to ${newStatus.toUpperCase()}`); 
     setSelectedRoom(null);
   };
 
@@ -396,43 +356,37 @@ export default function App() {
     const issue = prompt(`Issue description for Room ${roomId}?`);
     if (!issue) return;
     await addDoc(collection(db, "tickets"), { roomId, issue, status: 'open', createdAt: serverTimestamp(), reportedBy: currentUser.name });
-    logSystemAction(currentUser.name, 'TICKET_CREATE', `Reported issue for Room ${roomId}: ${issue}`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'TICKET_CREATE', `Reported issue for Room ${roomId}: ${issue}`); 
     await updateRoomStatus(roomId, 'maintenance');
   };
 
   const resolveTicket = async (ticket) => {
     if(!confirm("Mark this ticket as Resolved?")) return;
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
-    logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); 
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
   // --- 6. OTHER ACTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
-      await addDoc(collection(db, "attendance"), {
-          userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp()
-      });
-      logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()}`); // AUDIT LOG
+      await addDoc(collection(db, "attendance"), { userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp() });
+      logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()}`); 
   };
 
   const handleApplyLeave = async (e) => {
       e.preventDefault();
       const f = e.target;
-      await addDoc(collection(db, "leaves"), {
-          userId: currentUser.userid, userName: currentUser.name, type: f.leaveType.value, remarks: f.remarks.value, status: 'pending', createdAt: serverTimestamp()
-      });
-      logSystemAction(currentUser.name, 'LEAVE_APPLY', `Applied for ${f.leaveType.value}`); // AUDIT LOG
+      await addDoc(collection(db, "leaves"), { userId: currentUser.userid, userName: currentUser.name, type: f.leaveType.value, remarks: f.remarks.value, status: 'pending', createdAt: serverTimestamp() });
+      logSystemAction(currentUser.name, 'LEAVE_APPLY', `Applied for ${f.leaveType.value}`); 
       f.reset(); alert("Leave Application Sent!");
   };
 
   const handleItemRequest = async (e) => {
     e.preventDefault();
     const f = e.target;
-    await addDoc(collection(db, "inventory"), {
-        department: f.department.value, item: f.item.value, qty: f.qty.value || '', remark: f.remark.value || '', bought: false, buyRemark: '', requestedBy: currentUser.name, createdAt: serverTimestamp()
-    });
-    logSystemAction(currentUser.name, 'ITEM_REQUEST', `Requested ${f.qty.value} ${f.item.value} for ${f.department.value}`); // AUDIT LOG
+    await addDoc(collection(db, "inventory"), { department: f.department.value, item: f.item.value, qty: f.qty.value || '', remark: f.remark.value || '', bought: false, buyRemark: '', requestedBy: currentUser.name, createdAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'ITEM_REQUEST', `Requested ${f.qty.value} ${f.item.value} for ${f.department.value}`); 
     f.reset();
   };
 
@@ -441,11 +395,11 @@ export default function App() {
         const remark = prompt("Optional complete remark (e.g., 'datin done buy'):");
         if (remark === null) return; 
         await updateDoc(doc(db, "inventory", invItem.id), { bought: true, buyRemark: remark, boughtBy: currentUser.name, boughtAt: serverTimestamp() });
-        logSystemAction(currentUser.name, 'ITEM_UPDATE', `Marked requested item as bought: ${invItem.item}`); // AUDIT LOG
+        logSystemAction(currentUser.name, 'ITEM_UPDATE', `Marked requested item as bought: ${invItem.item}`); 
     } else {
         if(confirm("Unmark this item as bought?")) {
             await updateDoc(doc(db, "inventory", invItem.id), { bought: false, buyRemark: '', boughtBy: null, boughtAt: null });
-            logSystemAction(currentUser.name, 'ITEM_UPDATE', `Unmarked requested item: ${invItem.item}`); // AUDIT LOG
+            logSystemAction(currentUser.name, 'ITEM_UPDATE', `Unmarked requested item: ${invItem.item}`); 
         }
     }
   };
@@ -454,10 +408,8 @@ export default function App() {
     e.preventDefault();
     if (!reqReceiver || !reqContent) { alert("Select receiver and enter details."); return; }
     const receiverUser = users.find(u => u.dbId === reqReceiver);
-    await addDoc(collection(db, "requests"), {
-      senderId: currentUser.dbId, senderName: currentUser.name, receiverId: reqReceiver, receiverName: receiverUser.name, content: reqContent, status: 'pending', createdAt: serverTimestamp()
-    });
-    logSystemAction(currentUser.name, 'MSG_SENT', `Sent message to ${receiverUser.name}`); // AUDIT LOG
+    await addDoc(collection(db, "requests"), { senderId: currentUser.dbId, senderName: currentUser.name, receiverId: reqReceiver, receiverName: receiverUser.name, content: reqContent, status: 'pending', createdAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'MSG_SENT', `Sent message to ${receiverUser.name}`); 
     setReqContent(''); setReqReceiver(''); alert("Message Sent!");
   };
 
@@ -482,7 +434,7 @@ export default function App() {
     e.preventDefault();
     const f = e.target;
     await addDoc(collection(db, "users"), { userid: f.userid.value, name: f.name.value, password: f.password.value, role: f.role.value });
-    logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.userid.value}`); // AUDIT LOG
+    logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.userid.value}`); 
     f.reset(); alert("User Created!");
   };
 
@@ -490,7 +442,7 @@ export default function App() {
     if (!claimForm.guestName || !claimForm.icNumber || !claimForm.contactNumber) { alert('Please fill in guest details'); return; }
     try {
       await addDoc(collection(db, "claimDays"), { ...claimForm, recordedBy: currentUser.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      logSystemAction(currentUser.name, 'CLAIM_ADD', `Created claim record for guest: ${claimForm.guestName}`); // AUDIT LOG
+      logSystemAction(currentUser.name, 'CLAIM_ADD', `Created claim record for guest: ${claimForm.guestName}`); 
       setClaimModal(false); resetClaimForm(); alert('Record added successfully!');
     } catch (error) { alert("Failed to add claim record"); }
   };
@@ -499,16 +451,17 @@ export default function App() {
     if (!editingClaim) return;
     try {
       await updateDoc(doc(db, "claimDays", editingClaim), { ...claimForm, updatedAt: serverTimestamp() });
-      logSystemAction(currentUser.name, 'CLAIM_UPDATE', `Updated claim record for guest: ${claimForm.guestName}`); // AUDIT LOG
+      logSystemAction(currentUser.name, 'CLAIM_UPDATE', `Updated claim record for guest: ${claimForm.guestName}`); 
       setClaimModal(false); setEditingClaim(null); resetClaimForm(); alert('Record updated successfully!');
     } catch (error) { alert("Failed to update claim record"); }
   };
 
   const handleDeleteClaim = async (claimId) => {
-    if (!window.confirm('Are you sure you want to delete this claim record?')) return;
+    const claim = claimDays.find(c => c.id === claimId);
+    if (!window.confirm(`Are you sure you want to delete claim record for ${claim?.guestName}?`)) return;
     try { 
       await deleteDoc(doc(db, "claimDays", claimId)); 
-      logSystemAction(currentUser.name, 'CLAIM_DELETE', `Deleted a guest claim record`); // AUDIT LOG
+      logSystemAction(currentUser.name, 'CLAIM_DELETE', `Deleted claim record for guest: ${claim?.guestName}`); 
       alert('Record deleted!'); 
     } catch (error) { alert("Failed to delete record"); }
   };
@@ -535,6 +488,81 @@ export default function App() {
 
   const removeUsedDate = (index) => {
     setClaimForm(prev => ({ ...prev, usedDates: prev.usedDates.filter((_, i) => i !== index) }));
+  };
+
+  // --- PRINT AUDIT FUNCTION ---
+  const handlePrintAudit = () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    
+    // Generate Report Content
+    let reportContent = `
+      <html>
+        <head>
+          <title>System Audit Report</title>
+          <style>
+            body { font-family: sans-serif; color: #333; padding: 20px; }
+            h1 { color: #1e3a8a; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+            .filters-summary { margin-bottom: 20px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 5px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; }
+            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+            th { background-color: #f4f4f4; color: #111; }
+            tr:nth-child(even) { background-color: #fafafa; }
+            .timestamp { white-space: nowrap; color: #555; }
+          </style>
+        </head>
+        <body>
+          <h1>Aladdin Hotel - System Audit Report</h1>
+          <div class="filters-summary">
+            <strong>Applied Filters:</strong><br/>
+            Month: ${auditFilterMonth || 'All Time'}<br/>
+            User: ${auditFilterUser || 'All Users'}<br/>
+            Action: ${auditFilterAction || 'All Actions'}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action Type</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    filteredAuditLogs.forEach(log => {
+      reportContent += `
+        <tr>
+          <td class="timestamp">${formatDate(log.timestamp)} ${formatTime(log.timestamp)}</td>
+          <td><b>${log.user}</b></td>
+          <td>${log.action}</td>
+          <td>${log.details}</td>
+        </tr>
+      `;
+    });
+
+    if (filteredAuditLogs.length === 0) {
+      reportContent += `<tr><td colspan="4" style="text-align:center;">No records found for these filters.</td></tr>`;
+    }
+
+    reportContent += `
+            </tbody>
+          </table>
+          <p style="text-align:center; font-size:0.8rem; color:#888; margin-top:30px;">
+            Generated on: ${new Date().toLocaleString('en-MY')}
+          </p>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(reportContent);
+    printWindow.document.close();
+    printWindow.focus();
+    
+    // Slight delay to allow styles to load before print dialog pops up
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
 
@@ -604,6 +632,24 @@ export default function App() {
       const d = l.createdAt ? (l.createdAt.toDate ? l.createdAt.toDate() : new Date(l.createdAt)) : new Date();
       return d >= oneWeekAgo;
   });
+
+  // --- FILTER AUDIT LOGS ---
+  const filteredAuditLogs = auditLogs.filter(log => {
+      let match = true;
+      if (auditFilterMonth) {
+          const logDate = log.timestamp ? (log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp)) : new Date();
+          const logMonthStr = `${logDate.getFullYear()}-${String(logDate.getMonth() + 1).padStart(2, '0')}`;
+          if (logMonthStr !== auditFilterMonth) match = false;
+      }
+      if (auditFilterUser && log.user !== auditFilterUser) match = false;
+      if (auditFilterAction && log.action !== auditFilterAction) match = false;
+      return match;
+  });
+
+  // Unique lists for Audit dropdowns
+  const uniqueAuditUsers = [...new Set(auditLogs.map(l => l.user))].sort();
+  const uniqueAuditActions = [...new Set(auditLogs.map(l => l.action))].sort();
+
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -1220,28 +1266,55 @@ export default function App() {
             </div>
           </div>
 
-          {/* NEW: SYSTEM AUDIT LOG */}
+          {/* SYSTEM AUDIT TRAIL */}
           <div className="floor-section" style={{marginTop: '20px'}}>
-            <h2 className="floor-title"><i className="fa-solid fa-list-check"></i> System Audit Trail</h2>
-            <div className="admin-table-container scroll-pane scroll-pane-tall">
+            <h2 className="floor-title">
+              <span><i className="fa-solid fa-list-check"></i> System Audit Trail</span>
+              <button className="btn grey" style={{fontSize: '0.8rem', padding: '6px 12px'}} onClick={handlePrintAudit}>
+                <i className="fa-solid fa-print"></i> Print Report
+              </button>
+            </h2>
+
+            <div className="filter-bar" style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px', border:'1px solid #eee'}}>
+                <input 
+                  type="month" 
+                  value={auditFilterMonth} 
+                  onChange={e => setAuditFilterMonth(e.target.value)} 
+                  style={{margin:0, flex: 1, minWidth: '150px'}} 
+                />
+                
+                <select value={auditFilterUser} onChange={e => setAuditFilterUser(e.target.value)} style={{margin:0, flex: 1, minWidth: '150px'}}>
+                  <option value="">-- All Users --</option>
+                  {uniqueAuditUsers.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+
+                <select value={auditFilterAction} onChange={e => setAuditFilterAction(e.target.value)} style={{margin:0, flex: 1, minWidth: '150px'}}>
+                  <option value="">-- All Actions --</option>
+                  {uniqueAuditActions.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+
+                <button className="btn grey" onClick={() => {setAuditFilterMonth(''); setAuditFilterUser(''); setAuditFilterAction('');}} style={{padding: '0 15px'}}>Clear Filters</button>
+            </div>
+
+            <div className="admin-table-container scroll-pane scroll-pane-tall" id="audit-table-container">
               <table>
                 <thead>
                   <tr>
-                    <th>Time</th>
+                    <th>Date & Time</th>
                     <th>User</th>
-                    <th>Action Type</th>
+                    <th>Action</th>
                     <th>Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {auditLogs.length === 0 ? (
-                    <tr><td colSpan="4" style={{textAlign:'center', color:'#999'}}>No logs found.</td></tr>
+                  {filteredAuditLogs.length === 0 ? (
+                    <tr><td colSpan="4" style={{textAlign:'center', color:'#999'}}>No logs match the current filters.</td></tr>
                   ) : (
-                    auditLogs.map(log => (
+                    filteredAuditLogs.map(log => (
                       <tr key={log.id}>
-                        <td style={{whiteSpace:'nowrap'}}>{formatDate(log.timestamp)} {formatTime(log.timestamp)}</td>
+                        <td style={{whiteSpace:'nowrap', color:'#666', fontSize:'0.85rem'}}>{formatDate(log.timestamp)} <br/> {formatTime(log.timestamp)}</td>
                         <td><strong>{log.user}</strong></td>
-                        <td><span className="badge blue">{log.action}</span></td>
+                        <td><span className="badge blue" style={{fontSize:'0.7rem', padding:'3px 6px'}}>{log.action}</span></td>
                         <td>{log.details}</td>
                       </tr>
                     ))

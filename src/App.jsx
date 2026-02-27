@@ -1280,7 +1280,8 @@ export default function App() {
                   type="month" 
                   value={auditFilterMonth} 
                   onChange={e => setAuditFilterMonth(e.target.value)} 
-                  style={{margin:0, flex: 1, minWidth: '150px'}} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{margin:0, flex: 1, minWidth: '150px', cursor: 'pointer'}} 
                 />
                 
                 <select value={auditFilterUser} onChange={e => setAuditFilterUser(e.target.value)} style={{margin:0, flex: 1, minWidth: '150px'}}>

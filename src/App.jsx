@@ -10,6 +10,7 @@ const ICONS = {
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
   LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry/Stock" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
+  DEPOSIT: { icon: "fa-solid fa-money-bill-wave", label: "Deposits" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
@@ -77,6 +78,7 @@ export default function App() {
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
+  const [deposits, setDeposits] = useState([]); // NEW: Room Deposits State
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -183,13 +185,20 @@ export default function App() {
     const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
     const unsubStock = onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
+    const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
+    const unsubDeposits = onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
     let unsubAudit = () => {};
     if (currentUser.role === 'admin') {
       const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
       unsubAudit = onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
 
-    return () => { unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); unsubAudit(); };
+    return () => { 
+      unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); 
+      unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); 
+      unsubAudit(); unsubDeposits();
+    };
   }, [currentUser]);
 
   // --- 3. AUTH ---
@@ -338,7 +347,37 @@ export default function App() {
     setEditStockModal({ id: item.id, name: item.name, quantity: item.quantity, category: item.category || 'General', subcategory: item.subcategory || '' });
   };
 
-  // --- 5. ROOM & TICKETS LOGIC ---
+  // --- 5. ROOM DEPOSITS LOGIC ---
+  const handleAddDeposit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await addDoc(collection(db, "deposits"), {
+        roomNo: f.roomNo.value,
+        amount: parseFloat(f.amount.value),
+        checkInDate: f.checkInDate.value,
+        recordedBy: currentUser.name,
+        createdAt: serverTimestamp()
+      });
+      logSystemAction(currentUser.name, 'DEPOSIT_ADD', `Collected RM${f.amount.value} deposit for Room ${f.roomNo.value}`);
+      f.reset();
+      alert("Deposit recorded successfully!");
+    } catch (error) {
+      alert("Failed to record deposit");
+    }
+  };
+
+  const handleDeleteDeposit = async (id, roomNo) => {
+    if (!window.confirm(`Are you sure you want to delete the deposit record for Room ${roomNo}?`)) return;
+    try {
+      await deleteDoc(doc(db, "deposits", id));
+      logSystemAction(currentUser.name, 'DEPOSIT_DELETE', `Deleted deposit record for Room ${roomNo}`);
+    } catch (error) {
+      alert("Failed to delete deposit record");
+    }
+  };
+
+  // --- 6. ROOM & TICKETS LOGIC ---
   const toggleRoomKey = async (room) => {
     const newHasKey = !room.hasKey;
     await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
@@ -367,7 +406,7 @@ export default function App() {
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
-  // --- 6. OTHER ACTIONS ---
+  // --- 7. OTHER ACTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), { userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp() });
@@ -638,7 +677,6 @@ export default function App() {
       return match;
   });
 
-  // Unique lists for Audit dropdowns
   const uniqueAuditUsers = [...new Set(auditLogs.map(l => l.user))].sort();
   const uniqueAuditActions = [...new Set(auditLogs.map(l => l.action))].sort();
 
@@ -961,6 +999,64 @@ export default function App() {
                     ))
                 }
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- VIEW: DEPOSITS (NEW) --- */}
+      {view === 'DEPOSIT' && (
+        <div className="dashboard">
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-money-bill-wave"></i> Room Deposit Collected</h2>
+            <form onSubmit={handleAddDeposit} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>
+              <input name="roomNo" placeholder="Room No (e.g. 103)" required style={{flex:'1', minWidth:'120px', margin:0}} />
+              <input name="amount" type="number" placeholder="Amount (RM)" required style={{flex:'1', minWidth:'120px', margin:0}} />
+              <input 
+                  name="checkInDate" 
+                  type="date" 
+                  required 
+                  style={{flex:'1', minWidth:'150px', cursor:'pointer', margin:0}} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+              />
+              <button type="submit" className="btn blue" style={{flex: '1', minWidth: '120px', justifyContent: 'center'}}>Add Deposit</button>
+            </form>
+
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Room</th>
+                    <th>Deposit (RM)</th>
+                    <th>Check-in Date</th>
+                    <th>Collected On</th>
+                    <th>Recorded By</th>
+                    {currentUser.role === 'admin' && <th>Action</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {deposits.length === 0 ? (
+                    <tr><td colSpan={currentUser.role === 'admin' ? 6 : 5} style={{textAlign:'center', color:'#999'}}>No deposits recorded.</td></tr>
+                  ) : (
+                    deposits.map(dep => (
+                      <tr key={dep.id}>
+                        <td><strong>{dep.roomNo}</strong></td>
+                        <td><span style={{color: '#10b981', fontWeight: 'bold'}}>RM {dep.amount}</span></td>
+                        <td>{dep.checkInDate}</td>
+                        <td style={{fontSize: '0.85rem', color: '#666'}}>{formatDate(dep.createdAt)}</td>
+                        <td>{dep.recordedBy}</td>
+                        {currentUser.role === 'admin' && (
+                          <td>
+                             <button className="btn red" style={{padding: '4px 8px', fontSize: '0.75rem'}} onClick={() => handleDeleteDeposit(dep.id, dep.roomNo)}>
+                               <i className="fa-solid fa-trash"></i>
+                             </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

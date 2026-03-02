@@ -1009,7 +1009,16 @@ export default function App() {
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-money-bill-wave"></i> Room Deposit Collected</h2>
             <form onSubmit={handleAddDeposit} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>
-              <input name="roomNo" placeholder="Room No (e.g. 103)" required style={{flex:'1', minWidth:'120px', margin:0}} />
+              <select name="roomNo" required style={{flex:'1', minWidth:'120px', margin:0}}>
+                <option value="">-- Select Room --</option>
+                {rooms
+                  .filter(r => r.type !== 'STORE' && r.floor !== 'Public')
+                  .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}))
+                  .map(room => (
+                    <option key={room.id} value={room.id}>Room {room.id}</option>
+                  ))
+                }
+              </select>
               <input name="amount" type="number" placeholder="Amount (RM)" required style={{flex:'1', minWidth:'120px', margin:0}} />
               <input 
                   name="checkInDate" 

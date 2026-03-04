@@ -11,6 +11,7 @@ const ICONS = {
   LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry/Stock" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
   DEPOSIT: { icon: "fa-solid fa-money-bill-wave", label: "Deposits" },
+  VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" }, // NEW TAB
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
 };
@@ -78,7 +79,8 @@ export default function App() {
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
-  const [deposits, setDeposits] = useState([]); // NEW: Room Deposits State
+  const [deposits, setDeposits] = useState([]); 
+  const [verifications, setVerifications] = useState([]); // NEW: Verifications State
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -188,6 +190,10 @@ export default function App() {
     const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
     const unsubDeposits = onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
+    // NEW: Verifications Listener
+    const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"));
+    const unsubVerify = onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
     let unsubAudit = () => {};
     if (currentUser.role === 'admin') {
       const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
@@ -197,7 +203,7 @@ export default function App() {
     return () => { 
       unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); 
       unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); 
-      unsubAudit(); unsubDeposits();
+      unsubAudit(); unsubDeposits(); unsubVerify();
     };
   }, [currentUser]);
 
@@ -377,7 +383,50 @@ export default function App() {
     }
   };
 
-  // --- 6. ROOM & TICKETS LOGIC ---
+  // --- 6. ONLINE PAYMENT VERIFICATION LOGIC (NEW) ---
+  const handleAddVerification = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await addDoc(collection(db, "verifications"), {
+        paymentDate: f.paymentDate.value,
+        paymentTime: f.paymentTime.value,
+        refId: f.refId.value,
+        amount: parseFloat(f.amount.value),
+        status: 'pending', // Default status
+        recordedBy: currentUser.name,
+        createdAt: serverTimestamp()
+      });
+      logSystemAction(currentUser.name, 'VERIFY_ADD', `Logged payment verification request for Ref: *${f.refId.value} (RM${f.amount.value})`);
+      f.reset();
+      alert("Verification request recorded successfully!");
+    } catch (error) {
+      alert("Failed to record verification request");
+    }
+  };
+
+  const handleDeleteVerification = async (id, refId) => {
+    if (!window.confirm(`Are you sure you want to delete the verification record for Ref *${refId}?`)) return;
+    try {
+      await deleteDoc(doc(db, "verifications", id));
+      logSystemAction(currentUser.name, 'VERIFY_DELETE', `Deleted verification record for Ref *${refId}`);
+    } catch (error) {
+      alert("Failed to delete verification record");
+    }
+  };
+
+  const toggleVerificationStatus = async (v) => {
+    if (currentUser.role !== 'admin') return; // Only Admin can verify
+    const newStatus = v.status === 'verified' ? 'pending' : 'verified';
+    try {
+        await updateDoc(doc(db, "verifications", v.id), { status: newStatus });
+        logSystemAction(currentUser.name, 'VERIFY_STATUS', `Marked payment Ref *${v.refId} as ${newStatus.toUpperCase()}`);
+    } catch(error) {
+        alert("Failed to update status");
+    }
+  };
+
+  // --- 7. ROOM & TICKETS LOGIC ---
   const toggleRoomKey = async (room) => {
     const newHasKey = !room.hasKey;
     await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
@@ -406,7 +455,7 @@ export default function App() {
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
-  // --- 7. OTHER ACTIONS ---
+  // --- 8. OTHER ACTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), { userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp() });
@@ -1003,7 +1052,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: DEPOSITS (NEW) --- */}
+      {/* --- VIEW: DEPOSITS --- */}
       {view === 'DEPOSIT' && (
         <div className="dashboard">
           <div className="floor-section">
@@ -1056,6 +1105,88 @@ export default function App() {
                         {currentUser.role === 'admin' && (
                           <td>
                              <button className="btn red" style={{padding: '4px 8px', fontSize: '0.75rem'}} onClick={() => handleDeleteDeposit(dep.id, dep.roomNo)}>
+                               <i className="fa-solid fa-trash"></i>
+                             </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- VIEW: VERIFICATION (NEW) --- */}
+      {view === 'VERIFY' && (
+        <div className="dashboard">
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-file-invoice-dollar"></i> Online Payment Verification</h2>
+            <form onSubmit={handleAddVerification} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>
+              <input 
+                  name="paymentDate" 
+                  type="date" 
+                  required 
+                  style={{flex:'1', minWidth:'130px', cursor:'pointer', margin:0}} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+              />
+              <input 
+                  name="paymentTime" 
+                  type="time" 
+                  required 
+                  style={{flex:'1', minWidth:'110px', cursor:'pointer', margin:0}} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+              />
+              <input name="refId" placeholder="Last 4 Digits Ref (e.g. 1234)" maxLength="4" required style={{flex:'1', minWidth:'150px', margin:0}} />
+              <input name="amount" type="number" step="0.01" placeholder="Amount (RM)" required style={{flex:'1', minWidth:'120px', margin:0}} />
+              
+              <button type="submit" className="btn blue" style={{flex: '1', minWidth: '120px', justifyContent: 'center'}}>Submit Verify</button>
+            </form>
+
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Payment Date & Time</th>
+                    <th>Ref ID (Last 4)</th>
+                    <th>Amount (RM)</th>
+                    <th>Recorded By</th>
+                    <th>Submitted On</th>
+                    <th>Status</th>
+                    {currentUser.role === 'admin' && <th>Action</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {verifications.length === 0 ? (
+                    <tr><td colSpan={currentUser.role === 'admin' ? 7 : 6} style={{textAlign:'center', color:'#999'}}>No verification records.</td></tr>
+                  ) : (
+                    verifications.map(v => (
+                      <tr key={v.id}>
+                        <td><strong>{v.paymentDate}</strong> at {v.paymentTime}</td>
+                        <td>*** {v.refId}</td>
+                        <td><span style={{color: '#10b981', fontWeight: 'bold'}}>RM {v.amount}</span></td>
+                        <td>{v.recordedBy}</td>
+                        <td style={{fontSize: '0.85rem', color: '#666'}}>{formatDate(v.createdAt)} <br/> {formatTime(v.createdAt)}</td>
+                        <td>
+                            {currentUser.role === 'admin' ? (
+                               <button 
+                                  onClick={() => toggleVerificationStatus(v)}
+                                  className={`btn ${v.status === 'verified' ? 'green' : 'orange'}`} 
+                                  style={{padding: '4px 8px', fontSize: '0.75rem', width: '80px', justifyContent:'center'}}
+                               >
+                                 {v.status === 'verified' ? 'Verified' : 'Pending'}
+                               </button>
+                            ) : (
+                               <span className={`badge ${v.status === 'verified' ? 'green' : 'orange'}`} style={{fontSize:'0.75rem', padding:'4px 8px'}}>
+                                  {v.status === 'verified' ? 'Verified' : 'Pending'}
+                               </span>
+                            )}
+                        </td>
+                        {currentUser.role === 'admin' && (
+                          <td>
+                             <button className="btn red" style={{padding: '4px 8px', fontSize: '0.75rem'}} onClick={() => handleDeleteVerification(v.id, v.refId)}>
                                <i className="fa-solid fa-trash"></i>
                              </button>
                           </td>

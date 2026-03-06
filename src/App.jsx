@@ -867,19 +867,36 @@ export default function App() {
             </h2>
             
             {[1, 2, 3, 'Public', 'Store'].map(floorNum => {
-               let floorRooms = [];
-               if (floorNum === 'Store') {
-                   floorRooms = filteredRooms.filter(r => r.type === 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               } else if (floorNum === 'Public') {
-                   // FIX: Added String() to r.floor
-                   floorRooms = filteredRooms.filter(r => String(r.floor) === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               } else {
-                   // FIX: Added String() to both r.floor and floorNum so they match perfectly
-                   floorRooms = filteredRooms.filter(r => String(r.floor) === String(floorNum) && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
-               }
                
+               // SAFE FALLBACK FILTERING
+               let floorRooms = filteredRooms.filter(r => {
+                   const rType = r.type ? String(r.type).toUpperCase() : '';
+                   const rFloor = r.floor ? String(r.floor).toLowerCase() : '';
+                   const rId = r.id ? String(r.id) : '';
+
+                   // 1. Group Storerooms
+                   if (floorNum === 'Store') return rType === 'STORE';
+                   
+                   // 2. Group Public Areas
+                   if (floorNum === 'Public') return rFloor === 'public';
+                   
+                   // 3. Normal Floors (1, 2, 3)
+                   if (rType === 'STORE' || rFloor === 'public') return false;
+
+                   // Check if floor matches exactly
+                   if (rFloor === String(floorNum)) return true;
+
+                   // ULTIMATE FALLBACK: If floor data is missing/broken, use the first digit of the Room ID
+                   if (!r.floor && rId.startsWith(String(floorNum))) return true;
+
+                   return false;
+               });
+
                if (floorRooms.length === 0) return null;
-               
+
+               // SAFE SORTING
+               floorRooms.sort((a,b) => String(a.id || '').localeCompare(String(b.id || ''), undefined, {numeric: true}));
+
                let sectionTitle = `Level ${floorNum}`;
                if (floorNum === 'Public') sectionTitle = 'Public Areas & Facilities';
                if (floorNum === 'Store') sectionTitle = 'Storerooms';
@@ -891,7 +908,7 @@ export default function App() {
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
                           {room.hasKey && <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>}
-                          <div className="room-number" style={{fontSize: String(room.id).length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
+                          <div className="room-number" style={{fontSize: String(room.id || '').length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
                         </div>

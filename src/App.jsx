@@ -871,10 +871,10 @@ export default function App() {
                if (floorNum === 'Store') {
                    floorRooms = filteredRooms.filter(r => r.type === 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else if (floorNum === 'Public') {
-                   // FIX: Added String() around r.floor
+                   // FIX: Added String() to r.floor
                    floorRooms = filteredRooms.filter(r => String(r.floor) === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else {
-                   // FIX: Added String() around both sides so "1" and 1 will match perfectly
+                   // FIX: Added String() to both r.floor and floorNum so they match perfectly
                    floorRooms = filteredRooms.filter(r => String(r.floor) === String(floorNum) && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                }
                

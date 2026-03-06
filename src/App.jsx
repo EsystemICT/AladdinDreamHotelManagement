@@ -338,65 +338,6 @@ export default function App() {
     }
   };
 
-  // --- ROOM INITIALIZATION ---
-  const initializeRooms = async () => {
-    if (!window.confirm('This will create all hotel rooms. Continue?')) return;
-    
-    try {
-      const batch = writeBatch(db);
-      
-      // Floors 1, 2, 3 - rooms 01 to 33 (11 rooms per floor)
-      for (let floor = 1; floor <= 3; floor++) {
-        for (let roomNum = 1; roomNum <= 11; roomNum++) {
-          const roomId = `${floor}${String(roomNum).padStart(2, '0')}`;
-          batch.set(doc(db, "rooms", roomId), {
-            id: roomId,
-            floor: floor,
-            type: 'ROOM',
-            status: 'vacant',
-            hasKey: false
-          });
-        }
-      }
-      
-      // Storerooms
-      const storerooms = ['1A', '1B', '2A', '2B', '3A', '3B'];
-      storerooms.forEach(sr => {
-        batch.set(doc(db, "rooms", sr), {
-          id: sr,
-          floor: sr.charAt(0),
-          type: 'STORE',
-          status: 'vacant',
-          hasKey: false
-        });
-      });
-      
-      // Public areas
-      const publicAreas = [
-        { id: 'Reception', type: 'LOBBY' },
-        { id: 'Pantry', type: 'LOBBY' },
-        { id: 'Lobby Toilet', type: 'LOBBY' },
-        { id: 'Comfort Area', type: 'LEVEL 1' }
-      ];
-      publicAreas.forEach(area => {
-        batch.set(doc(db, "rooms", area.id), {
-          id: area.id,
-          floor: 'Public',
-          type: area.type,
-          status: 'vacant',
-          hasKey: false
-        });
-      });
-      
-      await batch.commit();
-      logSystemAction(currentUser.name, 'SYSTEM_INIT', 'Initialized all hotel rooms');
-      alert('All rooms created successfully!');
-    } catch (error) {
-      console.error('Error creating rooms:', error);
-      alert('Failed to create rooms');
-    }
-  };
-
   // --- 4. LAUNDRY & STOCK FUNCTIONS ---
   const handleLaundryChange = (item, val) => {
     setLaundryForm(prev => {
@@ -928,13 +869,19 @@ export default function App() {
             {[1, 2, 3, 'Public', 'Store'].map(floorNum => {
                let floorRooms = [];
                if (floorNum === 'Store') {
-                   floorRooms = filteredRooms.filter(r => r.type === 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   // Show any room with type 'STORE' or storeroom IDs like 1A, 2A, etc
+                   floorRooms = filteredRooms.filter(r => r.type === 'STORE' || /^\d[A-Z]$/.test(r.id)).sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else if (floorNum === 'Public') {
-                   // FIX: Added String() to r.floor
-                   floorRooms = filteredRooms.filter(r => String(r.floor) === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   // Show rooms where floor is 'Public' or type contains 'LOBBY' or 'LEVEL'
+                   floorRooms = filteredRooms.filter(r => String(r.floor) === 'Public' || r.type === 'LOBBY' || r.type?.includes('LEVEL')).sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else {
-                   // FIX: Added String() to both r.floor and floorNum so they match perfectly
-                   floorRooms = filteredRooms.filter(r => String(r.floor) === String(floorNum) && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   // Show rooms where floor matches the number (as string or number) and is NOT a storeroom
+                   floorRooms = filteredRooms.filter(r => {
+                     const roomFloor = String(r.floor);
+                     const targetFloor = String(floorNum);
+                     const isStoreroom = r.type === 'STORE' || /^\d[A-Z]$/.test(r.id);
+                     return roomFloor === targetFloor && !isStoreroom;
+                   }).sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                }
                
                if (floorRooms.length === 0) return null;
@@ -1521,12 +1468,7 @@ export default function App() {
       {view === 'ADMIN' && (
         <div className="dashboard">
             <div className="floor-section" style={{marginTop: '20px'}}>
-              <h2 className="floor-title">
-                <span><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</span>
-                <button className="btn orange" onClick={initializeRooms}>
-                  <i className="fa-solid fa-building"></i> Initialize Rooms
-                </button>
-              </h2>
+              <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
                 <input name="userid" placeholder="ID" required style={{flex:1}} />
                 <input name="name" placeholder="Name" required style={{flex:1}} />

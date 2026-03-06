@@ -165,6 +165,10 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
 
+    const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
+      setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
     const unsubTickets = onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
@@ -215,7 +219,7 @@ export default function App() {
     }
 
     return () => { 
-      unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); 
+      unsubRooms(); unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); 
       unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); 
       unsubAudit(); unsubDeposits(); unsubVerify();
     };

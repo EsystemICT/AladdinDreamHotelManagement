@@ -724,7 +724,7 @@ export default function App() {
   };
 
   // --- DATA PROCESSING ---
-  const filteredRooms = rooms.filter(r => r.id.toLowerCase().includes(roomSearch.toLowerCase()));
+  const filteredRooms = rooms.filter(r => String(r.id).toLowerCase().includes(roomSearch.toLowerCase()));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
 
@@ -871,11 +871,15 @@ export default function App() {
                if (floorNum === 'Store') {
                    floorRooms = filteredRooms.filter(r => r.type === 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else if (floorNum === 'Public') {
-                   floorRooms = filteredRooms.filter(r => r.floor === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   // FIX: Added String() around r.floor
+                   floorRooms = filteredRooms.filter(r => String(r.floor) === 'Public').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                } else {
-                   floorRooms = filteredRooms.filter(r => r.floor === floorNum && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
+                   // FIX: Added String() around both sides so "1" and 1 will match perfectly
+                   floorRooms = filteredRooms.filter(r => String(r.floor) === String(floorNum) && r.type !== 'STORE').sort((a,b) => String(a.id).localeCompare(String(b.id), undefined, {numeric: true}));
                }
+               
                if (floorRooms.length === 0) return null;
+               
                let sectionTitle = `Level ${floorNum}`;
                if (floorNum === 'Public') sectionTitle = 'Public Areas & Facilities';
                if (floorNum === 'Store') sectionTitle = 'Storerooms';
@@ -887,7 +891,7 @@ export default function App() {
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
                           {room.hasKey && <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>}
-                          <div className="room-number" style={{fontSize: room.id.length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
+                          <div className="room-number" style={{fontSize: String(room.id).length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}
                         </div>

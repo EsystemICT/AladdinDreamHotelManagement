@@ -287,7 +287,6 @@ export default function App() {
     );
   }
 
-
   // --- 3. AUTH ---
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -339,6 +338,31 @@ export default function App() {
         alert(`Password for ${staffName} updated successfully!`);
     } catch (error) {
         alert("Failed to update password.");
+    }
+  };
+
+  // --- ADD OR RESTORE ROOMS (NEW ADMIN FEATURE) ---
+  const handleAddRoom = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const rId = f.roomId.value;
+    const rFloor = f.floor.value;
+    const rType = f.roomType.value.toUpperCase();
+
+    try {
+      await setDoc(doc(db, "rooms", rId), {
+        id: rId,
+        floor: rFloor,
+        type: rType,
+        status: 'vacant',
+        hasKey: true
+      }, { merge: true }); // Merge true ensures it creates it safely if it doesn't exist
+      
+      logSystemAction(currentUser.name, 'ROOM_CREATED', `Added/Restored Room ${rId}`);
+      alert(`Room ${rId} successfully added/restored!`);
+      f.reset();
+    } catch (err) {
+      alert("Failed to add room: " + err.message);
     }
   };
 
@@ -1471,6 +1495,19 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
+
+            {/* NEW: ADD OR RESTORE ROOM */}
+            <div className="floor-section" style={{marginTop: '20px'}}>
+              <h2 className="floor-title"><i className="fa-solid fa-door-open"></i> Add / Restore Missing Room</h2>
+              <form onSubmit={handleAddRoom} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'10px'}}>
+                <input name="roomId" placeholder="Room No (e.g. 106)" required style={{flex:1, minWidth: '120px'}} />
+                <input name="floor" placeholder="Floor (e.g. 1)" required style={{flex:1, minWidth: '100px'}} />
+                <input name="roomType" placeholder="Type (e.g. DLXR, SUIT)" required style={{flex:1, minWidth: '120px'}} />
+                <button type="submit" className="btn green">Add Room</button>
+              </form>
+              <p style={{fontSize: '0.85rem', color: '#666', margin: 0}}>*If a room accidentally disappeared, enter its details here to restore it. Existing rooms won't be overwritten.</p>
+            </div>
+
             <div className="floor-section" style={{marginTop: '20px'}}>
               <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>

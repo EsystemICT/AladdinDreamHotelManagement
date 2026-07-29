@@ -303,7 +303,6 @@ export default function App() {
   const [attFilterUser, setAttFilterUser] = useState('');
   const [attFilterSearch, setAttFilterSearch] = useState('');
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
-  const [manualClockModal, setManualClockModal] = useState({ show: false, userId: '', type: 'in', date: '', time: '', remark: '' });
   const [hotelLocation, setHotelLocation] = useState({ lat: 3.1390, lng: 101.6869, radiusMeters: 300 });
 
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
@@ -839,46 +838,6 @@ export default function App() {
     );
   };
 
-  const handleManualClockSubmit = async (e) => {
-    e.preventDefault();
-    if (!manualClockModal.userId || !manualClockModal.date || !manualClockModal.time) {
-      alert("Please fill in staff, date, and time.");
-      return;
-    }
-    const targetUser = users.find(u => u.userid === manualClockModal.userId);
-    const userName = targetUser ? targetUser.name : manualClockModal.userId;
-
-    const [year, month, day] = manualClockModal.date.split('-').map(Number);
-    const [hours, minutes] = manualClockModal.time.split(':').map(Number);
-    const customDate = new Date(year, month - 1, day, hours, minutes);
-
-    try {
-      await addDoc(collection(db, "attendance"), {
-        userId: manualClockModal.userId,
-        userName: userName,
-        type: manualClockModal.type,
-        timestamp: customDate,
-        isManual: true,
-        manualBy: currentUser.name,
-        remark: manualClockModal.remark || 'Admin Manual Entry'
-      });
-      logSystemAction(currentUser.name, 'ATTENDANCE_MANUAL', `Added manual clock ${manualClockModal.type.toUpperCase()} for ${userName} on ${manualClockModal.date} ${manualClockModal.time}`);
-      setManualClockModal({ show: false, userId: '', type: 'in', date: '', time: '', remark: '' });
-      alert("Manual attendance record created!");
-    } catch (err) {
-      alert("Failed to add manual record: " + err.message);
-    }
-  };
-
-  const handleDeleteAttendanceLog = async (logId, userName, logTime) => {
-    if (!window.confirm(`Delete clock record for ${userName} (${logTime})?`)) return;
-    try {
-      await deleteDoc(doc(db, "attendance", logId));
-      logSystemAction(currentUser.name, 'ATTENDANCE_DELETE', `Deleted clock record for ${userName} (${logTime})`);
-      alert("Record deleted!");
-    } catch (err) {
-      alert("Failed to delete record: " + err.message);
-    }
   };
 
   const handleExportAttendanceCSV = (sessionsToExport) => {
@@ -1992,15 +1951,6 @@ export default function App() {
             <div className="floor-title">
               <span><i className="fa-solid fa-clipboard-user"></i> Attendance & Shift Portal</span>
               <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
-                {currentUser.role === 'admin' && (
-                  <button className="btn green" style={{fontSize: '0.85rem'}} onClick={() => {
-                    const todayStr = new Date().toISOString().slice(0, 10);
-                    const timeStr = new Date().toTimeString().slice(0, 5);
-                    setManualClockModal({ show: true, userId: currentUser.userid, type: 'in', date: todayStr, time: timeStr, remark: '' });
-                  }}>
-                    <i className="fa-solid fa-plus"></i> + Manual Clock
-                  </button>
-                )}
                 <button className="btn blue" style={{fontSize: '0.85rem'}} onClick={() => handleExportAttendanceCSV(filteredAttSessions)}>
                   <i className="fa-solid fa-file-csv"></i> Export CSV
                 </button>
@@ -2096,12 +2046,11 @@ export default function App() {
                       <th>Clock Out</th>
                       <th>Work Duration</th>
                       <th>Status</th>
-                      {currentUser.role === 'admin' && <th>Action</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {filteredAttSessions.length === 0 ? (
-                      <tr><td colSpan={currentUser.role === 'admin' ? 8 : 7} style={{textAlign:'center', color:'#999', padding:'25px'}}>No attendance records match the current filters.</td></tr>
+                      <tr><td colSpan={7} style={{textAlign:'center', color:'#999', padding:'25px'}}>No attendance records match the current filters.</td></tr>
                     ) : (
                       filteredAttSessions.map(s => (
                         <tr key={s.id}>
@@ -2124,7 +2073,6 @@ export default function App() {
                           <td>
                             <div>
                               {s.inTime ? formatTime(s.inTime) : <span style={{color: '#94a3b8'}}>-</span>}
-                              {s.inLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
                             </div>
                             {s.inLog?.locationStatus === 'away' && (
                               <div style={{marginTop: '3px'}}>
@@ -2137,7 +2085,6 @@ export default function App() {
                           <td>
                             <div>
                               {s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? <span className="status-badge working"><span className="badge-dot"></span> Working Now</span> : <span style={{color: '#ef4444', fontSize: '0.8rem'}}>No Clock-out</span>)}
-                              {s.outLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
                             </div>
                             {s.outLog?.locationStatus === 'away' && (
                               <div style={{marginTop: '3px'}}>
@@ -2158,22 +2105,6 @@ export default function App() {
                             {s.status === 'missing_out' && <span style={{color: '#f59e0b', fontSize: '0.75rem', fontWeight: 'bold'}}>Incomplete</span>}
                             {s.status === 'orphan_out' && <span style={{color: '#ef4444', fontSize: '0.75rem', fontWeight: 'bold'}}>Clock Out Only</span>}
                           </td>
-                          {currentUser.role === 'admin' && (
-                            <td>
-                              <div style={{display: 'flex', gap: '5px'}}>
-                                {s.inLog && (
-                                  <button className="btn red" style={{padding: '4px 8px', fontSize: '0.75rem'}} title="Delete Clock-In Record" onClick={() => handleDeleteAttendanceLog(s.inLog.id, s.userName, formatTime(s.inTime))}>
-                                    <i className="fa-solid fa-trash"></i>
-                                  </button>
-                                )}
-                                {s.outLog && (
-                                  <button className="btn grey" style={{padding: '4px 8px', fontSize: '0.75rem'}} title="Delete Clock-Out Record" onClick={() => handleDeleteAttendanceLog(s.outLog.id, s.userName, formatTime(s.outTime))}>
-                                    <i className="fa-solid fa-trash-can"></i>
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          )}
                         </tr>
                       ))
                     )}
@@ -2262,19 +2193,10 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div style={{marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <div style={{marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-start', alignItems: 'center'}}>
                       <button className="btn grey" style={{fontSize: '0.75rem', padding: '4px 8px'}} onClick={() => { setAttFilterUser(st.userId); setAttReportSubTab('LOGS'); }}>
                         History Logs
                       </button>
-                      {currentUser.role === 'admin' && (
-                        <button className="btn blue" style={{fontSize: '0.75rem', padding: '4px 8px'}} onClick={() => {
-                          const todayStr = new Date().toISOString().slice(0, 10);
-                          const timeStr = new Date().toTimeString().slice(0, 5);
-                          setManualClockModal({ show: true, userId: st.userId, type: st.status === 'working' ? 'out' : 'in', date: todayStr, time: timeStr, remark: '' });
-                        }}>
-                          Manual Clock
-                        </button>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -2738,54 +2660,6 @@ export default function App() {
         </div>
       )}
 
-      {manualClockModal.show && (
-        <div className="modal-overlay" onClick={() => setManualClockModal({...manualClockModal, show: false})}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2><i className="fa-solid fa-clock"></i> Manual Attendance Entry</h2>
-            <form onSubmit={handleManualClockSubmit} style={{display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px'}}>
-              <div>
-                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Staff Member</label>
-                <select value={manualClockModal.userId} onChange={e => setManualClockModal({...manualClockModal, userId: e.target.value})} required style={{margin: 0, width: '100%'}}>
-                  <option value="">-- Select Staff --</option>
-                  {users.map(u => (
-                    <option key={u.userid} value={u.userid}>{u.name} ({u.userid})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{display: 'flex', gap: '10px'}}>
-                <div style={{flex: 1}}>
-                  <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Clock Action</label>
-                  <select value={manualClockModal.type} onChange={e => setManualClockModal({...manualClockModal, type: e.target.value})} style={{margin: 0, width: '100%'}}>
-                    <option value="in">Clock IN</option>
-                    <option value="out">Clock OUT</option>
-                  </select>
-                </div>
-
-                <div style={{flex: 1}}>
-                  <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Date</label>
-                  <input type="date" value={manualClockModal.date} onChange={e => setManualClockModal({...manualClockModal, date: e.target.value})} required onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{cursor: 'pointer', margin: 0, width: '100%'}} />
-                </div>
-              </div>
-
-              <div>
-                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Time</label>
-                <input type="time" value={manualClockModal.time} onChange={e => setManualClockModal({...manualClockModal, time: e.target.value})} required style={{margin: 0, width: '100%'}} />
-              </div>
-
-              <div>
-                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Reason / Remark</label>
-                <input placeholder="e.g. Forgot to clock in, System correction" value={manualClockModal.remark} onChange={e => setManualClockModal({...manualClockModal, remark: e.target.value})} style={{margin: 0, width: '100%'}} />
-              </div>
-
-              <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
-                <button type="button" className="btn grey" style={{flex: 1, justifyContent: 'center'}} onClick={() => setManualClockModal({...manualClockModal, show: false})}>Cancel</button>
-                <button type="submit" className="btn green" style={{flex: 1, justifyContent: 'center'}}>Save Attendance</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

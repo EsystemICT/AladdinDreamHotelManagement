@@ -820,6 +820,26 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   background: #a855f7;
 }
 
+.status-badge.away {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.status-badge.on_site {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.status-badge.away .badge-dot {
+  background: #f97316;
+}
+
+.status-badge.on_site .badge-dot {
+  background: #22c55e;
+}
+
 @keyframes pulse {
   0% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(1.2); }

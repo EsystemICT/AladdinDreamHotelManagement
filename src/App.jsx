@@ -55,6 +55,30 @@ const formatDuration = (ms) => {
   return `${hrs} hrs ${mins} mins`;
 };
 
+// Default Hotel Coordinates (Latitude, Longitude & Radius in meters)
+const DEFAULT_HOTEL_COORDS = {
+  lat: 3.1390,
+  lng: 101.6869,
+  radiusMeters: 300
+};
+
+// Calculate distance in meters between two coordinates (Haversine formula)
+const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+};
+
 // --- ATTENDANCE SESSION PROCESSOR ---
 const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
   const sortedLogs = [...rawLogs].filter(a => a.timestamp).sort((a, b) => {
@@ -175,7 +199,9 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
         role: user.role,
         status: 'working',
         startTime: lastLog.timestamp,
-        elapsedMs: new Date() - inDate
+        elapsedMs: new Date() - inDate,
+        locationStatus: lastLog.locationStatus || 'on_site',
+        locationLabel: lastLog.locationLabel || (lastLog.locationStatus === 'away' ? 'Away' : 'On Site')
       });
     } else {
       rosterStatus.push({
@@ -718,8 +744,55 @@ export default function App() {
   // --- 8. OTHER ACTIONS & ATTENDANCE PORTAL FUNCTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
-      await addDoc(collection(db, "attendance"), { userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp() });
-      logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()}`); 
+
+      let locStatus = 'away';
+      let locLabel = 'Away';
+      let coords = null;
+
+      try {
+        if ("geolocation" in navigator) {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 6000,
+              maximumAge: 0
+            });
+          });
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          coords = { lat, lng };
+
+          const distMeters = calculateDistanceMeters(lat, lng, DEFAULT_HOTEL_COORDS.lat, DEFAULT_HOTEL_COORDS.lng);
+          if (distMeters !== null && distMeters <= DEFAULT_HOTEL_COORDS.radiusMeters) {
+            locStatus = 'on_site';
+            locLabel = 'On Site';
+          } else {
+            locStatus = 'away';
+            locLabel = distMeters !== null ? `Away (${(distMeters / 1000).toFixed(1)}km)` : 'Away';
+          }
+        }
+      } catch (err) {
+        console.log("GPS location unavailable or denied:", err);
+        locStatus = 'away';
+        locLabel = 'Away (No GPS)';
+      }
+
+      await addDoc(collection(db, "attendance"), { 
+        userId: currentUser.userid, 
+        userName: currentUser.name, 
+        type: type, 
+        timestamp: serverTimestamp(),
+        locationStatus: locStatus,
+        locationLabel: locLabel,
+        coords: coords
+      });
+      
+      logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()} - Location: ${locLabel}`);
+      if (locStatus === 'away') {
+        alert(`Clock ${type.toUpperCase()} saved. Location status recorded as AWAY (${locLabel}).`);
+      } else {
+        alert(`Clock ${type.toUpperCase()} saved. Location verified ON SITE.`);
+      }
   };
 
   const handleManualClockSubmit = async (e) => {
@@ -1239,12 +1312,15 @@ export default function App() {
              </div>
           </h1>
           <div className="tabs">
-            {Object.keys(ICONS).map(v => (
-              <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
-                <i className={ICONS[v].icon}></i> <span>{ICONS[v].label}</span>
-                {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
-              </button>
-            ))}
+            {Object.keys(ICONS).map(v => {
+              if (v === 'ATT_REPORT' && currentUser.role !== 'admin') return null;
+              return (
+                <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
+                  <i className={ICONS[v].icon}></i> <span>{ICONS[v].label}</span>
+                  {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
+                </button>
+              );
+            })}
             {currentUser.role === 'admin' && (
               <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => setView('ADMIN')}>
                 <i className="fa-solid fa-lock"></i> <span>Admin</span>
@@ -1763,15 +1839,24 @@ export default function App() {
                     <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={lastClock?.type !== 'in'}>Clock OUT</button>
                 </div>
                 <div style={{marginTop:'15px', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
-                    <div>Status: <strong>{lastClock?.type === 'in' ? '🟢 Working' : '🔴 Off Duty'}</strong></div>
+                    <div>
+                      Status: <strong>{lastClock?.type === 'in' ? '🟢 Working' : '🔴 Off Duty'}</strong>
+                      {lastClock?.locationStatus && (
+                        <span className={`status-badge ${lastClock.locationStatus === 'away' ? 'away' : 'on_site'}`} style={{marginLeft: '8px'}}>
+                          <i className={`fa-solid ${lastClock.locationStatus === 'away' ? 'fa-location-dot' : 'fa-hotel'}`}></i> {lastClock.locationLabel || (lastClock.locationStatus === 'away' ? 'Away' : 'On Site')}
+                        </span>
+                      )}
+                    </div>
                     {lastClock?.type === 'in' && lastClock?.timestamp && (
                       <div className="session-duration" style={{fontSize: '0.9rem', padding: '6px 14px', marginTop: '5px'}}>
                         Shift Timer: {formatDuration(currentTime - (lastClock.timestamp?.toDate ? lastClock.timestamp.toDate() : new Date(lastClock.timestamp)))}
                       </div>
                     )}
-                    <button className="btn blue" style={{fontSize:'0.8rem', padding:'6px 12px', marginTop:'10px'}} onClick={() => setView('ATT_REPORT')}>
-                      <i className="fa-solid fa-clipboard-user"></i> Open Attendance Portal & Reports
-                    </button>
+                    {currentUser.role === 'admin' && (
+                      <button className="btn blue" style={{fontSize:'0.8rem', padding:'6px 12px', marginTop:'10px'}} onClick={() => setView('ATT_REPORT')}>
+                        <i className="fa-solid fa-clipboard-user"></i> Open Attendance Portal & Reports
+                      </button>
+                    )}
                 </div>
             </div>
 
@@ -1806,8 +1891,8 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: ATTENDANCE PORTAL & REPORTS --- */}
-      {view === 'ATT_REPORT' && (
+      {/* --- VIEW: ATTENDANCE PORTAL & REPORTS (ADMIN ONLY) --- */}
+      {view === 'ATT_REPORT' && currentUser.role === 'admin' && (
         <div className="dashboard">
           {/* Metrics Header */}
           <div className="att-metrics-grid">
@@ -1955,6 +2040,7 @@ export default function App() {
                     <tr>
                       <th>Date</th>
                       <th>Staff Name (ID)</th>
+                      <th>Location</th>
                       <th>Clock In</th>
                       <th>Clock Out</th>
                       <th>Work Duration</th>
@@ -1964,7 +2050,7 @@ export default function App() {
                   </thead>
                   <tbody>
                     {filteredAttSessions.length === 0 ? (
-                      <tr><td colSpan={currentUser.role === 'admin' ? 7 : 6} style={{textAlign:'center', color:'#999', padding:'25px'}}>No attendance records match the current filters.</td></tr>
+                      <tr><td colSpan={currentUser.role === 'admin' ? 8 : 7} style={{textAlign:'center', color:'#999', padding:'25px'}}>No attendance records match the current filters.</td></tr>
                     ) : (
                       filteredAttSessions.map(s => (
                         <tr key={s.id}>
@@ -1972,6 +2058,17 @@ export default function App() {
                           <td>
                             <strong>{s.userName}</strong>
                             <div style={{fontSize: '0.75rem', color: '#64748b'}}>{s.userId}</div>
+                          </td>
+                          <td>
+                            {s.inLog?.locationStatus === 'away' || s.outLog?.locationStatus === 'away' ? (
+                              <span className="status-badge away" title={s.inLog?.locationLabel || s.outLog?.locationLabel}>
+                                <i className="fa-solid fa-location-dot"></i> Away
+                              </span>
+                            ) : (
+                              <span className="status-badge on_site">
+                                <i className="fa-solid fa-hotel"></i> On Site
+                              </span>
+                            )}
                           </td>
                           <td>
                             {s.inTime ? formatTime(s.inTime) : <span style={{color: '#94a3b8'}}>-</span>}
@@ -2066,7 +2163,11 @@ export default function App() {
                           <div className="roster-role">ID: {st.userId} • {st.role}</div>
                         </div>
                         <div>
-                          {st.status === 'working' && <span className="status-badge working"><span className="badge-dot"></span> Working</span>}
+                          {st.status === 'working' && (
+                            <span className={`status-badge ${st.locationStatus === 'away' ? 'away' : 'working'}`}>
+                              <span className="badge-dot"></span> {st.locationStatus === 'away' ? 'Working (Away)' : 'Working (On Site)'}
+                            </span>
+                          )}
                           {st.status === 'off_duty' && <span className="status-badge off_duty"><span className="badge-dot"></span> Off Duty</span>}
                           {st.status === 'on_leave' && <span className="status-badge on_leave"><span className="badge-dot"></span> On Leave</span>}
                         </div>

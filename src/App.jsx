@@ -1732,7 +1732,7 @@ export default function App() {
                     verifications.map(v => (
                       <tr key={v.id}>
                         <td><strong>{v.paymentDate}</strong> at {v.paymentTime}</td>
-                        <td>{'*** ' + v.refId}</td>
+                        <td>Ref: {v.refId}</td>
                         <td><span style={{color: '#10b981', fontWeight: 'bold'}}>RM {v.amount}</span></td>
                         <td>{v.recordedBy}</td>
                         <td style={{fontSize: '0.85rem', color: '#666'}}>{formatDate(v.createdAt)} <br/> {formatTime(v.createdAt)}</td>

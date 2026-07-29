@@ -97,6 +97,7 @@ body {
 
 .tabs button:hover { background: rgba(0,0,0,0.05); color: #000; }
 .tabs button.active { background: #ddbd88; color: white !important; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+.logout-btn:hover { background: #fca5a5 !important; color: #b91c1c !important; }
 
 /* NOTIFICATION BADGE */
 .nav-badge {

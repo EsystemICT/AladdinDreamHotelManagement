@@ -1251,8 +1251,8 @@ export default function App() {
                 {pendingLeavesCount > 0 && <span className="nav-badge">{pendingLeavesCount}</span>}
               </button>
             )}
-            <button onClick={handleLogout} style={{marginLeft:'5px', color: '#ef4444'}}>
-              <i className="fa-solid fa-right-from-bracket"></i>
+            <button onClick={handleLogout} className="logout-btn" title="Logout" style={{marginLeft:'8px', color: '#dc2626', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '8px 14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'}}>
+              <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
             </button>
           </div>
         </div>

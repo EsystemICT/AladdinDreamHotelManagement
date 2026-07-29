@@ -2124,12 +2124,11 @@ export default function App() {
                       <th>Total Days Present</th>
                       <th>Total Hours Worked</th>
                       <th>Sessions Recorded</th>
-                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attStaffSummaryData.length === 0 ? (
-                      <tr><td colSpan="6" style={{textAlign:'center', color:'#999', padding:'25px'}}>No staff attendance records available for summary.</td></tr>
+                      <tr><td colSpan="5" style={{textAlign:'center', color:'#999', padding:'25px'}}>No staff attendance records available for summary.</td></tr>
                     ) : (
                       attStaffSummaryData.map(st => (
                         <tr key={st.userId}>
@@ -2138,11 +2137,6 @@ export default function App() {
                           <td><span style={{fontWeight: 'bold', color: '#10b981'}}>{st.daysWorked} days</span></td>
                           <td><span className="session-duration">{st.totalHoursStr}</span></td>
                           <td>{st.sessionCount} sessions</td>
-                          <td>
-                            <button className="btn blue" style={{padding: '4px 10px', fontSize: '0.75rem'}} onClick={() => { setAttFilterUser(st.userId); setAttReportSubTab('LOGS'); }}>
-                              <i className="fa-solid fa-eye"></i> View Logs
-                            </button>
-                          </td>
                         </tr>
                       ))
                     )}

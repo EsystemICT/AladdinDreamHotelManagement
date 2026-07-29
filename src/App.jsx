@@ -2311,7 +2311,7 @@ export default function App() {
               </form>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
                 <table>
-                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Action</th></tr></thead>
+                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Manage</th></tr></thead>
                   <tbody>
                     {users.map(u => (
                       <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>

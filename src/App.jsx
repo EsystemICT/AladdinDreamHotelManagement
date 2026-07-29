@@ -838,8 +838,6 @@ export default function App() {
     );
   };
 
-  };
-
   const handleExportAttendanceCSV = (sessionsToExport) => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Date,Staff ID,Staff Name,Clock In Time,Clock Out Time,Duration (Hours),Status\n";

@@ -1780,7 +1780,7 @@ export default function App() {
                     <option key={u.dbId} value={u.dbId}>{u.name} ({u.role})</option>
                 ))}
               </select>
-              <textarea placeholder="Message..." value={reqContent} onChange={e => setReqContent(e.target.value)} required rows="2" />
+              <textarea placeholder="Message..." value={reqContent} onChange={e => setReqContent(e.target.value)} required rows="2"></textarea>
               <button type="submit" className="btn blue" style={{justifyContent:'center'}}>Send</button>
             </form>
           </div>
@@ -2524,7 +2524,7 @@ export default function App() {
         <div className="modal-overlay" onClick={() => setRejectModal({show:false, reqId:null})}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h2 style={{color:'#dc3545'}}>Reject Request</h2>
-            <textarea placeholder="Reason..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows="3" autoFocus />
+            <textarea placeholder="Reason..." value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows="3" autoFocus></textarea>
             <div style={{display:'flex', gap:'10px', marginTop:'15px'}}>
               <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => setRejectModal({show:false, reqId:null})}>Cancel</button>
               <button className="btn red" style={{flex:1, justifyContent:'center'}} onClick={submitReject}>Reject</button>

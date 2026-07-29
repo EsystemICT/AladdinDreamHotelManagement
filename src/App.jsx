@@ -13,7 +13,8 @@ const ICONS = {
   DEPOSIT: { icon: "fa-solid fa-money-bill-wave", label: "Deposits" },
   VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
-  SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" }
+  SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" },
+  ATT_REPORT: { icon: "fa-solid fa-clipboard-user", label: "Attendance Portal" }
 };
 
 // LAUNDRY ITEMS
@@ -44,6 +45,150 @@ const formatDate = (timestamp) => {
   if (!timestamp) return '-';
   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   return date.toLocaleDateString('en-MY');
+};
+
+const formatDuration = (ms) => {
+  if (!ms || ms <= 0) return '0 hrs 0 mins';
+  const totalMins = Math.floor(ms / (1000 * 60));
+  const hrs = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return `${hrs} hrs ${mins} mins`;
+};
+
+// --- ATTENDANCE SESSION PROCESSOR ---
+const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
+  const sortedLogs = [...rawLogs].filter(a => a.timestamp).sort((a, b) => {
+    const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+    const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+    return tA - tB;
+  });
+
+  const userLogsMap = {};
+  usersList.forEach(u => {
+    userLogsMap[u.userid] = { user: u, logs: [] };
+  });
+
+  sortedLogs.forEach(log => {
+    if (!userLogsMap[log.userId]) {
+      userLogsMap[log.userId] = { 
+        user: { userid: log.userId, name: log.userName || log.userId, role: 'staff' }, 
+        logs: [] 
+      };
+    }
+    userLogsMap[log.userId].logs.push(log);
+  });
+
+  const sessions = [];
+  const rosterStatus = [];
+
+  Object.keys(userLogsMap).forEach(uid => {
+    const { user, logs } = userLogsMap[uid];
+    let currentIn = null;
+
+    logs.forEach(log => {
+      if (log.type === 'in') {
+        if (currentIn) {
+          sessions.push({
+            id: currentIn.id,
+            userId: uid,
+            userName: user.name,
+            inLog: currentIn,
+            outLog: null,
+            inTime: currentIn.timestamp,
+            outTime: null,
+            durationMs: 0,
+            status: 'missing_out'
+          });
+        }
+        currentIn = log;
+      } else if (log.type === 'out') {
+        if (currentIn) {
+          const inDate = currentIn.timestamp?.toDate ? currentIn.timestamp.toDate() : new Date(currentIn.timestamp);
+          const outDate = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
+          const diffMs = outDate - inDate;
+
+          sessions.push({
+            id: currentIn.id + '_' + log.id,
+            userId: uid,
+            userName: user.name,
+            inLog: currentIn,
+            outLog: log,
+            inTime: currentIn.timestamp,
+            outTime: log.timestamp,
+            durationMs: diffMs > 0 ? diffMs : 0,
+            status: 'completed'
+          });
+          currentIn = null;
+        } else {
+          sessions.push({
+            id: log.id,
+            userId: uid,
+            userName: user.name,
+            inLog: null,
+            outLog: log,
+            inTime: null,
+            outTime: log.timestamp,
+            durationMs: 0,
+            status: 'orphan_out'
+          });
+        }
+      }
+    });
+
+    if (currentIn) {
+      const inDate = currentIn.timestamp?.toDate ? currentIn.timestamp.toDate() : new Date(currentIn.timestamp);
+      const now = new Date();
+      sessions.push({
+        id: currentIn.id,
+        userId: uid,
+        userName: user.name,
+        inLog: currentIn,
+        outLog: null,
+        inTime: currentIn.timestamp,
+        outTime: null,
+        durationMs: Math.max(0, now - inDate),
+        status: 'working'
+      });
+    }
+
+    const lastLog = logs[logs.length - 1];
+    const todayStr = new Date().toLocaleDateString('en-MY');
+    const isOnLeaveToday = leavesList.some(l => {
+      if (l.userId !== uid || l.status !== 'approved') return false;
+      const lDate = l.createdAt?.toDate ? l.createdAt.toDate().toLocaleDateString('en-MY') : '';
+      return lDate === todayStr;
+    });
+
+    if (isOnLeaveToday) {
+      rosterStatus.push({
+        userId: uid,
+        userName: user.name,
+        role: user.role,
+        status: 'on_leave',
+        lastTime: lastLog ? lastLog.timestamp : null
+      });
+    } else if (lastLog && lastLog.type === 'in') {
+      const inDate = lastLog.timestamp?.toDate ? lastLog.timestamp.toDate() : new Date(lastLog.timestamp);
+      rosterStatus.push({
+        userId: uid,
+        userName: user.name,
+        role: user.role,
+        status: 'working',
+        startTime: lastLog.timestamp,
+        elapsedMs: new Date() - inDate
+      });
+    } else {
+      rosterStatus.push({
+        userId: uid,
+        userName: user.name,
+        role: user.role,
+        status: 'off_duty',
+        lastTime: lastLog ? lastLog.timestamp : null
+      });
+    }
+  });
+
+  return { sessions, rosterStatus };
 };
 
 // --- AUDIT LOGGER HELPER ---
@@ -125,6 +270,15 @@ export default function App() {
   const [auditFilterUser, setAuditFilterUser] = useState('');
   const [auditFilterAction, setAuditFilterAction] = useState('');
 
+  // Attendance Report UI State
+  const [attFilterMonth, setAttFilterMonth] = useState('');
+  const [attFilterStartDate, setAttFilterStartDate] = useState('');
+  const [attFilterEndDate, setAttFilterEndDate] = useState('');
+  const [attFilterUser, setAttFilterUser] = useState('');
+  const [attFilterSearch, setAttFilterSearch] = useState('');
+  const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
+  const [manualClockModal, setManualClockModal] = useState({ show: false, userId: '', type: 'in', date: '', time: '', remark: '' });
+
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
@@ -135,10 +289,11 @@ export default function App() {
     }
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     
-    // Default audit month filter
+    // Default audit & attendance month filters
     const now = new Date();
     const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     setAuditFilterMonth(currentMonthStr);
+    setAttFilterMonth(currentMonthStr);
 
     // --- SECRET OVERRIDE LISTENER ---
     const handleHashChange = () => {
@@ -177,7 +332,7 @@ export default function App() {
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => setUsers(snap.docs.map(d => ({ dbId: d.id, ...d.data() }))));
     
-    const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(500));
+    const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(2000));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setAttendance(data);
@@ -560,11 +715,157 @@ export default function App() {
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
-  // --- 8. OTHER ACTIONS ---
+  // --- 8. OTHER ACTIONS & ATTENDANCE PORTAL FUNCTIONS ---
   const handleClock = async (type) => {
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
       await addDoc(collection(db, "attendance"), { userId: currentUser.userid, userName: currentUser.name, type: type, timestamp: serverTimestamp() });
       logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()}`); 
+  };
+
+  const handleManualClockSubmit = async (e) => {
+    e.preventDefault();
+    if (!manualClockModal.userId || !manualClockModal.date || !manualClockModal.time) {
+      alert("Please fill in staff, date, and time.");
+      return;
+    }
+    const targetUser = users.find(u => u.userid === manualClockModal.userId);
+    const userName = targetUser ? targetUser.name : manualClockModal.userId;
+
+    const [year, month, day] = manualClockModal.date.split('-').map(Number);
+    const [hours, minutes] = manualClockModal.time.split(':').map(Number);
+    const customDate = new Date(year, month - 1, day, hours, minutes);
+
+    try {
+      await addDoc(collection(db, "attendance"), {
+        userId: manualClockModal.userId,
+        userName: userName,
+        type: manualClockModal.type,
+        timestamp: customDate,
+        isManual: true,
+        manualBy: currentUser.name,
+        remark: manualClockModal.remark || 'Admin Manual Entry'
+      });
+      logSystemAction(currentUser.name, 'ATTENDANCE_MANUAL', `Added manual clock ${manualClockModal.type.toUpperCase()} for ${userName} on ${manualClockModal.date} ${manualClockModal.time}`);
+      setManualClockModal({ show: false, userId: '', type: 'in', date: '', time: '', remark: '' });
+      alert("Manual attendance record created!");
+    } catch (err) {
+      alert("Failed to add manual record: " + err.message);
+    }
+  };
+
+  const handleDeleteAttendanceLog = async (logId, userName, logTime) => {
+    if (!window.confirm(`Delete clock record for ${userName} (${logTime})?`)) return;
+    try {
+      await deleteDoc(doc(db, "attendance", logId));
+      logSystemAction(currentUser.name, 'ATTENDANCE_DELETE', `Deleted clock record for ${userName} (${logTime})`);
+      alert("Record deleted!");
+    } catch (err) {
+      alert("Failed to delete record: " + err.message);
+    }
+  };
+
+  const handleExportAttendanceCSV = (sessionsToExport) => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Date,Staff ID,Staff Name,Clock In Time,Clock Out Time,Duration (Hours),Status\n";
+
+    sessionsToExport.forEach(s => {
+      const dateStr = s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '-');
+      const inTimeStr = s.inTime ? formatTime(s.inTime) : '-';
+      const outTimeStr = s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? 'Working Now' : '-');
+      const durationStr = s.durationMs ? (s.durationMs / (1000 * 3600)).toFixed(2) : '0';
+      const statusStr = s.status === 'working' ? 'Currently Working' : (s.status === 'completed' ? 'Completed' : s.status);
+
+      csvContent += `"${dateStr}","${s.userId}","${s.userName}","${inTimeStr}","${outTimeStr}","${durationStr}","${statusStr}"\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Hotel_Attendance_Report_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrintAttendanceReport = (sessionsToPrint, summaryToPrint) => {
+    const printWindow = window.open('', '', 'height=700,width=900');
+    let html = `
+      <html>
+        <head>
+          <title>Aladdin Dream Hotel - Attendance Portal Report</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #222; padding: 20px; }
+            h1 { color: #1e3a8a; margin-bottom: 5px; }
+            .header-info { color: #666; font-size: 0.9rem; margin-bottom: 20px; border-bottom: 2px solid #ddbd88; padding-bottom: 10px; }
+            .section-title { font-size: 1.1rem; font-weight: bold; margin-top: 25px; margin-bottom: 10px; color: #333; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.85rem; }
+            th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
+            th { background: #f3f4f6; color: #111; font-weight: bold; }
+            tr:nth-child(even) { background: #f9fafb; }
+            .badge-working { background: #dcfce7; color: #15803d; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+            .badge-completed { background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <h1>Aladdin Dream Hotel - Attendance & Shift Report</h1>
+          <div class="header-info">
+            Generated on: ${new Date().toLocaleString('en-MY')} | Total Sessions Logged: ${sessionsToPrint.length}
+          </div>
+
+          <div class="section-title">Staff Monthly Summary</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Staff ID</th>
+                <th>Staff Name</th>
+                <th>Total Days Worked</th>
+                <th>Total Work Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryToPrint.map(s => `
+                <tr>
+                  <td>${s.userId}</td>
+                  <td><b>${s.userName}</b></td>
+                  <td>${s.daysWorked} days</td>
+                  <td><b>${s.totalHoursStr}</b></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="section-title">Detailed Attendance Logs</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Staff Name</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Duration</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sessionsToPrint.map(s => `
+                <tr>
+                  <td>${s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '-')}</td>
+                  <td><b>${s.userName}</b> (${s.userId})</td>
+                  <td>${s.inTime ? formatTime(s.inTime) : '-'}</td>
+                  <td>${s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? 'Working Now' : '-')}</td>
+                  <td>${formatDuration(s.durationMs)}</td>
+                  <td><span class="${s.status === 'working' ? 'badge-working' : 'badge-completed'}">${s.status.toUpperCase()}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 300);
   };
 
   const handleApplyLeave = async (e) => {
@@ -752,6 +1053,78 @@ export default function App() {
   };
 
   // --- DATA PROCESSING ---
+  const { sessions: allAttSessions, rosterStatus: attRosterStatus } = processAttendanceSessions(attendance, users, leaves);
+
+  const filteredAttSessions = allAttSessions.filter(s => {
+    let match = true;
+    const refTime = s.inTime || s.outTime;
+    if (refTime) {
+      const d = refTime.toDate ? refTime.toDate() : new Date(refTime);
+      
+      if (attFilterMonth) {
+        const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (mStr !== attFilterMonth) match = false;
+      }
+      
+      if (attFilterStartDate) {
+        const startD = new Date(attFilterStartDate);
+        startD.setHours(0,0,0,0);
+        if (d < startD) match = false;
+      }
+      if (attFilterEndDate) {
+        const endD = new Date(attFilterEndDate);
+        endD.setHours(23,59,59,999);
+        if (d > endD) match = false;
+      }
+    }
+
+    if (attFilterUser && s.userId !== attFilterUser) match = false;
+
+    if (attFilterSearch) {
+      const q = attFilterSearch.toLowerCase();
+      const matchName = s.userName.toLowerCase().includes(q);
+      const matchId = s.userId.toLowerCase().includes(q);
+      if (!matchName && !matchId) match = false;
+    }
+
+    return match;
+  }).sort((a, b) => {
+    const tA = a.inTime ? (a.inTime.toDate ? a.inTime.toDate() : new Date(a.inTime)) : new Date(0);
+    const tB = b.inTime ? (b.inTime.toDate ? b.inTime.toDate() : new Date(b.inTime)) : new Date(0);
+    return tB - tA;
+  });
+
+  const attStaffSummaryMap = {};
+  let totalFilteredDurationMs = 0;
+
+  filteredAttSessions.forEach(s => {
+    if (s.durationMs) totalFilteredDurationMs += s.durationMs;
+
+    if (!attStaffSummaryMap[s.userId]) {
+      attStaffSummaryMap[s.userId] = {
+        userId: s.userId,
+        userName: s.userName,
+        datesWorkedSet: new Set(),
+        totalDurationMs: 0,
+        sessionCount: 0
+      };
+    }
+    const dStr = s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '');
+    if (dStr) attStaffSummaryMap[s.userId].datesWorkedSet.add(dStr);
+    attStaffSummaryMap[s.userId].totalDurationMs += (s.durationMs || 0);
+    attStaffSummaryMap[s.userId].sessionCount += 1;
+  });
+
+  const attStaffSummaryData = Object.values(attStaffSummaryMap).map(st => ({
+    ...st,
+    daysWorked: st.datesWorkedSet.size,
+    totalHoursStr: formatDuration(st.totalDurationMs)
+  })).sort((a, b) => b.totalDurationMs - a.totalDurationMs);
+
+  const workingCount = attRosterStatus.filter(r => r.status === 'working').length;
+  const offDutyCount = attRosterStatus.filter(r => r.status === 'off_duty').length;
+  const onLeaveCount = attRosterStatus.filter(r => r.status === 'on_leave').length;
+
   const filteredRooms = rooms.filter(r => String(r.id).toLowerCase().includes(roomSearch.toLowerCase()));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
@@ -1389,9 +1762,17 @@ export default function App() {
                     <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={lastClock?.type === 'in'}>Clock IN</button>
                     <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={lastClock?.type !== 'in'}>Clock OUT</button>
                 </div>
-                <p style={{marginTop:'15px', color:'#666'}}>
-                    Status: <strong>{lastClock?.type === 'in' ? 'Working' : 'Off Duty'}</strong>
-                </p>
+                <div style={{marginTop:'15px', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
+                    <div>Status: <strong>{lastClock?.type === 'in' ? '🟢 Working' : '🔴 Off Duty'}</strong></div>
+                    {lastClock?.type === 'in' && lastClock?.timestamp && (
+                      <div className="session-duration" style={{fontSize: '0.9rem', padding: '6px 14px', marginTop: '5px'}}>
+                        Shift Timer: {formatDuration(currentTime - (lastClock.timestamp?.toDate ? lastClock.timestamp.toDate() : new Date(lastClock.timestamp)))}
+                      </div>
+                    )}
+                    <button className="btn blue" style={{fontSize:'0.8rem', padding:'6px 12px', marginTop:'10px'}} onClick={() => setView('ATT_REPORT')}>
+                      <i className="fa-solid fa-clipboard-user"></i> Open Attendance Portal & Reports
+                    </button>
+                </div>
             </div>
 
             <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
@@ -1422,6 +1803,314 @@ export default function App() {
                     </div>
                 </div>
             </div>
+        </div>
+      )}
+
+      {/* --- VIEW: ATTENDANCE PORTAL & REPORTS --- */}
+      {view === 'ATT_REPORT' && (
+        <div className="dashboard">
+          {/* Metrics Header */}
+          <div className="att-metrics-grid">
+            <div className="att-metric-card">
+              <div className="att-metric-icon" style={{background: '#dcfce7', color: '#166534'}}>
+                <i className="fa-solid fa-user-clock"></i>
+              </div>
+              <div>
+                <div className="att-metric-value">{workingCount}</div>
+                <div className="att-metric-label">Currently Working</div>
+              </div>
+            </div>
+
+            <div className="att-metric-card">
+              <div className="att-metric-icon" style={{background: '#f1f5f9', color: '#475569'}}>
+                <i className="fa-solid fa-user-check"></i>
+              </div>
+              <div>
+                <div className="att-metric-value">{offDutyCount}</div>
+                <div className="att-metric-label">Off Duty</div>
+              </div>
+            </div>
+
+            <div className="att-metric-card">
+              <div className="att-metric-icon" style={{background: '#f3e8ff', color: '#7e22ce'}}>
+                <i className="fa-solid fa-user-minus"></i>
+              </div>
+              <div>
+                <div className="att-metric-value">{onLeaveCount}</div>
+                <div className="att-metric-label">On Leave Today</div>
+              </div>
+            </div>
+
+            <div className="att-metric-card">
+              <div className="att-metric-icon" style={{background: '#e0f2fe', color: '#0369a1'}}>
+                <i className="fa-solid fa-stopwatch"></i>
+              </div>
+              <div>
+                <div className="att-metric-value">{formatDuration(totalFilteredDurationMs)}</div>
+                <div className="att-metric-label">Total Hours Logged</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="floor-section">
+            <div className="floor-title">
+              <span><i className="fa-solid fa-clipboard-user"></i> Attendance & Shift Portal</span>
+              <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
+                {currentUser.role === 'admin' && (
+                  <button className="btn green" style={{fontSize: '0.85rem'}} onClick={() => {
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const timeStr = new Date().toTimeString().slice(0, 5);
+                    setManualClockModal({ show: true, userId: currentUser.userid, type: 'in', date: todayStr, time: timeStr, remark: '' });
+                  }}>
+                    <i className="fa-solid fa-plus"></i> + Manual Clock
+                  </button>
+                )}
+                <button className="btn blue" style={{fontSize: '0.85rem'}} onClick={() => handleExportAttendanceCSV(filteredAttSessions)}>
+                  <i className="fa-solid fa-file-csv"></i> Export CSV
+                </button>
+                <button className="btn grey" style={{fontSize: '0.85rem'}} onClick={() => handlePrintAttendanceReport(filteredAttSessions, attStaffSummaryData)}>
+                  <i className="fa-solid fa-print"></i> Print Report
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-Navigation Tabs */}
+            <div className="att-subnav">
+              <button className={attReportSubTab === 'LOGS' ? 'active' : ''} onClick={() => setAttReportSubTab('LOGS')}>
+                <i className="fa-solid fa-list-check"></i> Attendance Sessions ({filteredAttSessions.length})
+              </button>
+              <button className={attReportSubTab === 'SUMMARY' ? 'active' : ''} onClick={() => setAttReportSubTab('SUMMARY')}>
+                <i className="fa-solid fa-chart-pie"></i> Staff Monthly Summary
+              </button>
+              <button className={attReportSubTab === 'ROSTER' ? 'active' : ''} onClick={() => setAttReportSubTab('ROSTER')}>
+                <i className="fa-solid fa-users-viewfinder"></i> Live Staff Roster ({attRosterStatus.length})
+              </button>
+            </div>
+
+            {/* Filters Toolbar */}
+            <div className="filter-bar" style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'15px', background:'#f9f9f9', padding:'12px', borderRadius:'8px', border:'1px solid #eee'}}>
+              <div style={{flex: 1, minWidth: '140px'}}>
+                <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>Month</label>
+                <input 
+                  type="month" 
+                  value={attFilterMonth} 
+                  onChange={e => setAttFilterMonth(e.target.value)} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{margin: 0, width: '100%', cursor: 'pointer'}} 
+                />
+              </div>
+
+              <div style={{flex: 1, minWidth: '130px'}}>
+                <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>From Date</label>
+                <input 
+                  type="date" 
+                  value={attFilterStartDate} 
+                  onChange={e => setAttFilterStartDate(e.target.value)} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{margin: 0, width: '100%', cursor: 'pointer'}} 
+                />
+              </div>
+
+              <div style={{flex: 1, minWidth: '130px'}}>
+                <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>To Date</label>
+                <input 
+                  type="date" 
+                  value={attFilterEndDate} 
+                  onChange={e => setAttFilterEndDate(e.target.value)} 
+                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                  style={{margin: 0, width: '100%', cursor: 'pointer'}} 
+                />
+              </div>
+
+              <div style={{flex: 1, minWidth: '150px'}}>
+                <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>Staff Member</label>
+                <select value={attFilterUser} onChange={e => setAttFilterUser(e.target.value)} style={{margin: 0, width: '100%'}}>
+                  <option value="">-- All Staff --</option>
+                  {users.map(u => <option key={u.userid} value={u.userid}>{u.name} ({u.userid})</option>)}
+                </select>
+              </div>
+
+              <div style={{flex: 1, minWidth: '150px'}}>
+                <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>Search</label>
+                <input 
+                  placeholder="Search Staff Name/ID..." 
+                  value={attFilterSearch} 
+                  onChange={e => setAttFilterSearch(e.target.value)}
+                  style={{margin: 0, width: '100%'}} 
+                />
+              </div>
+
+              <div style={{display: 'flex', alignItems: 'flex-end'}}>
+                <button className="btn grey" onClick={() => { setAttFilterMonth(''); setAttFilterStartDate(''); setAttFilterEndDate(''); setAttFilterUser(''); setAttFilterSearch(''); }} style={{padding: '9px 15px', fontSize: '0.85rem'}}>
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            {/* SUBTAB 1: LOGS */}
+            {attReportSubTab === 'LOGS' && (
+              <div className="admin-table-container scroll-pane scroll-pane-tall">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Staff Name (ID)</th>
+                      <th>Clock In</th>
+                      <th>Clock Out</th>
+                      <th>Work Duration</th>
+                      <th>Status</th>
+                      {currentUser.role === 'admin' && <th>Action</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAttSessions.length === 0 ? (
+                      <tr><td colSpan={currentUser.role === 'admin' ? 7 : 6} style={{textAlign:'center', color:'#999', padding:'25px'}}>No attendance records match the current filters.</td></tr>
+                    ) : (
+                      filteredAttSessions.map(s => (
+                        <tr key={s.id}>
+                          <td><strong>{s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '-')}</strong></td>
+                          <td>
+                            <strong>{s.userName}</strong>
+                            <div style={{fontSize: '0.75rem', color: '#64748b'}}>{s.userId}</div>
+                          </td>
+                          <td>
+                            {s.inTime ? formatTime(s.inTime) : <span style={{color: '#94a3b8'}}>-</span>}
+                            {s.inLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                          </td>
+                          <td>
+                            {s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? <span className="status-badge working"><span className="badge-dot"></span> Working Now</span> : <span style={{color: '#ef4444', fontSize: '0.8rem'}}>No Clock-out</span>)}
+                            {s.outLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                          </td>
+                          <td>
+                            <span className="session-duration">
+                              {formatDuration(s.durationMs)}
+                            </span>
+                          </td>
+                          <td>
+                            {s.status === 'working' && <span className="status-badge working"><span className="badge-dot"></span> Working Now</span>}
+                            {s.status === 'completed' && <span className="status-badge off_duty">Completed</span>}
+                            {s.status === 'missing_out' && <span style={{color: '#f59e0b', fontSize: '0.75rem', fontWeight: 'bold'}}>Incomplete</span>}
+                            {s.status === 'orphan_out' && <span style={{color: '#ef4444', fontSize: '0.75rem', fontWeight: 'bold'}}>Clock Out Only</span>}
+                          </td>
+                          {currentUser.role === 'admin' && (
+                            <td>
+                              <div style={{display: 'flex', gap: '5px'}}>
+                                {s.inLog && (
+                                  <button className="btn red" style={{padding: '4px 8px', fontSize: '0.75rem'}} title="Delete Clock-In Record" onClick={() => handleDeleteAttendanceLog(s.inLog.id, s.userName, formatTime(s.inTime))}>
+                                    <i className="fa-solid fa-trash"></i>
+                                  </button>
+                                )}
+                                {s.outLog && (
+                                  <button className="btn grey" style={{padding: '4px 8px', fontSize: '0.75rem'}} title="Delete Clock-Out Record" onClick={() => handleDeleteAttendanceLog(s.outLog.id, s.userName, formatTime(s.outTime))}>
+                                    <i className="fa-solid fa-trash-can"></i>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* SUBTAB 2: SUMMARY */}
+            {attReportSubTab === 'SUMMARY' && (
+              <div className="admin-table-container scroll-pane scroll-pane-tall">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Staff ID</th>
+                      <th>Staff Name</th>
+                      <th>Total Days Present</th>
+                      <th>Total Hours Worked</th>
+                      <th>Sessions Recorded</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attStaffSummaryData.length === 0 ? (
+                      <tr><td colSpan="6" style={{textAlign:'center', color:'#999', padding:'25px'}}>No staff attendance records available for summary.</td></tr>
+                    ) : (
+                      attStaffSummaryData.map(st => (
+                        <tr key={st.userId}>
+                          <td><strong>{st.userId}</strong></td>
+                          <td><strong>{st.userName}</strong></td>
+                          <td><span style={{fontWeight: 'bold', color: '#10b981'}}>{st.daysWorked} days</span></td>
+                          <td><span className="session-duration">{st.totalHoursStr}</span></td>
+                          <td>{st.sessionCount} sessions</td>
+                          <td>
+                            <button className="btn blue" style={{padding: '4px 10px', fontSize: '0.75rem'}} onClick={() => { setAttFilterUser(st.userId); setAttReportSubTab('LOGS'); }}>
+                              <i className="fa-solid fa-eye"></i> View Logs
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* SUBTAB 3: LIVE ROSTER */}
+            {attReportSubTab === 'ROSTER' && (
+              <div className="att-roster-grid scroll-pane scroll-pane-tall">
+                {attRosterStatus.map(st => (
+                  <div key={st.userId} className="roster-card">
+                    <div>
+                      <div className="roster-header">
+                        <div>
+                          <div className="roster-name">{st.userName}</div>
+                          <div className="roster-role">ID: {st.userId} • {st.role}</div>
+                        </div>
+                        <div>
+                          {st.status === 'working' && <span className="status-badge working"><span className="badge-dot"></span> Working</span>}
+                          {st.status === 'off_duty' && <span className="status-badge off_duty"><span className="badge-dot"></span> Off Duty</span>}
+                          {st.status === 'on_leave' && <span className="status-badge on_leave"><span className="badge-dot"></span> On Leave</span>}
+                        </div>
+                      </div>
+                      
+                      <div style={{fontSize: '0.85rem', color: '#475569', marginTop: '10px'}}>
+                        {st.status === 'working' && (
+                          <p style={{margin: 0}}>
+                            <strong>Clocked in at:</strong> {formatTime(st.startTime)}<br/>
+                            <strong>Elapsed:</strong> <span style={{color: '#0284c7', fontWeight: 'bold'}}>{formatDuration(currentTime - (st.startTime?.toDate ? st.startTime.toDate() : new Date(st.startTime)))}</span>
+                          </p>
+                        )}
+                        {st.status === 'off_duty' && (
+                          <p style={{margin: 0}}>
+                            <strong>Last recorded activity:</strong> {st.lastTime ? formatTime(st.lastTime) : 'None'}
+                          </p>
+                        )}
+                        {st.status === 'on_leave' && (
+                          <p style={{margin: 0, color: '#7e22ce'}}>
+                            <strong>Status:</strong> Approved Leave / MC Today
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <button className="btn grey" style={{fontSize: '0.75rem', padding: '4px 8px'}} onClick={() => { setAttFilterUser(st.userId); setAttReportSubTab('LOGS'); }}>
+                        History Logs
+                      </button>
+                      {currentUser.role === 'admin' && (
+                        <button className="btn blue" style={{fontSize: '0.75rem', padding: '4px 8px'}} onClick={() => {
+                          const todayStr = new Date().toISOString().slice(0, 10);
+                          const timeStr = new Date().toTimeString().slice(0, 5);
+                          setManualClockModal({ show: true, userId: st.userId, type: st.status === 'working' ? 'out' : 'in', date: todayStr, time: timeStr, remark: '' });
+                        }}>
+                          Manual Clock
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1858,6 +2547,55 @@ export default function App() {
               <button className="btn grey" style={{flex:1, justifyContent:'center'}} onClick={() => { setClaimModal(false); resetClaimForm(); }}>Cancel</button>
               <button className="btn blue" style={{flex:1, justifyContent:'center'}} onClick={editingClaim ? handleUpdateClaim : handleAddClaim}>{editingClaim ? 'Update' : 'Add'} Record</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {manualClockModal.show && (
+        <div className="modal-overlay" onClick={() => setManualClockModal({...manualClockModal, show: false})}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2><i className="fa-solid fa-clock"></i> Manual Attendance Entry</h2>
+            <form onSubmit={handleManualClockSubmit} style={{display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '15px'}}>
+              <div>
+                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Staff Member</label>
+                <select value={manualClockModal.userId} onChange={e => setManualClockModal({...manualClockModal, userId: e.target.value})} required style={{margin: 0, width: '100%'}}>
+                  <option value="">-- Select Staff --</option>
+                  {users.map(u => (
+                    <option key={u.userid} value={u.userid}>{u.name} ({u.userid})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{display: 'flex', gap: '10px'}}>
+                <div style={{flex: 1}}>
+                  <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Clock Action</label>
+                  <select value={manualClockModal.type} onChange={e => setManualClockModal({...manualClockModal, type: e.target.value})} style={{margin: 0, width: '100%'}}>
+                    <option value="in">Clock IN</option>
+                    <option value="out">Clock OUT</option>
+                  </select>
+                </div>
+
+                <div style={{flex: 1}}>
+                  <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Date</label>
+                  <input type="date" value={manualClockModal.date} onChange={e => setManualClockModal({...manualClockModal, date: e.target.value})} required onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{cursor: 'pointer', margin: 0, width: '100%'}} />
+                </div>
+              </div>
+
+              <div>
+                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Time</label>
+                <input type="time" value={manualClockModal.time} onChange={e => setManualClockModal({...manualClockModal, time: e.target.value})} required style={{margin: 0, width: '100%'}} />
+              </div>
+
+              <div>
+                <label style={{fontSize: '0.85rem', color: '#666', fontWeight: 'bold'}}>Reason / Remark</label>
+                <input placeholder="e.g. Forgot to clock in, System correction" value={manualClockModal.remark} onChange={e => setManualClockModal({...manualClockModal, remark: e.target.value})} style={{margin: 0, width: '100%'}} />
+              </div>
+
+              <div style={{display: 'flex', gap: '10px', marginTop: '10px'}}>
+                <button type="button" className="btn grey" style={{flex: 1, justifyContent: 'center'}} onClick={() => setManualClockModal({...manualClockModal, show: false})}>Cancel</button>
+                <button type="submit" className="btn green" style={{flex: 1, justifyContent: 'center'}}>Save Attendance</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

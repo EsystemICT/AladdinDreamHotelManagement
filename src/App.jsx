@@ -304,6 +304,7 @@ export default function App() {
   const [attFilterSearch, setAttFilterSearch] = useState('');
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
   const [manualClockModal, setManualClockModal] = useState({ show: false, userId: '', type: 'in', date: '', time: '', remark: '' });
+  const [hotelLocation, setHotelLocation] = useState({ lat: 3.1390, lng: 101.6869, radiusMeters: 300 });
 
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
@@ -329,16 +330,22 @@ export default function App() {
     handleHashChange(); // Check immediately on load
     window.addEventListener('hashchange', handleHashChange);
 
-    // --- MAINTENANCE DATABASE LISTENER (Independent of login) ---
+    // --- MAINTENANCE DATABASE LISTENER ---
     const unsubMaintenance = onSnapshot(doc(db, "settings", "maintenance"), (snap) => {
       if (snap.exists()) setMaintenanceData(snap.data());
       else setMaintenanceData({ active: false, message: '' });
+    });
+
+    // --- HOTEL LOCATION SETTING LISTENER ---
+    const unsubLocation = onSnapshot(doc(db, "settings", "location"), (snap) => {
+      if (snap.exists()) setHotelLocation(snap.data());
     });
 
     return () => {
       clearInterval(timer);
       window.removeEventListener('hashchange', handleHashChange);
       unsubMaintenance();
+      unsubLocation();
     };
   }, []);
 
@@ -762,8 +769,12 @@ export default function App() {
           const lng = position.coords.longitude;
           coords = { lat, lng };
 
-          const distMeters = calculateDistanceMeters(lat, lng, DEFAULT_HOTEL_COORDS.lat, DEFAULT_HOTEL_COORDS.lng);
-          if (distMeters !== null && distMeters <= DEFAULT_HOTEL_COORDS.radiusMeters) {
+          const targetLat = hotelLocation.lat || DEFAULT_HOTEL_COORDS.lat;
+          const targetLng = hotelLocation.lng || DEFAULT_HOTEL_COORDS.lng;
+          const targetRadius = hotelLocation.radiusMeters || DEFAULT_HOTEL_COORDS.radiusMeters;
+
+          const distMeters = calculateDistanceMeters(lat, lng, targetLat, targetLng);
+          if (distMeters !== null && distMeters <= targetRadius) {
             locStatus = 'on_site';
             locLabel = 'On Site';
           } else {
@@ -793,6 +804,39 @@ export default function App() {
       } else {
         alert(`Clock ${type.toUpperCase()} saved. Location verified ON SITE.`);
       }
+  };
+
+  const handleSaveHotelLocation = async (e) => {
+    e.preventDefault();
+    const lat = parseFloat(e.target.lat.value);
+    const lng = parseFloat(e.target.lng.value);
+    const radiusMeters = parseInt(e.target.radiusMeters.value) || 300;
+    try {
+      await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters }, { merge: true });
+      logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Updated Hotel GPS location to Lat: ${lat}, Lng: ${lng}, Radius: ${radiusMeters}m`);
+      alert("Hotel Location coordinates updated successfully!");
+    } catch (err) {
+      alert("Failed to update hotel location: " + err.message);
+    }
+  };
+
+  const handleSetCurrentGPSAsHotel = () => {
+    if (!("geolocation" in navigator)) return alert("Geolocation not supported by browser");
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        try {
+          await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: hotelLocation.radiusMeters || 300 }, { merge: true });
+          logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Set current GPS position as Hotel Location: Lat ${lat}, Lng ${lng}`);
+          alert(`Hotel GPS location updated to your current position!\nLatitude: ${lat}\nLongitude: ${lng}`);
+        } catch (err) {
+          alert("Failed to save location");
+        }
+      },
+      (err) => alert("Failed to get current GPS location: " + err.message),
+      { enableHighAccuracy: true }
+    );
   };
 
   const handleManualClockSubmit = async (e) => {
@@ -1880,8 +1924,15 @@ export default function App() {
                     <h3>My Logs</h3>
                     <div className="scroll-pane">
                         {attendance.filter(a => a.userId === currentUser.userid).map(a => (
-                            <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between'}}>
-                                <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red'}}>{a.type.toUpperCase()}</span>
+                            <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                <div>
+                                  <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red', marginRight:'8px'}}>{a.type.toUpperCase()}</span>
+                                  {a.locationStatus === 'away' ? (
+                                    <span className="status-badge away" style={{fontSize:'0.7rem'}} title={a.locationLabel}><i className="fa-solid fa-location-dot"></i> Away</span>
+                                  ) : (
+                                    <span className="status-badge on_site" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-hotel"></i> On Site</span>
+                                  )}
+                                </div>
                                 <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
                             </div>
                         ))}
@@ -2071,12 +2122,30 @@ export default function App() {
                             )}
                           </td>
                           <td>
-                            {s.inTime ? formatTime(s.inTime) : <span style={{color: '#94a3b8'}}>-</span>}
-                            {s.inLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                            <div>
+                              {s.inTime ? formatTime(s.inTime) : <span style={{color: '#94a3b8'}}>-</span>}
+                              {s.inLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                            </div>
+                            {s.inLog?.locationStatus === 'away' && (
+                              <div style={{marginTop: '3px'}}>
+                                <span className="status-badge away" style={{fontSize: '0.7rem'}} title={s.inLog.locationLabel}>
+                                  <i className="fa-solid fa-location-dot"></i> Away
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td>
-                            {s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? <span className="status-badge working"><span className="badge-dot"></span> Working Now</span> : <span style={{color: '#ef4444', fontSize: '0.8rem'}}>No Clock-out</span>)}
-                            {s.outLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                            <div>
+                              {s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? <span className="status-badge working"><span className="badge-dot"></span> Working Now</span> : <span style={{color: '#ef4444', fontSize: '0.8rem'}}>No Clock-out</span>)}
+                              {s.outLog?.isManual && <span style={{fontSize: '0.7rem', color: '#3b82f6', marginLeft: '5px'}}>(Manual)</span>}
+                            </div>
+                            {s.outLog?.locationStatus === 'away' && (
+                              <div style={{marginTop: '3px'}}>
+                                <span className="status-badge away" style={{fontSize: '0.7rem'}} title={s.outLog.locationLabel}>
+                                  <i className="fa-solid fa-location-dot"></i> Away
+                                </span>
+                              </div>
+                            )}
                           </td>
                           <td>
                             <span className="session-duration">
@@ -2285,6 +2354,23 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
+
+            {/* HOTEL GPS LOCATION CONFIG */}
+            <div className="floor-section">
+              <h2 className="floor-title"><i className="fa-solid fa-location-crosshairs"></i> Hotel GPS Location Config</h2>
+              <form onSubmit={handleSaveHotelLocation} style={{display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'center', marginBottom:'10px'}}>
+                <input name="lat" type="number" step="any" defaultValue={hotelLocation.lat} placeholder="Latitude (e.g. 3.1390)" required style={{flex: 1, minWidth: '130px'}} />
+                <input name="lng" type="number" step="any" defaultValue={hotelLocation.lng} placeholder="Longitude (e.g. 101.6869)" required style={{flex: 1, minWidth: '130px'}} />
+                <input name="radiusMeters" type="number" defaultValue={hotelLocation.radiusMeters} placeholder="Radius (Meters)" required style={{width: '120px'}} />
+                <button type="submit" className="btn blue">Save Coordinates</button>
+                <button type="button" className="btn green" onClick={handleSetCurrentGPSAsHotel}>
+                  <i className="fa-solid fa-location-arrow"></i> Set Current GPS Position
+                </button>
+              </form>
+              <p style={{fontSize: '0.85rem', color: '#666', margin: 0}}>
+                *Staff clocking in/out outside this radius ({hotelLocation.radiusMeters}m from Lat: {hotelLocation.lat}, Lng: {hotelLocation.lng}) will be automatically flagged as <strong>Away</strong>.
+              </p>
+            </div>
 
             {/* NEW: ADD OR RESTORE ROOM */}
             <div className="floor-section" style={{marginTop: '20px'}}>

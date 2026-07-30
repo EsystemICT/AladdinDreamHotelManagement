@@ -55,11 +55,20 @@ const formatDuration = (ms) => {
   return `${hrs} hrs ${mins} mins`;
 };
 
-// Default Hotel Coordinates (Latitude, Longitude & Radius in meters)
+// Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.
+// Staff within 300 metres of the hotel are treated as on site.
 const DEFAULT_HOTEL_COORDS = {
-  lat: 3.1390,
-  lng: 101.6869,
+  lat: 1.509149,
+  lng: 103.866151,
   radiusMeters: 300
+};
+
+// Replace the original Kuala Lumpur placeholder if it is still stored in Firestore.
+const normalizeHotelLocation = (location = {}) => {
+  const isLegacyPlaceholder = Number(location.lat) === 3.1390 && Number(location.lng) === 101.6869;
+  return isLegacyPlaceholder
+    ? { ...DEFAULT_HOTEL_COORDS, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters }
+    : { ...DEFAULT_HOTEL_COORDS, ...location };
 };
 
 // Calculate distance in meters between two coordinates (Haversine formula)
@@ -303,7 +312,7 @@ export default function App() {
   const [attFilterUser, setAttFilterUser] = useState('');
   const [attFilterSearch, setAttFilterSearch] = useState('');
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
-  const [hotelLocation, setHotelLocation] = useState({ lat: 3.1390, lng: 101.6869, radiusMeters: 300 });
+  const [hotelLocation, setHotelLocation] = useState(DEFAULT_HOTEL_COORDS);
 
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
@@ -337,7 +346,7 @@ export default function App() {
 
     // --- HOTEL LOCATION SETTING LISTENER ---
     const unsubLocation = onSnapshot(doc(db, "settings", "location"), (snap) => {
-      if (snap.exists()) setHotelLocation(snap.data());
+      if (snap.exists()) setHotelLocation(normalizeHotelLocation(snap.data()));
     });
 
     return () => {

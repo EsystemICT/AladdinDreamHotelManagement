@@ -63,14 +63,6 @@ const DEFAULT_HOTEL_COORDS = {
   radiusMeters: 300
 };
 
-// Replace the original Kuala Lumpur placeholder if it is still stored in Firestore.
-const normalizeHotelLocation = (location = {}) => {
-  const isLegacyPlaceholder = Number(location.lat) === 3.1390 && Number(location.lng) === 101.6869;
-  return isLegacyPlaceholder
-    ? { ...DEFAULT_HOTEL_COORDS, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters }
-    : { ...DEFAULT_HOTEL_COORDS, ...location };
-};
-
 // Calculate distance in meters between two coordinates (Haversine formula)
 const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
@@ -86,6 +78,21 @@ const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
+};
+
+// Ignore stale/incorrect saved centres that are clearly not near this hotel.
+const normalizeHotelLocation = (location = {}) => {
+  const savedLat = Number(location.lat);
+  const savedLng = Number(location.lng);
+  const hasValidSavedPoint = Number.isFinite(savedLat) && Number.isFinite(savedLng);
+  const savedPointDistance = hasValidSavedPoint
+    ? calculateDistanceMeters(savedLat, savedLng, DEFAULT_HOTEL_COORDS.lat, DEFAULT_HOTEL_COORDS.lng)
+    : null;
+  const isStaleOrIncorrect = savedPointDistance === null || savedPointDistance > 2000;
+
+  return isStaleOrIncorrect
+    ? { ...DEFAULT_HOTEL_COORDS, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters }
+    : { lat: savedLat, lng: savedLng, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters };
 };
 
 // --- ATTENDANCE SESSION PROCESSOR ---
@@ -2282,14 +2289,18 @@ export default function App() {
             <div className="floor-section">
               <h2 className="floor-title"><i className="fa-solid fa-location-crosshairs"></i> Hotel GPS Location Config</h2>
               <form onSubmit={handleSaveHotelLocation} style={{display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'center', marginBottom:'10px'}}>
-                <input name="lat" type="number" step="any" defaultValue={hotelLocation.lat} placeholder="Latitude (e.g. 3.1390)" required style={{flex: 1, minWidth: '130px'}} />
-                <input name="lng" type="number" step="any" defaultValue={hotelLocation.lng} placeholder="Longitude (e.g. 101.6869)" required style={{flex: 1, minWidth: '130px'}} />
+                <input name="lat" type="number" step="any" defaultValue={hotelLocation.lat} placeholder="Latitude (e.g. 1.509149)" required style={{flex: 1, minWidth: '130px'}} />
+                <input name="lng" type="number" step="any" defaultValue={hotelLocation.lng} placeholder="Longitude (e.g. 103.866151)" required style={{flex: 1, minWidth: '130px'}} />
                 <input name="radiusMeters" type="number" defaultValue={hotelLocation.radiusMeters} placeholder="Radius (Meters)" required style={{width: '120px'}} />
                 <button type="submit" className="btn blue">Save Coordinates</button>
                 <button type="button" className="btn green" onClick={handleSetCurrentGPSAsHotel}>
                   <i className="fa-solid fa-location-arrow"></i> Set Current GPS Position
                 </button>
               </form>
+              <p style={{fontSize: '0.85rem', margin: '0 0 6px'}}>
+                <strong>Located at:</strong> 68, 70 &amp; 72, Jalan Lembah 19, Bandar Baru Seri Alam, 81750 Masai, Johor
+                {' · '}<a href={`https://www.google.com/maps?q=${hotelLocation.lat},${hotelLocation.lng}`} target="_blank" rel="noreferrer">Open map</a>
+              </p>
               <p style={{fontSize: '0.85rem', color: '#666', margin: 0}}>
                 *Staff clocking in/out outside this radius ({hotelLocation.radiusMeters}m from Lat: {hotelLocation.lat}, Lng: {hotelLocation.lng}) will be automatically flagged as <strong>Away</strong>.
               </p>

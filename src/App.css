@@ -855,3 +855,123 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   font-size: 0.8rem;
 }
 
+/* Polished two-row application header */
+body { padding-top: 148px; }
+
+.header {
+  padding: 0;
+  border-bottom: 1px solid #e8dcc8;
+  box-shadow: 0 6px 24px rgba(31, 41, 55, 0.09);
+}
+
+.header-content {
+  width: 100%;
+  max-width: 1800px;
+  padding: 14px 28px 10px;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.hotel-brand,
+.header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.hotel-brand { gap: 12px; min-width: 0; }
+.header-actions { gap: 10px; }
+
+.brand-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #bd8d46, #dfbd84);
+  box-shadow: 0 4px 12px rgba(166, 121, 52, 0.22);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.2;
+  gap: 0;
+}
+
+.brand-subtitle {
+  display: block;
+  margin-top: 3px;
+  color: #8a7351;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.user-profile {
+  padding: 8px 13px;
+  border-radius: 10px;
+  background: #f8f6f2;
+  border-color: #e7dfd2;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.tabs {
+  width: 100%;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid #ebe5da;
+  border-radius: 12px;
+  background: #f5f3ef;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tabs button {
+  flex: 1 0 auto;
+  justify-content: center;
+  padding: 9px 13px;
+}
+
+.logout-btn {
+  padding: 8px 13px;
+  color: #b42318;
+  background: #fff5f4;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.logout-btn:hover { background: #fee2e2 !important; color: #991b1b !important; }
+
+@media (max-width: 768px) {
+  body { padding-top: 142px; }
+  .header { padding: 0; }
+  .header-content { width: 100%; padding: 10px 12px 8px; gap: 10px; }
+  .header-top { gap: 10px; }
+  .brand-icon { width: 38px; height: 38px; flex-basis: 38px; }
+  .header h1 { width: auto; font-size: 1rem; }
+  .brand-subtitle { font-size: 0.56rem; }
+  .user-profile { padding: 8px 10px; }
+  .user-profile span, .logout-btn span { display: none; }
+  .logout-btn { padding: 8px 10px; }
+  .tabs { justify-content: flex-start; padding-bottom: 5px; }
+  .tabs button { flex: 0 0 auto; padding: 8px 11px; font-size: 0.8rem; }
+  .tabs button span { display: inline; }
+}
+

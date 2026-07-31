@@ -1321,13 +1321,24 @@ export default function App() {
     <div className="app-container">
       <header className="header">
         <div className="header-content">
-          <h1>
-             Aladdin Dream Hotel
+          <div className="header-top">
+            <div className="hotel-brand">
+              <span className="brand-icon"><i className="fa-solid fa-hotel"></i></span>
+              <div>
+                <h1>Aladdin Dream Hotel</h1>
+                <span className="brand-subtitle">Hotel Management System</span>
+              </div>
+            </div>
+            <div className="header-actions">
              <div className="user-profile" onClick={() => setShowPasswordModal(true)}>
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
-               <span style={{fontWeight: 'bold'}}>{currentUser.name}</span>
+               <span>{currentUser.name}</span>
              </div>
-          </h1>
+              <button onClick={handleLogout} className="logout-btn" title="Logout">
+                <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
+              </button>
+            </div>
+          </div>
           <div className="tabs">
             {Object.keys(ICONS).map(v => {
               if (v === 'ATT_REPORT' && currentUser.role !== 'admin') return null;
@@ -1344,9 +1355,6 @@ export default function App() {
                 {pendingLeavesCount > 0 && <span className="nav-badge">{pendingLeavesCount}</span>}
               </button>
             )}
-            <button onClick={handleLogout} className="logout-btn" title="Logout" style={{marginLeft:'8px', color: '#dc2626', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '8px 14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer'}}>
-              <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
-            </button>
           </div>
         </div>
       </header>

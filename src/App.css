@@ -975,3 +975,33 @@ body { padding-top: 148px; }
   .tabs button span { display: inline; }
 }
 
+@media (max-width: 480px) {
+  body { padding-top: 132px; overflow-x: hidden; }
+  .app-container { padding: 8px; }
+  .header-content { padding: 9px 10px 7px; gap: 8px; }
+  .hotel-brand { gap: 9px; }
+  .brand-icon { width: 34px; height: 34px; flex-basis: 34px; border-radius: 10px; }
+  .header h1 { font-size: 0.94rem; white-space: nowrap; }
+  .brand-subtitle { display: none; }
+  .header-actions { gap: 6px; }
+  .user-profile, .logout-btn { width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 9px; }
+  .tabs {
+    gap: 4px;
+    padding: 4px;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs button {
+    min-height: 37px;
+    padding: 7px 10px;
+    gap: 5px;
+    font-size: 0.74rem;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+  .tabs button i { font-size: 0.82rem; }
+  .nav-badge { top: -4px; right: -3px; }
+  .floor-section { border-radius: 10px; padding: 12px; }
+}
+

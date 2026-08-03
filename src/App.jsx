@@ -56,11 +56,11 @@ const formatDuration = (ms) => {
 };
 
 // Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.
-// Staff within 300 metres of the hotel are treated as on site.
+// Staff within 100 metres of the hotel are treated as on site.
 const DEFAULT_HOTEL_COORDS = {
   lat: 1.509149,
   lng: 103.866151,
-  radiusMeters: 300
+  radiusMeters: 100
 };
 
 // Calculate distance in meters between two coordinates (Haversine formula)
@@ -78,6 +78,25 @@ const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c;
+};
+
+// Get display text for attendance location (including distance if away)
+const getLocationText = (log, hotelLoc = DEFAULT_HOTEL_COORDS) => {
+  if (!log) return 'On Site';
+  if (log.locationStatus !== 'away') return 'On Site';
+  if (log.locationLabel && log.locationLabel !== 'Away') {
+    return log.locationLabel;
+  }
+  if (log.coords?.lat && log.coords?.lng) {
+    const tLat = hotelLoc?.lat || DEFAULT_HOTEL_COORDS.lat;
+    const tLng = hotelLoc?.lng || DEFAULT_HOTEL_COORDS.lng;
+    const dist = calculateDistanceMeters(log.coords.lat, log.coords.lng, tLat, tLng);
+    if (dist !== null) {
+      const formatted = dist >= 1000 ? `${(dist / 1000).toFixed(1)}km` : `${Math.round(dist)}m`;
+      return `Away (${formatted})`;
+    }
+  }
+  return log.locationLabel || 'Away';
 };
 
 // Ignore stale/incorrect saved centres that are clearly not near this hotel.
@@ -739,6 +758,201 @@ export default function App() {
     const newHasKey = !room.hasKey;
     await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
     logSystemAction(currentUser.name, 'ROOM_UPDATE', `Flagged Room ${room.id} key status as: ${newHasKey ? 'Has Key' : 'No Key'}`); 
+  // --- ADD OR RESTORE ROOMS (NEW ADMIN FEATURE) ---
+  const handleAddRoom = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const rId = f.roomId.value;
+    const rFloor = f.floor.value;
+    const rType = f.roomType.value.toUpperCase();
+
+    try {
+      await setDoc(doc(db, "rooms", rId), {
+        id: rId,
+        floor: rFloor,
+        type: rType,
+        status: 'vacant',
+        hasKey: true
+      }, { merge: true }); // Merge true ensures it creates it safely if it doesn't exist
+      
+      logSystemAction(currentUser.name, 'ROOM_CREATED', `Added/Restored Room ${rId}`);
+      alert(`Room ${rId} successfully added/restored!`);
+      f.reset();
+    } catch (err) {
+      alert("Failed to add room: " + err.message);
+    }
+  };
+
+  // --- 4. LAUNDRY & STOCK FUNCTIONS ---
+  const handleLaundryChange = (item, val) => {
+    setLaundryForm(prev => {
+       const updated = {...prev};
+       if (val === '' || val === '0') delete updated[item];
+       else updated[item] = parseInt(val);
+       return updated;
+    });
+  };
+
+  const handleSendLaundry = async () => {
+    const itemsToSend = {};
+    let hasItems = false;
+    LAUNDRY_ITEMS.forEach(itemName => {
+        if (laundryForm[itemName] > 0) {
+            itemsToSend[itemName] = { sentQty: laundryForm[itemName], status: 'pending', remark: '' };
+            hasItems = true;
+        }
+    });
+    if (!hasItems) return alert("Please enter at least one item quantity.");
+    await addDoc(collection(db, "laundry"), { items: itemsToSend, status: 'pending', sentBy: currentUser.name, createdAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'LAUNDRY_SENT', `Sent ${Object.keys(itemsToSend).length} types of items to laundry`); 
+    setLaundryForm({});
+    alert("Laundry Sent!");
+  };
+
+  const handleItemReceiveToggle = (itemName, status) => {
+    const updated = {...receiveLaundryModal};
+    if (status === 'correct') {
+        updated.items[itemName].status = 'correct';
+        updated.items[itemName].remark = '';
+    } else {
+        const remark = prompt(`Enter missing amount or remark for ${itemName} (Sent: ${updated.items[itemName].sentQty}):`);
+        if (remark === null) return;
+        updated.items[itemName].status = 'incorrect';
+        updated.items[itemName].remark = remark;
+    }
+    setReceiveLaundryModal(updated);
+  };
+
+  const handleSaveReceivedLaundry = async () => {
+    const allChecked = Object.values(receiveLaundryModal.items).every(i => i.status !== 'pending');
+    if(!allChecked) { if(!confirm("Some items have not been verified. Mark batch as received anyway?")) return; }
+    await updateDoc(doc(db, "laundry", receiveLaundryModal.id), { items: receiveLaundryModal.items, status: 'received', receivedBy: currentUser.name, receivedAt: serverTimestamp() });
+    logSystemAction(currentUser.name, 'LAUNDRY_RECEIVED', `Verified and received laundry batch`); 
+    setReceiveLaundryModal(null);
+    alert("Laundry marked as received!");
+  };
+
+  const handleUpdateLaundryItemDetails = async (itemName) => {
+    const currentDetails = laundryItemDetails[itemName] || '';
+    const newDetails = prompt(`Enter opening stock details for ${itemName} (e.g., "100" or "100 Single, 100 Queen"):`, currentDetails);
+    if (newDetails === null) return;
+    try {
+      await setDoc(doc(db, "settings", "laundryDetails"), { items: { [itemName]: newDetails } }, { merge: true });
+      logSystemAction(currentUser.name, 'STOCK_CONFIG', `Updated opening stock label for ${itemName}`); 
+      alert("Opening stock updated!");
+    } catch (error) { alert("Failed to update opening stock"); }
+  };
+
+  const handleAddStock = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const maxOrder = stockItems.length > 0 ? Math.max(...stockItems.map(i => i.order || 0)) : 0;
+    await addDoc(collection(db, "stock"), {
+      name: f.name.value, quantity: parseInt(f.quantity.value) || 0, category: f.category.value || "General", subcategory: f.subcategory.value || "", order: maxOrder + 1, createdAt: serverTimestamp()
+    });
+    logSystemAction(currentUser.name, 'STOCK_ADD', `Added new stock item: ${f.name.value} (${f.quantity.value})`); 
+    f.reset(); alert("Stock item added!");
+  };
+
+  const handleUpdateStock = async (e) => {
+    e.preventDefault();
+    if (!editStockModal) return;
+    await updateDoc(doc(db, "stock", editStockModal.id), {
+      name: editStockModal.name, quantity: parseInt(editStockModal.quantity) || 0, category: editStockModal.category || "General", subcategory: editStockModal.subcategory || ""
+    });
+    logSystemAction(currentUser.name, 'STOCK_UPDATE', `Updated stock for: ${editStockModal.name} to qty: ${editStockModal.quantity}`); 
+    setEditStockModal(null); alert("Stock updated!");
+  };
+
+  const handleDeleteStock = async (itemId) => {
+    const item = stockItems.find(i => i.id === itemId);
+    if (!confirm(`Delete stock item: ${item?.name}?`)) return;
+    await deleteDoc(doc(db, "stock", itemId));
+    logSystemAction(currentUser.name, 'STOCK_DELETE', `Deleted stock item: ${item?.name}`); 
+  };
+
+  const openEditStock = (item) => {
+    setEditStockModal({ id: item.id, name: item.name, quantity: item.quantity, category: item.category || 'General', subcategory: item.subcategory || '' });
+  };
+
+  // --- 5. ROOM DEPOSITS LOGIC ---
+  const handleAddDeposit = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await addDoc(collection(db, "deposits"), {
+        roomNo: f.roomNo.value,
+        amount: parseFloat(f.amount.value),
+        checkInDate: f.checkInDate.value,
+        recordedBy: currentUser.name,
+        createdAt: serverTimestamp()
+      });
+      logSystemAction(currentUser.name, 'DEPOSIT_ADD', `Collected RM${f.amount.value} deposit for Room ${f.roomNo.value}`);
+      f.reset();
+      alert("Deposit recorded successfully!");
+    } catch (error) {
+      alert("Failed to record deposit");
+    }
+  };
+
+  const handleDeleteDeposit = async (id, roomNo) => {
+    if (!window.confirm(`Are you sure you want to delete the deposit record for Room ${roomNo}?`)) return;
+    try {
+      await deleteDoc(doc(db, "deposits", id));
+      logSystemAction(currentUser.name, 'DEPOSIT_DELETE', `Deleted deposit record for Room ${roomNo}`);
+    } catch (error) {
+      alert("Failed to delete deposit record");
+    }
+  };
+
+  // --- 6. ONLINE PAYMENT VERIFICATION LOGIC ---
+  const handleAddVerification = async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await addDoc(collection(db, "verifications"), {
+        paymentDate: f.paymentDate.value,
+        paymentTime: f.paymentTime.value,
+        refId: f.refId.value,
+        amount: parseFloat(f.amount.value),
+        status: 'pending', 
+        recordedBy: currentUser.name,
+        createdAt: serverTimestamp()
+      });
+      logSystemAction(currentUser.name, 'VERIFY_ADD', `Logged payment verification request for Ref: *${f.refId.value} (RM${f.amount.value})`);
+      f.reset();
+      alert("Verification request recorded successfully!");
+    } catch (error) {
+      alert("Failed to record verification request");
+    }
+  };
+
+  const handleDeleteVerification = async (id, refId) => {
+    if (!window.confirm(`Are you sure you want to delete the verification record for Ref *${refId}?`)) return;
+    try {
+      await deleteDoc(doc(db, "verifications", id));
+      logSystemAction(currentUser.name, 'VERIFY_DELETE', `Deleted verification record for Ref *${refId}`);
+    } catch (error) {
+      alert("Failed to delete verification record");
+    }
+  };
+
+  const toggleVerificationStatus = async (v) => {
+    if (currentUser.role !== 'admin') return;
+    const newStatus = v.status === 'verified' ? 'pending' : 'verified';
+    try {
+        await updateDoc(doc(db, "verifications", v.id), { status: newStatus });
+        logSystemAction(currentUser.name, 'VERIFY_STATUS', `Marked payment Ref *${v.refId} as ${newStatus.toUpperCase()}`);
+    } catch(error) {
+        alert("Failed to update status");
+    }
+  };
+
+  // --- 7. ROOM & TICKETS LOGIC ---
+  const toggleRoomKey = async (room) => {
+    const newHasKey = !room.hasKey;
+    await updateDoc(doc(db, "rooms", room.id), { hasKey: newHasKey });
+    logSystemAction(currentUser.name, 'ROOM_UPDATE', `Flagged Room ${room.id} key status as: ${newHasKey ? 'Has Key' : 'No Key'}`); 
     setSelectedRoom({...room, hasKey: newHasKey}); 
   };
 
@@ -794,7 +1008,14 @@ export default function App() {
             locLabel = 'On Site';
           } else {
             locStatus = 'away';
-            locLabel = distMeters !== null ? `Away (${(distMeters / 1000).toFixed(1)}km)` : 'Away';
+            if (distMeters !== null) {
+              const formattedDist = distMeters >= 1000 
+                ? `${(distMeters / 1000).toFixed(1)}km` 
+                : `${Math.round(distMeters)}m`;
+              locLabel = `Away (${formattedDist})`;
+            } else {
+              locLabel = 'Away';
+            }
           }
         }
       } catch (err) {
@@ -825,7 +1046,7 @@ export default function App() {
     e.preventDefault();
     const lat = parseFloat(e.target.lat.value);
     const lng = parseFloat(e.target.lng.value);
-    const radiusMeters = parseInt(e.target.radiusMeters.value) || 300;
+    const radiusMeters = parseInt(e.target.radiusMeters.value) || 100;
     try {
       await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters }, { merge: true });
       logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Updated Hotel GPS location to Lat: ${lat}, Lng: ${lng}, Radius: ${radiusMeters}m`);
@@ -842,7 +1063,7 @@ export default function App() {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         try {
-          await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: hotelLocation.radiusMeters || 300 }, { merge: true });
+          await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: hotelLocation.radiusMeters || 100 }, { merge: true });
           logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Set current GPS position as Hotel Location: Lat ${lat}, Lng ${lng}`);
           alert(`Hotel GPS location updated to your current position!\nLatitude: ${lat}\nLongitude: ${lng}`);
         } catch (err) {
@@ -855,7 +1076,6 @@ export default function App() {
   };
 
   const handleExportAttendanceCSV = (sessionsToExport) => {
-    let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Date,Staff ID,Staff Name,Clock In Time,Clock Out Time,Duration (Hours),Status\n";
 
     sessionsToExport.forEach(s => {

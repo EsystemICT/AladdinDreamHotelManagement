@@ -55,6 +55,24 @@ const formatDuration = (ms) => {
   return `${hrs} hrs ${mins} mins`;
 };
 
+// Attendance punching is mobile/tablet only. iPadOS can identify itself as a Mac,
+// so touch capability is also checked before classifying the device as a computer.
+const isComputerDevice = () => {
+  if (typeof navigator === 'undefined') return false;
+
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  const isIPad = /iPad/i.test(userAgent) || (/Mac/i.test(platform) && navigator.maxTouchPoints > 1);
+  const isMobileOrTablet = navigator.userAgentData?.mobile === true ||
+    /Android|iPhone|iPod|Windows Phone|Mobi/i.test(userAgent) ||
+    isIPad;
+
+  if (isMobileOrTablet) return false;
+
+  return /Win|Mac|Linux|X11|CrOS/i.test(platform) ||
+    /Windows NT|Macintosh|Linux x86_64|X11|CrOS/i.test(userAgent);
+};
+
 // Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.
 // Staff within 100 metres of the hotel are treated as on site.
 const ATTENDANCE_RADIUS_METERS = 100;
@@ -786,6 +804,11 @@ export default function App() {
 
   // --- 8. OTHER ACTIONS & ATTENDANCE PORTAL FUNCTIONS ---
   const handleClock = async (type) => {
+      if (isComputerDevice()) {
+        alert("Clock IN and Clock OUT are only available on a mobile phone or tablet. You can continue using all other system features on this computer.");
+        return;
+      }
+
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
 
       let locStatus = 'away';
@@ -793,40 +816,46 @@ export default function App() {
       let coords = null;
 
       try {
-        if ("geolocation" in navigator) {
-          const position = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 6000,
-              maximumAge: 0
-            });
+        if (!("geolocation" in navigator)) {
+          throw new Error("Geolocation is not supported by this browser");
+        }
+
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 6000,
+            maximumAge: 0
           });
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          coords = { lat, lng };
+        });
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        coords = { lat, lng };
 
-          const targetLat = hotelLocation.lat || DEFAULT_HOTEL_COORDS.lat;
-          const targetLng = hotelLocation.lng || DEFAULT_HOTEL_COORDS.lng;
-          const targetRadius = ATTENDANCE_RADIUS_METERS;
+        const targetLat = hotelLocation.lat || DEFAULT_HOTEL_COORDS.lat;
+        const targetLng = hotelLocation.lng || DEFAULT_HOTEL_COORDS.lng;
+        const targetRadius = ATTENDANCE_RADIUS_METERS;
 
-          const distMeters = calculateDistanceMeters(lat, lng, targetLat, targetLng);
-          if (distMeters !== null && distMeters <= targetRadius) {
-            locStatus = 'on_site';
-            locLabel = 'On Site';
+        const distMeters = calculateDistanceMeters(lat, lng, targetLat, targetLng);
+        if (distMeters !== null && distMeters <= targetRadius) {
+          locStatus = 'on_site';
+          locLabel = 'On Site';
+        } else {
+          locStatus = 'away';
+          if (distMeters !== null) {
+            const formattedDist = distMeters >= 1000
+              ? `${(distMeters / 1000).toFixed(1)}km`
+              : `${Math.round(distMeters)}m`;
+            locLabel = `Away (${formattedDist})`;
           } else {
-            locStatus = 'away';
-            if (distMeters !== null) {
-              const formattedDist = distMeters >= 1000 
-                ? `${(distMeters / 1000).toFixed(1)}km` 
-                : `${Math.round(distMeters)}m`;
-              locLabel = `Away (${formattedDist})`;
-            } else {
-              locLabel = 'Away';
-            }
+            locLabel = 'Away';
           }
         }
       } catch (err) {
         console.log("GPS location unavailable or denied:", err);
+        if (type === 'in') {
+          alert("GPS location is required to Clock IN. Please enable location access and try again.");
+          return;
+        }
         locStatus = 'away';
         locLabel = 'Away (No GPS)';
       }

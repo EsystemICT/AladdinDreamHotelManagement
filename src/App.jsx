@@ -57,10 +57,11 @@ const formatDuration = (ms) => {
 
 // Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.
 // Staff within 100 metres of the hotel are treated as on site.
+const ATTENDANCE_RADIUS_METERS = 100;
 const DEFAULT_HOTEL_COORDS = {
   lat: 1.509149,
   lng: 103.866151,
-  radiusMeters: 100
+  radiusMeters: ATTENDANCE_RADIUS_METERS
 };
 
 // Calculate distance in meters between two coordinates (Haversine formula)
@@ -110,8 +111,8 @@ const normalizeHotelLocation = (location = {}) => {
   const isStaleOrIncorrect = savedPointDistance === null || savedPointDistance > 2000;
 
   return isStaleOrIncorrect
-    ? { ...DEFAULT_HOTEL_COORDS, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters }
-    : { lat: savedLat, lng: savedLng, radiusMeters: Number(location.radiusMeters) || DEFAULT_HOTEL_COORDS.radiusMeters };
+    ? DEFAULT_HOTEL_COORDS
+    : { lat: savedLat, lng: savedLng, radiusMeters: ATTENDANCE_RADIUS_METERS };
 };
 
 // --- ATTENDANCE SESSION PROCESSOR ---
@@ -236,7 +237,8 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
         startTime: lastLog.timestamp,
         elapsedMs: new Date() - inDate,
         locationStatus: lastLog.locationStatus || 'on_site',
-        locationLabel: lastLog.locationLabel || (lastLog.locationStatus === 'away' ? 'Away' : 'On Site')
+        locationLabel: lastLog.locationLabel || (lastLog.locationStatus === 'away' ? 'Away' : 'On Site'),
+        coords: lastLog.coords || null
       });
     } else {
       rosterStatus.push({
@@ -1000,7 +1002,7 @@ export default function App() {
 
           const targetLat = hotelLocation.lat || DEFAULT_HOTEL_COORDS.lat;
           const targetLng = hotelLocation.lng || DEFAULT_HOTEL_COORDS.lng;
-          const targetRadius = hotelLocation.radiusMeters || DEFAULT_HOTEL_COORDS.radiusMeters;
+          const targetRadius = ATTENDANCE_RADIUS_METERS;
 
           const distMeters = calculateDistanceMeters(lat, lng, targetLat, targetLng);
           if (distMeters !== null && distMeters <= targetRadius) {
@@ -1046,7 +1048,7 @@ export default function App() {
     e.preventDefault();
     const lat = parseFloat(e.target.lat.value);
     const lng = parseFloat(e.target.lng.value);
-    const radiusMeters = parseInt(e.target.radiusMeters.value) || 100;
+    const radiusMeters = ATTENDANCE_RADIUS_METERS;
     try {
       await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters }, { merge: true });
       logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Updated Hotel GPS location to Lat: ${lat}, Lng: ${lng}, Radius: ${radiusMeters}m`);
@@ -1063,7 +1065,7 @@ export default function App() {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         try {
-          await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: hotelLocation.radiusMeters || 100 }, { merge: true });
+          await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: ATTENDANCE_RADIUS_METERS }, { merge: true });
           logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Set current GPS position as Hotel Location: Lat ${lat}, Lng ${lng}`);
           alert(`Hotel GPS location updated to your current position!\nLatitude: ${lat}\nLongitude: ${lng}`);
         } catch (err) {
@@ -1076,16 +1078,19 @@ export default function App() {
   };
 
   const handleExportAttendanceCSV = (sessionsToExport) => {
-    csvContent += "Date,Staff ID,Staff Name,Clock In Time,Clock Out Time,Duration (Hours),Status\n";
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Date,Staff ID,Staff Name,Clock In Time,Clock In Location,Clock Out Time,Clock Out Location,Duration (Hours),Status\n";
 
     sessionsToExport.forEach(s => {
       const dateStr = s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '-');
       const inTimeStr = s.inTime ? formatTime(s.inTime) : '-';
       const outTimeStr = s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? 'Working Now' : '-');
+      const inLocationStr = s.inLog ? getLocationText(s.inLog, hotelLocation) : '-';
+      const outLocationStr = s.outLog ? getLocationText(s.outLog, hotelLocation) : '-';
       const durationStr = s.durationMs ? (s.durationMs / (1000 * 3600)).toFixed(2) : '0';
       const statusStr = s.status === 'working' ? 'Currently Working' : (s.status === 'completed' ? 'Completed' : s.status);
 
-      csvContent += `"${dateStr}","${s.userId}","${s.userName}","${inTimeStr}","${outTimeStr}","${durationStr}","${statusStr}"\n`;
+      csvContent += `"${dateStr}","${s.userId}","${s.userName}","${inTimeStr}","${inLocationStr}","${outTimeStr}","${outLocationStr}","${durationStr}","${statusStr}"\n`;
     });
 
     const encodedUri = encodeURI(csvContent);
@@ -1151,7 +1156,9 @@ export default function App() {
                 <th>Date</th>
                 <th>Staff Name</th>
                 <th>Clock In</th>
+                <th>Clock In Location</th>
                 <th>Clock Out</th>
+                <th>Clock Out Location</th>
                 <th>Duration</th>
                 <th>Status</th>
               </tr>
@@ -1162,7 +1169,9 @@ export default function App() {
                   <td>${s.inTime ? formatDate(s.inTime) : (s.outTime ? formatDate(s.outTime) : '-')}</td>
                   <td><b>${s.userName}</b> (${s.userId})</td>
                   <td>${s.inTime ? formatTime(s.inTime) : '-'}</td>
+                  <td>${s.inLog ? getLocationText(s.inLog, hotelLocation) : '-'}</td>
                   <td>${s.outTime ? formatTime(s.outTime) : (s.status === 'working' ? 'Working Now' : '-')}</td>
+                  <td>${s.outLog ? getLocationText(s.outLog, hotelLocation) : '-'}</td>
                   <td>${formatDuration(s.durationMs)}</td>
                   <td><span class="${s.status === 'working' ? 'badge-working' : 'badge-completed'}">${s.status.toUpperCase()}</span></td>
                 </tr>
@@ -2088,7 +2097,7 @@ export default function App() {
                       Status: <strong>{lastClock?.type === 'in' ? '🟢 Working' : '🔴 Off Duty'}</strong>
                       {lastClock?.locationStatus && (
                         <span className={`status-badge ${lastClock.locationStatus === 'away' ? 'away' : 'on_site'}`} style={{marginLeft: '8px'}}>
-                          <i className={`fa-solid ${lastClock.locationStatus === 'away' ? 'fa-location-dot' : 'fa-hotel'}`}></i> {lastClock.locationLabel || (lastClock.locationStatus === 'away' ? 'Away' : 'On Site')}
+                          <i className={`fa-solid ${lastClock.locationStatus === 'away' ? 'fa-location-dot' : 'fa-hotel'}`}></i> {getLocationText(lastClock, hotelLocation)}
                         </span>
                       )}
                     </div>
@@ -2129,7 +2138,7 @@ export default function App() {
                                 <div>
                                   <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red', marginRight:'8px'}}>{a.type.toUpperCase()}</span>
                                   {a.locationStatus === 'away' ? (
-                                    <span className="status-badge away" style={{fontSize:'0.7rem'}} title={a.locationLabel}><i className="fa-solid fa-location-dot"></i> Away</span>
+                                    <span className="status-badge away" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-location-dot"></i> {getLocationText(a, hotelLocation)}</span>
                                   ) : (
                                     <span className="status-badge on_site" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-hotel"></i> On Site</span>
                                   )}
@@ -2303,8 +2312,8 @@ export default function App() {
                           </td>
                           <td>
                             {s.inLog?.locationStatus === 'away' || s.outLog?.locationStatus === 'away' ? (
-                              <span className="status-badge away" title={s.inLog?.locationLabel || s.outLog?.locationLabel}>
-                                <i className="fa-solid fa-location-dot"></i> Away
+                              <span className="status-badge away">
+                                <i className="fa-solid fa-location-dot"></i> {getLocationText(s.inLog?.locationStatus === 'away' ? s.inLog : s.outLog, hotelLocation)}
                               </span>
                             ) : (
                               <span className="status-badge on_site">
@@ -2318,8 +2327,8 @@ export default function App() {
                             </div>
                             {s.inLog?.locationStatus === 'away' && (
                               <div style={{marginTop: '3px'}}>
-                                <span className="status-badge away" style={{fontSize: '0.7rem'}} title={s.inLog.locationLabel}>
-                                  <i className="fa-solid fa-location-dot"></i> Away
+                                <span className="status-badge away" style={{fontSize: '0.7rem'}}>
+                                  <i className="fa-solid fa-location-dot"></i> {getLocationText(s.inLog, hotelLocation)}
                                 </span>
                               </div>
                             )}
@@ -2330,8 +2339,8 @@ export default function App() {
                             </div>
                             {s.outLog?.locationStatus === 'away' && (
                               <div style={{marginTop: '3px'}}>
-                                <span className="status-badge away" style={{fontSize: '0.7rem'}} title={s.outLog.locationLabel}>
-                                  <i className="fa-solid fa-location-dot"></i> Away
+                                <span className="status-badge away" style={{fontSize: '0.7rem'}}>
+                                  <i className="fa-solid fa-location-dot"></i> {getLocationText(s.outLog, hotelLocation)}
                                 </span>
                               </div>
                             )}
@@ -2401,7 +2410,7 @@ export default function App() {
                         <div>
                           {st.status === 'working' && (
                             <span className={`status-badge ${st.locationStatus === 'away' ? 'away' : 'working'}`}>
-                              <span className="badge-dot"></span> {st.locationStatus === 'away' ? 'Working (Away)' : 'Working (On Site)'}
+                              <span className="badge-dot"></span> {st.locationStatus === 'away' ? `Working (${getLocationText(st, hotelLocation)})` : 'Working (On Site)'}
                             </span>
                           )}
                           {st.status === 'off_duty' && <span className="status-badge off_duty"><span className="badge-dot"></span> Off Duty</span>}
@@ -2519,7 +2528,7 @@ export default function App() {
               <form onSubmit={handleSaveHotelLocation} style={{display:'flex', gap:'10px', flexWrap:'wrap', alignItems:'center', marginBottom:'10px'}}>
                 <input name="lat" type="number" step="any" defaultValue={hotelLocation.lat} placeholder="Latitude (e.g. 1.509149)" required style={{flex: 1, minWidth: '130px'}} />
                 <input name="lng" type="number" step="any" defaultValue={hotelLocation.lng} placeholder="Longitude (e.g. 103.866151)" required style={{flex: 1, minWidth: '130px'}} />
-                <input name="radiusMeters" type="number" defaultValue={hotelLocation.radiusMeters} placeholder="Radius (Meters)" required style={{width: '120px'}} />
+                <input name="radiusMeters" type="number" value={ATTENDANCE_RADIUS_METERS} aria-label="Attendance radius in metres" readOnly style={{width: '120px', background: '#f1f5f9'}} />
                 <button type="submit" className="btn blue">Save Coordinates</button>
                 <button type="button" className="btn green" onClick={handleSetCurrentGPSAsHotel}>
                   <i className="fa-solid fa-location-arrow"></i> Set Current GPS Position
@@ -2786,12 +2795,23 @@ export default function App() {
                   <h3 style={{fontSize:'1rem', marginTop:'20px', borderBottom:'2px solid #eee'}}>Attendance History</h3>
                   <div className="scroll-pane scroll-pane-modal" style={{marginBottom:'20px'}}>
                       <table style={{fontSize:'0.85rem'}}>
-                          <thead><tr><th>Type</th><th>Time</th></tr></thead>
+                          <thead><tr><th>Type</th><th>Time</th><th>Location</th></tr></thead>
                           <tbody>
                               {attendance.filter(a => a.userId === staffModal.userid).map(a => (
                                   <tr key={a.id}>
                                       <td style={{color: a.type==='in'?'green':'red', fontWeight:'bold'}}>{a.type.toUpperCase()}</td>
                                       <td>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</td>
+                                      <td>
+                                        {a.locationStatus === 'away' ? (
+                                          <span className="status-badge away" style={{fontSize: '0.7rem'}}>
+                                            <i className="fa-solid fa-location-dot"></i> {getLocationText(a, hotelLocation)}
+                                          </span>
+                                        ) : (
+                                          <span className="status-badge on_site" style={{fontSize: '0.7rem'}}>
+                                            <i className="fa-solid fa-hotel"></i> On Site
+                                          </span>
+                                        )}
+                                      </td>
                                   </tr>
                               ))}
                           </tbody>

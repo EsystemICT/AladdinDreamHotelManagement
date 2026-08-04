@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc } from 'firebase/firestore';
 import './App.css';
@@ -197,7 +197,7 @@ const normalizeHotelLocation = (location = {}) => {
 };
 
 // --- ATTENDANCE SESSION PROCESSOR ---
-const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
+const processAttendanceSessions = (rawLogs, usersList, leavesList, referenceTime = new Date()) => {
   const sortedLogs = [...rawLogs].filter(a => a.timestamp).sort((a, b) => {
     const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
     const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
@@ -278,7 +278,6 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
 
     if (currentIn) {
       const inDate = currentIn.timestamp?.toDate ? currentIn.timestamp.toDate() : new Date(currentIn.timestamp);
-      const now = new Date();
       sessions.push({
         id: currentIn.id,
         userId: uid,
@@ -287,13 +286,13 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
         outLog: null,
         inTime: currentIn.timestamp,
         outTime: null,
-        durationMs: Math.max(0, now - inDate),
+        durationMs: Math.max(0, referenceTime - inDate),
         status: 'working'
       });
     }
 
     const lastLog = logs[logs.length - 1];
-    const todayStr = new Date().toLocaleDateString('en-MY');
+    const todayStr = referenceTime.toLocaleDateString('en-MY');
     const isOnLeaveToday = leavesList.some(l => {
       if (l.userId !== uid || l.status !== 'approved') return false;
       const lDate = l.createdAt?.toDate ? l.createdAt.toDate().toLocaleDateString('en-MY') : '';
@@ -316,7 +315,7 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList) => {
         role: user.role,
         status: 'working',
         startTime: lastLog.timestamp,
-        elapsedMs: new Date() - inDate,
+        elapsedMs: referenceTime - inDate,
         locationStatus: lastLog.locationStatus || 'on_site',
         locationLabel: lastLog.locationLabel || (lastLog.locationStatus === 'away' ? 'Away' : 'On Site'),
         coords: lastLog.coords || null
@@ -475,8 +474,6 @@ export default function App() {
     };
 
     restoreSession();
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    
     // --- SECRET OVERRIDE LISTENER ---
     const handleHashChange = () => {
       if (window.location.hash === '#system-override') setIsSecretAdmin(true);
@@ -498,14 +495,21 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
       window.removeEventListener('hashchange', handleHashChange);
       unsubMaintenance();
       unsubLocation();
     };
   }, []);
 
-  // --- 2. MAIN DATA LISTENERS ---
+  // Avoid re-rendering the entire application every second on pages that do
+  // not display a live clock or running attendance durations.
+  useEffect(() => {
+    if (!currentUser || !['SHIFT', 'ATT_REPORT', 'ADMIN'].includes(view)) return;
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [currentUser, view]);
+
+  // --- 2. CORE DATA LISTENERS ---
   useEffect(() => {
     if (!currentUser) return;
 
@@ -513,10 +517,7 @@ export default function App() {
       setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"));
-    const unsubTickets = onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qRequests = query(collection(db, "requests"), orderBy("createdAt", "desc"));
+    const qRequests = query(collection(db, "requests"), orderBy("createdAt", "desc"), limit(500));
     const unsubRequests = onSnapshot(qRequests, (snap) => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
@@ -535,54 +536,90 @@ export default function App() {
         }
       }
     });
-    
-    const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(2000));
-    const unsubAtt = onSnapshot(qAtt, (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setAttendance(data);
-        if(currentUser) {
-            const myLogs = data.filter(a => a.userId === currentUser.userid);
-            setLastClock(myLogs.length > 0 ? myLogs[0] : null);
-        }
-    });
 
-    const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"));
-    const unsubLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"));
-    const unsubInv = onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qClaims = query(collection(db, "claimDays"), orderBy("createdAt", "desc"));
-    const unsubClaims = onSnapshot(qClaims, (snap) => setClaimDays(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"));
-    const unsubLaundry = onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const unsubLaundryDetails = onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
-      if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
-    });
-
-    const qStock = query(collection(db, "stock"), orderBy("order", "asc"));
-    const unsubStock = onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"));
-    const unsubDeposits = onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"));
-    const unsubVerify = onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    let unsubAudit = () => {};
+    let unsubAdminLeaves = () => {};
     if (currentUser.role === 'admin') {
-      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
-      unsubAudit = onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
+      unsubAdminLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
-
-    return () => { 
-      unsubRooms(); unsubTickets(); unsubRequests(); unsubUsers(); unsubAtt(); unsubLeaves(); 
-      unsubInv(); unsubClaims(); unsubLaundry(); unsubLaundryDetails(); unsubStock(); 
-      unsubAudit(); unsubDeposits(); unsubVerify();
+    
+    return () => {
+      unsubRooms();
+      unsubRequests();
+      unsubUsers();
+      unsubAdminLeaves();
     };
   }, [currentUser]);
+
+  // Load each section only when it is opened instead of downloading every
+  // collection immediately after login.
+  useEffect(() => {
+    if (!currentUser) return;
+    const unsubs = [];
+
+    if (view === 'TICKETS' || selectedRoom) {
+      const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (['SHIFT', 'ATT_REPORT', 'ADMIN'].includes(view)) {
+      const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(2000));
+      unsubs.push(onSnapshot(qAtt, (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAttendance(data);
+        const myLogs = data.filter(a => a.userId === currentUser.userid);
+        setLastClock(myLogs.length > 0 ? myLogs[0] : null);
+      }));
+
+    }
+
+    if (view === 'SHIFT' && currentUser.role !== 'admin') {
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'ITEMS') {
+      const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(500));
+      unsubs.push(onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'CLAIMS') {
+      const qClaims = query(collection(db, "claimDays"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qClaims, (snap) => setClaimDays(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'LAUNDRY') {
+      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+      unsubs.push(onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
+        if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
+      }));
+      const qStock = query(collection(db, "stock"), orderBy("order", "asc"), limit(500));
+      unsubs.push(onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'DEPOSIT') {
+      const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'VERIFY') {
+      const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"), limit(500));
+      unsubs.push(onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'ADMIN' && currentUser.role === 'admin') {
+      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
+      unsubs.push(onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    return () => unsubs.forEach(unsubscribe => unsubscribe());
+  }, [currentUser, view, selectedRoom]);
+
+  const { sessions: allAttSessions, rosterStatus: attRosterStatus } = useMemo(
+    () => processAttendanceSessions(attendance, users, leaves, currentTime),
+    [attendance, users, leaves, currentTime]
+  );
 
 
   // ======================================================================
@@ -1392,8 +1429,6 @@ export default function App() {
   };
 
   // --- DATA PROCESSING ---
-  const { sessions: allAttSessions, rosterStatus: attRosterStatus } = processAttendanceSessions(attendance, users, leaves);
-
   const filteredAttSessions = allAttSessions.filter(s => {
     let match = true;
     const refTime = s.inTime || s.outTime;

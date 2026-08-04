@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, serverTimestamp, query, orderBy, where, getDocs, limit, writeBatch, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, runTransaction } from 'firebase/firestore';
 import './App.css';
 
 // ICONS & TABS
@@ -55,22 +55,84 @@ const formatDuration = (ms) => {
   return `${hrs} hrs ${mins} mins`;
 };
 
+const getCurrentMonthString = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const DEVICE_ID_STORAGE_KEY = 'hotelApprovedDeviceId';
+const DEVICE_BINDING_ERROR = '\u6b64\u5e33\u865f\u5df2\u7d81\u5b9a\u5176\u4ed6\u88dd\u7f6e\uff0c\u8acb\u806f\u7d61\u7ba1\u7406\u54e1\u91cd\u8a2d\u5df2\u7d81\u5b9a\u7684\u88dd\u7f6e\u3002';
+const DEVICE_BINDING_RESET_MESSAGE = '\u88dd\u7f6e\u7d81\u5b9a\u5df2\u91cd\u8a2d\uff0c\u8acb\u91cd\u65b0\u767b\u5165\u3002';
+
 // Attendance punching is mobile/tablet only. iPadOS can identify itself as a Mac,
-// so touch capability is also checked before classifying the device as a computer.
-const isComputerDevice = () => {
+// so touch capability is also checked before classifying the device.
+const isMobileOrTabletDevice = () => {
   if (typeof navigator === 'undefined') return false;
 
   const userAgent = navigator.userAgent || '';
   const platform = navigator.userAgentData?.platform || navigator.platform || '';
   const isIPad = /iPad/i.test(userAgent) || (/Mac/i.test(platform) && navigator.maxTouchPoints > 1);
-  const isMobileOrTablet = navigator.userAgentData?.mobile === true ||
+  return navigator.userAgentData?.mobile === true ||
     /Android|iPhone|iPod|Windows Phone|Mobi/i.test(userAgent) ||
     isIPad;
+};
 
-  if (isMobileOrTablet) return false;
+const isComputerDevice = () => !isMobileOrTabletDevice();
 
-  return /Win|Mac|Linux|X11|CrOS/i.test(platform) ||
-    /Windows NT|Macintosh|Linux x86_64|X11|CrOS/i.test(userAgent);
+const getDeviceId = (createIfMissing = true) => {
+  if (typeof window === 'undefined') return null;
+  let deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+  if (!deviceId && createIfMissing) {
+    deviceId = globalThis.crypto?.randomUUID?.() ||
+      `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_ID_STORAGE_KEY, deviceId);
+  }
+  return deviceId;
+};
+
+const getDeviceName = () => {
+  if (typeof navigator === 'undefined') return 'Mobile device';
+  const userAgent = navigator.userAgent || '';
+  if (/iPad/i.test(userAgent) || (/Mac/i.test(navigator.platform || '') && navigator.maxTouchPoints > 1)) return 'iPad';
+  if (/iPhone/i.test(userAgent)) return 'iPhone';
+  if (/Android/i.test(userAgent)) return /Mobile/i.test(userAgent) ? 'Android phone' : 'Android tablet';
+  return 'Mobile device';
+};
+
+const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null) => {
+  const deviceId = getDeviceId(true);
+  const userRef = doc(db, 'users', userDocId);
+
+  return runTransaction(db, async (transaction) => {
+    const userSnapshot = await transaction.get(userRef);
+    if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
+
+    const latestUser = userSnapshot.data();
+    if (expectedPassword !== null && latestUser.password !== expectedPassword) {
+      throw new Error('INCORRECT_PASSWORD');
+    }
+    if (latestUser.role === 'admin') return { dbId: userDocId, ...latestUser };
+    if (latestUser.approvedDeviceId && latestUser.approvedDeviceId !== deviceId) {
+      const error = new Error('DEVICE_ALREADY_BOUND');
+      error.code = 'DEVICE_ALREADY_BOUND';
+      throw error;
+    }
+
+    if (!latestUser.approvedDeviceId) {
+      transaction.update(userRef, {
+        approvedDeviceId: deviceId,
+        approvedDeviceName: getDeviceName(),
+        approvedDeviceBoundAt: serverTimestamp()
+      });
+    }
+
+    return {
+      dbId: userDocId,
+      ...latestUser,
+      approvedDeviceId: latestUser.approvedDeviceId || deviceId,
+      approvedDeviceName: latestUser.approvedDeviceName || getDeviceName()
+    };
+  });
 };
 
 // Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.
@@ -289,6 +351,7 @@ const logSystemAction = async (actorName, actionType, details) => {
 export default function App() {
   // STATE
   const [currentUser, setCurrentUser] = useState(null);
+  const [isSessionReady, setIsSessionReady] = useState(false);
   const [view, setView] = useState('ROOMS');
   const [currentTime, setCurrentTime] = useState(new Date());
   
@@ -347,12 +410,12 @@ export default function App() {
   const [editingClaim, setEditingClaim] = useState(null);
 
   // Audit Filters UI
-  const [auditFilterMonth, setAuditFilterMonth] = useState('');
+  const [auditFilterMonth, setAuditFilterMonth] = useState(getCurrentMonthString);
   const [auditFilterUser, setAuditFilterUser] = useState('');
   const [auditFilterAction, setAuditFilterAction] = useState('');
 
   // Attendance Report UI State
-  const [attFilterMonth, setAttFilterMonth] = useState('');
+  const [attFilterMonth, setAttFilterMonth] = useState(getCurrentMonthString);
   const [attFilterStartDate, setAttFilterStartDate] = useState('');
   const [attFilterEndDate, setAttFilterEndDate] = useState('');
   const [attFilterUser, setAttFilterUser] = useState('');
@@ -363,19 +426,56 @@ export default function App() {
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
     const storedUser = localStorage.getItem('hotelUser');
-    if (storedUser) {
-      const userObj = JSON.parse(storedUser);
-      setCurrentUser(userObj);
-      setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
-    }
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      if (!storedUser) {
+        if (!cancelled) setIsSessionReady(true);
+        return;
+      }
+
+      try {
+        const savedUser = JSON.parse(storedUser);
+        if (!savedUser.dbId) throw new Error('INVALID_SESSION');
+
+        const userSnapshot = await getDoc(doc(db, 'users', savedUser.dbId));
+        if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
+
+        const latestUser = { dbId: userSnapshot.id, ...userSnapshot.data() };
+        if (latestUser.role !== 'admin' && isMobileOrTabletDevice()) {
+          if (!latestUser.approvedDeviceId) {
+            const error = new Error('DEVICE_BINDING_RESET');
+            error.code = 'DEVICE_BINDING_RESET';
+            throw error;
+          }
+          if (latestUser.approvedDeviceId !== getDeviceId(false)) {
+            const error = new Error('DEVICE_ALREADY_BOUND');
+            error.code = 'DEVICE_ALREADY_BOUND';
+            throw error;
+          }
+        }
+        const userObj = latestUser;
+
+        if (!cancelled) {
+          setCurrentUser(userObj);
+          localStorage.setItem('hotelUser', JSON.stringify(userObj));
+          setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
+        }
+      } catch (error) {
+        localStorage.removeItem('hotelUser');
+        if (!cancelled && (error.code === 'DEVICE_ALREADY_BOUND' || error.message === 'DEVICE_ALREADY_BOUND')) {
+          setLoginError(DEVICE_BINDING_ERROR);
+        } else if (!cancelled && (error.code === 'DEVICE_BINDING_RESET' || error.message === 'DEVICE_BINDING_RESET')) {
+          setLoginError(DEVICE_BINDING_RESET_MESSAGE);
+        }
+      } finally {
+        if (!cancelled) setIsSessionReady(true);
+      }
+    };
+
+    restoreSession();
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     
-    // Default audit & attendance month filters
-    const now = new Date();
-    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    setAuditFilterMonth(currentMonthStr);
-    setAttFilterMonth(currentMonthStr);
-
     // --- SECRET OVERRIDE LISTENER ---
     const handleHashChange = () => {
       if (window.location.hash === '#system-override') setIsSecretAdmin(true);
@@ -396,6 +496,7 @@ export default function App() {
     });
 
     return () => {
+      cancelled = true;
       clearInterval(timer);
       window.removeEventListener('hashchange', handleHashChange);
       unsubMaintenance();
@@ -417,7 +518,22 @@ export default function App() {
     const qRequests = query(collection(db, "requests"), orderBy("createdAt", "desc"));
     const unsubRequests = onSnapshot(qRequests, (snap) => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => setUsers(snap.docs.map(d => ({ dbId: d.id, ...d.data() }))));
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      const loadedUsers = snap.docs.map(d => ({ dbId: d.id, ...d.data() }));
+      setUsers(loadedUsers);
+
+      if (currentUser.role !== 'admin' && isMobileOrTabletDevice()) {
+        const latestCurrentUser = loadedUsers.find(user => user.dbId === currentUser.dbId);
+        if (!latestCurrentUser || latestCurrentUser.approvedDeviceId !== getDeviceId(false)) {
+          localStorage.removeItem('hotelUser');
+          setCurrentUser(null);
+          setLoginId('');
+          setLoginPass('');
+          setLoginError(latestCurrentUser?.approvedDeviceId ? DEVICE_BINDING_ERROR : DEVICE_BINDING_RESET_MESSAGE);
+          setView('ROOMS');
+        }
+      }
+    });
     
     const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(2000));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
@@ -425,7 +541,7 @@ export default function App() {
         setAttendance(data);
         if(currentUser) {
             const myLogs = data.filter(a => a.userId === currentUser.userid);
-            if(myLogs.length > 0) setLastClock(myLogs[0]);
+            setLastClock(myLogs.length > 0 ? myLogs[0] : null);
         }
     });
 
@@ -480,7 +596,7 @@ export default function App() {
       await setDoc(doc(db, "settings", "maintenance"), { active, message: msg }, { merge: true });
       if(currentUser) logSystemAction(currentUser.name, 'SYSTEM_OVERRIDE', `Toggled maintenance mode to: ${active}`); 
       alert("System Override applied instantly!");
-    } catch (err) {
+    } catch {
       alert("Failed to apply settings");
     }
   };
@@ -533,21 +649,36 @@ export default function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    const q = query(collection(db, "users"), where("userid", "==", loginId));
-    const querySnapshot = await getDocs(q);
-    if (querySnapshot.empty) { setLoginError('User ID not found'); return; }
+    try {
+      const q = query(collection(db, "users"), where("userid", "==", loginId));
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) { setLoginError('User ID not found'); return; }
 
-    const userData = querySnapshot.docs[0].data();
-    const docId = querySnapshot.docs[0].id;
+      const userData = querySnapshot.docs[0].data();
+      const docId = querySnapshot.docs[0].id;
+      if (userData.password !== loginPass) { setLoginError('Incorrect Password'); return; }
 
-    if (userData.password === loginPass) {
-      const userObj = { dbId: docId, ...userData };
+      const shouldBindDevice = userData.role !== 'admin' && isMobileOrTabletDevice() && !userData.approvedDeviceId;
+      const userObj = userData.role !== 'admin' && isMobileOrTabletDevice()
+        ? await approveOrValidateMobileDevice(docId, loginPass)
+        : { dbId: docId, ...userData };
+
       setCurrentUser(userObj);
       localStorage.setItem('hotelUser', JSON.stringify(userObj));
-      logSystemAction(userObj.name, 'LOGIN', 'Logged into the system'); 
+      logSystemAction(userObj.name, 'LOGIN', isComputerDevice() ? 'Logged into the system on computer' : `Logged into the system on approved device: ${getDeviceName()}`);
+      if (shouldBindDevice) {
+        logSystemAction(userObj.name, 'DEVICE_BINDING_APPROVED', `Approved first mobile device: ${getDeviceName()}`);
+      }
       setView(userObj.role === 'admin' ? 'ADMIN' : 'ROOMS');
-    } else {
-      setLoginError('Incorrect Password');
+    } catch (error) {
+      if (error.code === 'DEVICE_ALREADY_BOUND' || error.message === 'DEVICE_ALREADY_BOUND') {
+        setLoginError(DEVICE_BINDING_ERROR);
+      } else if (error.message === 'INCORRECT_PASSWORD') {
+        setLoginError('Incorrect Password');
+      } else {
+        console.error('Login failed:', error);
+        setLoginError('Login failed. Please try again.');
+      }
     }
   };
 
@@ -578,7 +709,7 @@ export default function App() {
         await updateDoc(doc(db, "users", staffDocId), { password: newPass });
         logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); 
         alert(`Password for ${staffName} updated successfully!`);
-    } catch (error) {
+    } catch {
         alert("Failed to update password.");
     }
   };
@@ -665,7 +796,7 @@ export default function App() {
       await setDoc(doc(db, "settings", "laundryDetails"), { items: { [itemName]: newDetails } }, { merge: true });
       logSystemAction(currentUser.name, 'STOCK_CONFIG', `Updated opening stock label for ${itemName}`); 
       alert("Opening stock updated!");
-    } catch (error) { alert("Failed to update opening stock"); }
+    } catch { alert("Failed to update opening stock"); }
   };
 
   const handleAddStock = async (e) => {
@@ -715,7 +846,7 @@ export default function App() {
       logSystemAction(currentUser.name, 'DEPOSIT_ADD', `Collected RM${f.amount.value} deposit for Room ${f.roomNo.value}`);
       f.reset();
       alert("Deposit recorded successfully!");
-    } catch (error) {
+    } catch {
       alert("Failed to record deposit");
     }
   };
@@ -725,7 +856,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, "deposits", id));
       logSystemAction(currentUser.name, 'DEPOSIT_DELETE', `Deleted deposit record for Room ${roomNo}`);
-    } catch (error) {
+    } catch {
       alert("Failed to delete deposit record");
     }
   };
@@ -747,7 +878,7 @@ export default function App() {
       logSystemAction(currentUser.name, 'VERIFY_ADD', `Logged payment verification request for Ref: *${f.refId.value} (RM${f.amount.value})`);
       f.reset();
       alert("Verification request recorded successfully!");
-    } catch (error) {
+    } catch {
       alert("Failed to record verification request");
     }
   };
@@ -757,7 +888,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, "verifications", id));
       logSystemAction(currentUser.name, 'VERIFY_DELETE', `Deleted verification record for Ref *${refId}`);
-    } catch (error) {
+    } catch {
       alert("Failed to delete verification record");
     }
   };
@@ -768,8 +899,30 @@ export default function App() {
     try {
         await updateDoc(doc(db, "verifications", v.id), { status: newStatus });
         logSystemAction(currentUser.name, 'VERIFY_STATUS', `Marked payment Ref *${v.refId} as ${newStatus.toUpperCase()}`);
-    } catch(error) {
+    } catch {
         alert("Failed to update status");
+    }
+  };
+
+  const handleResetApprovedDevice = async (staff) => {
+    if (currentUser.role !== 'admin' || staff.role === 'admin') return;
+    if (!staff.approvedDeviceId) {
+      alert(`${staff.name} does not have a bound device.`);
+      return;
+    }
+    if (!confirm(`Reset the approved device for ${staff.name}? Their current phone will be logged out and the next phone used to log in will be approved.`)) return;
+
+    try {
+      await updateDoc(doc(db, 'users', staff.dbId), {
+        approvedDeviceId: deleteField(),
+        approvedDeviceName: deleteField(),
+        approvedDeviceBoundAt: deleteField()
+      });
+      await logSystemAction(currentUser.name, 'DEVICE_BINDING_RESET', `Reset approved device for staff: ${staff.name} (${staff.userid})`);
+      alert(`Approved device for ${staff.name} has been reset.`);
+    } catch (error) {
+      console.error('Device reset failed:', error);
+      alert('Failed to reset the approved device.');
     }
   };
 
@@ -807,6 +960,28 @@ export default function App() {
       if (isComputerDevice()) {
         alert("Clock IN and Clock OUT are only available on a mobile phone or tablet. You can continue using all other system features on this computer.");
         return;
+      }
+
+      if (currentUser.role !== 'admin') {
+        try {
+          const userSnapshot = await getDoc(doc(db, 'users', currentUser.dbId));
+          const approvedDeviceId = userSnapshot.exists() ? userSnapshot.data().approvedDeviceId : null;
+          if (!approvedDeviceId || approvedDeviceId !== getDeviceId(false)) {
+            const deviceErrorMessage = approvedDeviceId ? DEVICE_BINDING_ERROR : DEVICE_BINDING_RESET_MESSAGE;
+            localStorage.removeItem('hotelUser');
+            setCurrentUser(null);
+            setLoginId('');
+            setLoginPass('');
+            setLoginError(deviceErrorMessage);
+            setView('ROOMS');
+            alert(deviceErrorMessage);
+            return;
+          }
+        } catch (error) {
+          console.error('Device validation failed:', error);
+          alert('Unable to verify this approved device. Please check your connection and try again.');
+          return;
+        }
       }
 
       if(!confirm(`Confirm Clock ${type.toUpperCase()}?`)) return;
@@ -867,7 +1042,9 @@ export default function App() {
         timestamp: serverTimestamp(),
         locationStatus: locStatus,
         locationLabel: locLabel,
-        coords: coords
+        coords: coords,
+        deviceId: currentUser.role === 'admin' ? null : getDeviceId(false),
+        deviceName: getDeviceName()
       });
       
       logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()} - Location: ${locLabel}`);
@@ -902,7 +1079,7 @@ export default function App() {
           await setDoc(doc(db, "settings", "location"), { lat, lng, radiusMeters: ATTENDANCE_RADIUS_METERS }, { merge: true });
           logSystemAction(currentUser.name, 'LOCATION_CONFIG', `Set current GPS position as Hotel Location: Lat ${lat}, Lng ${lng}`);
           alert(`Hotel GPS location updated to your current position!\nLatitude: ${lat}\nLongitude: ${lng}`);
-        } catch (err) {
+        } catch {
           alert("Failed to save location");
         }
       },
@@ -1091,7 +1268,7 @@ export default function App() {
       await addDoc(collection(db, "claimDays"), { ...claimForm, recordedBy: currentUser.name, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       logSystemAction(currentUser.name, 'CLAIM_ADD', `Created claim record for guest: ${claimForm.guestName}`); 
       setClaimModal(false); resetClaimForm(); alert('Record added successfully!');
-    } catch (error) { alert("Failed to add claim record"); }
+    } catch { alert("Failed to add claim record"); }
   };
 
   const handleUpdateClaim = async () => {
@@ -1100,7 +1277,7 @@ export default function App() {
       await updateDoc(doc(db, "claimDays", editingClaim), { ...claimForm, updatedAt: serverTimestamp() });
       logSystemAction(currentUser.name, 'CLAIM_UPDATE', `Updated claim record for guest: ${claimForm.guestName}`); 
       setClaimModal(false); setEditingClaim(null); resetClaimForm(); alert('Record updated successfully!');
-    } catch (error) { alert("Failed to update claim record"); }
+    } catch { alert("Failed to update claim record"); }
   };
 
   const handleDeleteClaim = async (claimId) => {
@@ -1110,7 +1287,7 @@ export default function App() {
       await deleteDoc(doc(db, "claimDays", claimId)); 
       logSystemAction(currentUser.name, 'CLAIM_DELETE', `Deleted claim record for guest: ${claim?.guestName}`); 
       alert('Record deleted!'); 
-    } catch (error) { alert("Failed to delete record"); }
+    } catch { alert("Failed to delete record"); }
   };
 
   const openEditClaim = (claim) => {
@@ -1360,6 +1537,18 @@ export default function App() {
   const uniqueAuditUsers = [...new Set(auditLogs.map(l => l.user))].sort();
   const uniqueAuditActions = [...new Set(auditLogs.map(l => l.action))].sort();
 
+  if (!isSessionReady) {
+    return (
+      <div className="app-container">
+        <div className="login-container">
+          <div className="login-card">
+            <i className="fa-solid fa-spinner fa-spin" style={{fontSize:'2rem', color:'#2563eb'}}></i>
+            <p style={{color:'#666', marginBottom:0}}>Checking session...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // --- RENDER LOGIN ---
   if (!currentUser) {
@@ -1630,7 +1819,7 @@ export default function App() {
                                     <div key={sub} style={{marginBottom: '12px', paddingLeft: '10px'}}>
                                         {sub && <h4 style={{fontSize: '0.85rem', color: '#6b7280', margin: '0 0 8px 0', textTransform: 'uppercase'}}><i className="fa-solid fa-angle-right" style={{marginRight:'5px'}}></i>{sub}</h4>}
                                         <div style={{display:'flex', flexDirection:'column', gap:'6px', paddingLeft: sub ? '15px' : '0'}}>
-                                          {groupedStock[cat][sub].map((item, idx) => (
+                                          {groupedStock[cat][sub].map((item) => (
                                               <div key={item.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f9fafb', border:'1px solid #e5e7eb', borderRadius:'6px'}}>
                                                   <div style={{display:'flex', alignItems:'center', gap:'10px', flex:1}}><span style={{fontWeight:'bold', color:'#333'}}>{item.name}</span></div>
                                                   <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
@@ -1922,9 +2111,15 @@ export default function App() {
                     <div className="clock-date">{currentTime.toLocaleDateString('en-MY', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
                     <div className="clock-time">{currentTime.toLocaleTimeString('en-MY', {hour12:false})}</div>
                 </div>
+                {isComputerDevice() && (
+                  <div className="device-restriction-notice">
+                    <i className="fa-solid fa-desktop"></i>
+                    Computer access is allowed, but Clock IN / Clock OUT is only available on an approved mobile device.
+                  </div>
+                )}
                 <div style={{display:'flex', gap:'20px', justifyContent:'center'}}>
-                    <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={lastClock?.type === 'in'}>Clock IN</button>
-                    <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={lastClock?.type !== 'in'}>Clock OUT</button>
+                    <button onClick={() => handleClock('in')} className="btn green clock-btn" disabled={isComputerDevice() || lastClock?.type === 'in'}>Clock IN</button>
+                    <button onClick={() => handleClock('out')} className="btn red clock-btn" disabled={isComputerDevice() || lastClock?.type !== 'in'}>Clock OUT</button>
                 </div>
                 <div style={{marginTop:'15px', color:'#666', display:'flex', flexDirection:'column', alignItems:'center', gap:'5px'}}>
                     <div>
@@ -2400,13 +2595,27 @@ export default function App() {
               </form>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
                 <table>
-                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Manage</th></tr></thead>
+                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Approved Device</th><th>Manage</th></tr></thead>
                   <tbody>
                     {users.map(u => (
                       <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
                         <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                        <td>
+                          {u.role === 'admin' ? (
+                            <span className="device-status admin-exempt"><i className="fa-solid fa-shield-halved"></i> Exempt</span>
+                          ) : u.approvedDeviceId ? (
+                            <span className="device-status bound" title={`Bound ${formatTime(u.approvedDeviceBoundAt)}`}><i className="fa-solid fa-mobile-screen-button"></i> {u.approvedDeviceName || 'Approved device'}</span>
+                          ) : (
+                            <span className="device-status unbound"><i className="fa-solid fa-mobile-screen"></i> Not bound</span>
+                          )}
+                        </td>
                         <td onClick={(e) => e.stopPropagation()}>
-                            {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} style={{color:'red', border:'none', background:'none'}}><i className="fa-solid fa-trash"></i></button>}
+                            {u.role !== 'admin' && u.approvedDeviceId && (
+                              <button onClick={() => handleResetApprovedDevice(u)} className="btn device-reset-btn" title="Reset approved device">
+                                <i className="fa-solid fa-mobile-screen-button"></i> Reset Device
+                              </button>
+                            )}
+                            {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} className="icon-delete-btn" title="Delete staff"><i className="fa-solid fa-trash"></i></button>}
                         </td>
                       </tr>
                     ))}

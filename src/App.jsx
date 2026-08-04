@@ -61,7 +61,7 @@ const getCurrentMonthString = () => {
 };
 
 const DEVICE_ID_STORAGE_KEY = 'hotelApprovedDeviceId';
-const DEVICE_BINDING_ERROR = '\u6b64\u5e33\u865f\u5df2\u7d81\u5b9a\u5176\u4ed6\u88dd\u7f6e\uff0c\u8acb\u806f\u7d61\u7ba1\u7406\u54e1\u91cd\u8a2d\u5df2\u7d81\u5b9a\u7684\u88dd\u7f6e\u3002';
+const DEVICE_BINDING_ERROR = 'This account is already linked to another device. Please contact the administrator to reset the linked device.';
 const DEVICE_BINDING_RESET_MESSAGE = '\u88dd\u7f6e\u7d81\u5b9a\u5df2\u91cd\u8a2d\uff0c\u8acb\u91cd\u65b0\u767b\u5165\u3002';
 
 // Attendance punching is mobile/tablet only. iPadOS can identify itself as a Mac,

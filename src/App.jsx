@@ -658,10 +658,18 @@ export default function App() {
       const docId = querySnapshot.docs[0].id;
       if (userData.password !== loginPass) { setLoginError('Incorrect Password'); return; }
 
-      const shouldBindDevice = userData.role !== 'admin' && isMobileOrTabletDevice() && !userData.approvedDeviceId;
-      const userObj = userData.role !== 'admin' && isMobileOrTabletDevice()
-        ? await approveOrValidateMobileDevice(docId, loginPass)
-        : { dbId: docId, ...userData };
+      const isMobileStaff = userData.role !== 'admin' && isMobileOrTabletDevice();
+      const shouldBindDevice = isMobileStaff && !userData.approvedDeviceId;
+      let userObj = { dbId: docId, ...userData };
+
+      if (isMobileStaff && userData.approvedDeviceId) {
+        if (userData.approvedDeviceId !== getDeviceId(false)) {
+          setLoginError(DEVICE_BINDING_ERROR);
+          return;
+        }
+      } else if (shouldBindDevice) {
+        userObj = await approveOrValidateMobileDevice(docId, loginPass);
+      }
 
       setCurrentUser(userObj);
       localStorage.setItem('hotelUser', JSON.stringify(userObj));

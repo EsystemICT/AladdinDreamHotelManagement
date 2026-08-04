@@ -557,7 +557,10 @@ export default function App() {
     if (!currentUser) return;
     const unsubs = [];
 
-    if (view === 'TICKETS' || selectedRoom) {
+    if (view === 'ROOMS' && !selectedRoom) {
+      const qOpenTickets = query(collection(db, "tickets"), where("status", "==", "open"), limit(500));
+      unsubs.push(onSnapshot(qOpenTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    } else if (view === 'TICKETS' || selectedRoom) {
       const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(500));
       unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
@@ -620,6 +623,13 @@ export default function App() {
     () => processAttendanceSessions(attendance, users, leaves, currentTime),
     [attendance, users, leaves, currentTime]
   );
+
+  const openTicketCountByRoom = useMemo(() => tickets.reduce((counts, ticket) => {
+    if (ticket.status !== 'open' || ticket.roomId === undefined || ticket.roomId === null) return counts;
+    const roomId = String(ticket.roomId);
+    counts[roomId] = (counts[roomId] || 0) + 1;
+    return counts;
+  }, {}), [tickets]);
 
 
   // ======================================================================
@@ -1695,6 +1705,11 @@ export default function App() {
                      {floorRooms.map(room => (
                         <div key={room.id} className={`room-card ${getStatusColor(room.status)}`} onClick={() => setSelectedRoom(room)}>
                           {room.hasKey && <i className="fa-solid fa-key" style={{position: 'absolute', top: '6px', left: '6px', color: '#fbbf24', fontSize: '0.9rem', filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.4))'}}></i>}
+                          {openTicketCountByRoom[String(room.id)] > 0 && (
+                            <span className="room-issue-badge" title={`${openTicketCountByRoom[String(room.id)]} unresolved issue${openTicketCountByRoom[String(room.id)] > 1 ? 's' : ''}`}>
+                              {openTicketCountByRoom[String(room.id)]}
+                            </span>
+                          )}
                           <div className="room-number" style={{fontSize: String(room.id).length > 5 ? '1rem' : '1.4rem'}}>{room.id}</div>
                           <div className="room-type">{room.type}</div>
                           {room.status === 'maintenance' && <div style={{fontSize:'0.6rem', marginTop:'2px'}}>MAINT</div>}

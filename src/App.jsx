@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, runTransaction } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc } from 'firebase/firestore';
 import './App.css';
 
 // ICONS & TABS
@@ -102,37 +102,38 @@ const getDeviceName = () => {
 const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null) => {
   const deviceId = getDeviceId(true);
   const userRef = doc(db, 'users', userDocId);
+  const userSnapshot = await getDoc(userRef);
+  if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
 
-  return runTransaction(db, async (transaction) => {
-    const userSnapshot = await transaction.get(userRef);
-    if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
+  const latestUser = userSnapshot.data();
+  if (expectedPassword !== null && latestUser.password !== expectedPassword) {
+    throw new Error('INCORRECT_PASSWORD');
+  }
+  if (latestUser.role === 'admin') return { dbId: userDocId, ...latestUser };
+  if (latestUser.approvedDeviceId && latestUser.approvedDeviceId !== deviceId) {
+    const error = new Error('DEVICE_ALREADY_BOUND');
+    error.code = 'DEVICE_ALREADY_BOUND';
+    throw error;
+  }
 
-    const latestUser = userSnapshot.data();
-    if (expectedPassword !== null && latestUser.password !== expectedPassword) {
-      throw new Error('INCORRECT_PASSWORD');
-    }
-    if (latestUser.role === 'admin') return { dbId: userDocId, ...latestUser };
-    if (latestUser.approvedDeviceId && latestUser.approvedDeviceId !== deviceId) {
-      const error = new Error('DEVICE_ALREADY_BOUND');
-      error.code = 'DEVICE_ALREADY_BOUND';
-      throw error;
-    }
+  if (!latestUser.approvedDeviceId) {
+    await updateDoc(userRef, {
+      approvedDeviceId: deviceId,
+      approvedDeviceName: getDeviceName(),
+      approvedDeviceBoundAt: serverTimestamp()
+    });
+  }
 
-    if (!latestUser.approvedDeviceId) {
-      transaction.update(userRef, {
-        approvedDeviceId: deviceId,
-        approvedDeviceName: getDeviceName(),
-        approvedDeviceBoundAt: serverTimestamp()
-      });
-    }
+  const confirmedSnapshot = await getDoc(userRef);
+  if (!confirmedSnapshot.exists()) throw new Error('USER_NOT_FOUND');
+  const confirmedUser = confirmedSnapshot.data();
+  if (confirmedUser.approvedDeviceId !== deviceId) {
+    const error = new Error('DEVICE_ALREADY_BOUND');
+    error.code = 'DEVICE_ALREADY_BOUND';
+    throw error;
+  }
 
-    return {
-      dbId: userDocId,
-      ...latestUser,
-      approvedDeviceId: latestUser.approvedDeviceId || deviceId,
-      approvedDeviceName: latestUser.approvedDeviceName || getDeviceName()
-    };
-  });
+  return { dbId: userDocId, ...confirmedUser };
 };
 
 // Aladdin Dream Hotel, 68, 70 & 72 Jalan Lembah 19, Bandar Seri Alam.

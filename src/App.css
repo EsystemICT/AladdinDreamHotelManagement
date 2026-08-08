@@ -443,7 +443,14 @@ tr:hover { background: #fafafa; }
 .device-status.unbound { color: #6b7280; }
 .device-status.admin-exempt { color: #2563eb; }
 .device-reset-btn { display: inline-flex; margin-right: 8px; padding: 7px 10px; background: #d97706; font-size: 0.8rem; }
-.icon-delete-btn { padding: 8px; color: #dc2626; border: none; background: none; cursor: pointer; }
+.staff-account-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; white-space: nowrap; }
+.staff-account-status.active { color: #047857; }
+.staff-account-status.inactive { color: #b91c1c; }
+.inactive-staff-row { background: #f8fafc; color: #64748b; }
+.inactive-staff-row:hover { background: #f1f5f9; }
+.staff-status-btn { display: inline-flex; padding: 7px 10px; font-size: 0.8rem; white-space: nowrap; }
+.staff-status-btn.set-inactive { background: #b91c1c; }
+.staff-status-btn.set-active { background: #047857; }
 
 .search-bar { width: 100%; max-width: 300px; padding: 10px; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem; }
 

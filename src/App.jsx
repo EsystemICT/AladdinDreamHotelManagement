@@ -79,6 +79,10 @@ const isMobileOrTabletDevice = () => {
 
 const isComputerDevice = () => !isMobileOrTabletDevice();
 
+// Existing user documents predate the active flag, so only an explicit false
+// marks an account as inactive.
+const isUserActive = (user) => user?.active !== false;
+
 const getDeviceId = (createIfMissing = true) => {
   if (typeof window === 'undefined') return null;
   let deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
@@ -106,6 +110,7 @@ const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null)
   if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
 
   const latestUser = userSnapshot.data();
+  if (!isUserActive(latestUser)) throw new Error('ACCOUNT_INACTIVE');
   if (expectedPassword !== null && latestUser.password !== expectedPassword) {
     throw new Error('INCORRECT_PASSWORD');
   }
@@ -127,6 +132,7 @@ const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null)
   const confirmedSnapshot = await getDoc(userRef);
   if (!confirmedSnapshot.exists()) throw new Error('USER_NOT_FOUND');
   const confirmedUser = confirmedSnapshot.data();
+  if (!isUserActive(confirmedUser)) throw new Error('ACCOUNT_INACTIVE');
   if (confirmedUser.approvedDeviceId !== deviceId) {
     const error = new Error('DEVICE_ALREADY_BOUND');
     error.code = 'DEVICE_ALREADY_BOUND';
@@ -442,6 +448,7 @@ export default function App() {
         if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
 
         const latestUser = { dbId: userSnapshot.id, ...userSnapshot.data() };
+        if (!isUserActive(latestUser)) throw new Error('ACCOUNT_INACTIVE');
         if (latestUser.role !== 'admin' && isMobileOrTabletDevice()) {
           if (!latestUser.approvedDeviceId) {
             const error = new Error('DEVICE_BINDING_RESET');
@@ -467,6 +474,8 @@ export default function App() {
           setLoginError(DEVICE_BINDING_ERROR);
         } else if (!cancelled && (error.code === 'DEVICE_BINDING_RESET' || error.message === 'DEVICE_BINDING_RESET')) {
           setLoginError(DEVICE_BINDING_RESET_MESSAGE);
+        } else if (!cancelled && error.message === 'ACCOUNT_INACTIVE') {
+          setLoginError('This staff account is inactive. Please contact an administrator.');
         }
       } finally {
         if (!cancelled) setIsSessionReady(true);
@@ -524,16 +533,23 @@ export default function App() {
       const loadedUsers = snap.docs.map(d => ({ dbId: d.id, ...d.data() }));
       setUsers(loadedUsers);
 
-      if (currentUser.role !== 'admin' && isMobileOrTabletDevice()) {
-        const latestCurrentUser = loadedUsers.find(user => user.dbId === currentUser.dbId);
-        if (!latestCurrentUser || latestCurrentUser.approvedDeviceId !== getDeviceId(false)) {
+      const latestCurrentUser = loadedUsers.find(user => user.dbId === currentUser.dbId);
+      const accountUnavailable = !latestCurrentUser || !isUserActive(latestCurrentUser);
+      const deviceUnavailable = currentUser.role !== 'admin' &&
+        isMobileOrTabletDevice() &&
+        latestCurrentUser?.approvedDeviceId !== getDeviceId(false);
+
+      if (accountUnavailable || deviceUnavailable) {
           localStorage.removeItem('hotelUser');
           setCurrentUser(null);
           setLoginId('');
           setLoginPass('');
-          setLoginError(latestCurrentUser?.approvedDeviceId ? DEVICE_BINDING_ERROR : DEVICE_BINDING_RESET_MESSAGE);
+          if (latestCurrentUser && !isUserActive(latestCurrentUser)) {
+            setLoginError('This staff account is inactive. Please contact an administrator.');
+          } else if (deviceUnavailable) {
+            setLoginError(latestCurrentUser?.approvedDeviceId ? DEVICE_BINDING_ERROR : DEVICE_BINDING_RESET_MESSAGE);
+          }
           setView('ROOMS');
-        }
       }
     });
 
@@ -704,6 +720,10 @@ export default function App() {
 
       const userData = querySnapshot.docs[0].data();
       const docId = querySnapshot.docs[0].id;
+      if (!isUserActive(userData)) {
+        setLoginError('This staff account is inactive. Please contact an administrator.');
+        return;
+      }
       if (userData.password !== loginPass) { setLoginError('Incorrect Password'); return; }
 
       const isMobileStaff = userData.role !== 'admin' && isMobileOrTabletDevice();
@@ -729,6 +749,8 @@ export default function App() {
     } catch (error) {
       if (error.code === 'DEVICE_ALREADY_BOUND' || error.message === 'DEVICE_ALREADY_BOUND') {
         setLoginError(DEVICE_BINDING_ERROR);
+      } else if (error.message === 'ACCOUNT_INACTIVE') {
+        setLoginError('This staff account is inactive. Please contact an administrator.');
       } else if (error.message === 'INCORRECT_PASSWORD') {
         setLoginError('Incorrect Password');
       } else {
@@ -1313,9 +1335,50 @@ export default function App() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     const f = e.target;
-    await addDoc(collection(db, "users"), { userid: f.userid.value, name: f.name.value, password: f.password.value, role: f.role.value });
-    logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.userid.value}`); 
+    const userId = f.userid.value.trim();
+    const existingUser = users.find(user => user.userid?.toLowerCase() === userId.toLowerCase());
+    if (existingUser) {
+      alert(isUserActive(existingUser)
+        ? `User ID ${userId} already exists.`
+        : `User ID ${userId} belongs to an inactive staff account. Reactivate that account instead.`);
+      return;
+    }
+
+    await addDoc(collection(db, "users"), {
+      userid: userId,
+      name: f.name.value.trim(),
+      password: f.password.value,
+      role: f.role.value,
+      active: true,
+      createdAt: serverTimestamp()
+    });
+    await logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.name.value.trim()} (${userId})`);
     f.reset(); alert("User Created!");
+  };
+
+  const handleSetStaffActive = async (staff, active) => {
+    if (currentUser.role !== 'admin' || staff.role === 'admin') return;
+
+    const actionLabel = active ? 'reactivate' : 'set as inactive';
+    const confirmation = active
+      ? `Reactivate ${staff.name} (${staff.userid})?`
+      : `Set ${staff.name} (${staff.userid}) as inactive?`;
+    if (!confirm(confirmation)) return;
+
+    try {
+      const statusFields = active
+        ? { active: true, inactiveAt: deleteField(), inactivatedBy: deleteField() }
+        : { active: false, inactiveAt: serverTimestamp(), inactivatedBy: currentUser.name };
+      await updateDoc(doc(db, 'users', staff.dbId), statusFields);
+      await logSystemAction(
+        currentUser.name,
+        active ? 'STAFF_REACTIVATED' : 'STAFF_INACTIVATED',
+        `${active ? 'Reactivated' : 'Set as inactive'} staff account: ${staff.name} (${staff.userid})`
+      );
+    } catch (error) {
+      console.error(`Failed to ${actionLabel} staff account:`, error);
+      alert(`Failed to ${actionLabel} staff account.`);
+    }
   };
 
   const handleAddClaim = async () => {
@@ -2109,7 +2172,7 @@ export default function App() {
             <form onSubmit={handleSendRequest} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
               <select value={reqReceiver} onChange={e => setReqReceiver(e.target.value)} required>
                 <option value="">-- Select Recipient --</option>
-                {users.filter(u => u.dbId !== currentUser.dbId).map(u => (
+                {users.filter(u => u.dbId !== currentUser.dbId && isUserActive(u)).map(u => (
                     <option key={u.dbId} value={u.dbId}>{u.name} ({u.role})</option>
                 ))}
               </select>
@@ -2654,11 +2717,17 @@ export default function App() {
               </form>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
                 <table>
-                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Approved Device</th><th>Manage</th></tr></thead>
+                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Approved Device</th><th>Manage</th></tr></thead>
                   <tbody>
                     {users.map(u => (
-                      <tr key={u.dbId} className="clickable-row" onClick={() => setStaffModal(u)}>
+                      <tr key={u.dbId} className={`clickable-row ${isUserActive(u) ? '' : 'inactive-staff-row'}`} onClick={() => setStaffModal(u)}>
                         <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                        <td>
+                          <span className={`staff-account-status ${isUserActive(u) ? 'active' : 'inactive'}`}>
+                            <i className={`fa-solid ${isUserActive(u) ? 'fa-circle-check' : 'fa-circle-minus'}`}></i>
+                            {isUserActive(u) ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
                         <td>
                           {u.role === 'admin' ? (
                             <span className="device-status admin-exempt"><i className="fa-solid fa-shield-halved"></i> Exempt</span>
@@ -2669,12 +2738,21 @@ export default function App() {
                           )}
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
-                            {u.role !== 'admin' && u.approvedDeviceId && (
+                            {u.role !== 'admin' && isUserActive(u) && u.approvedDeviceId && (
                               <button onClick={() => handleResetApprovedDevice(u)} className="btn device-reset-btn" title="Reset approved device">
                                 <i className="fa-solid fa-mobile-screen-button"></i> Reset Device
                               </button>
                             )}
-                            {u.userid !== 'admin' && <button onClick={() => deleteDoc(doc(db, "users", u.dbId))} className="icon-delete-btn" title="Delete staff"><i className="fa-solid fa-trash"></i></button>}
+                            {u.role !== 'admin' && (
+                              <button
+                                onClick={() => handleSetStaffActive(u, !isUserActive(u))}
+                                className={`btn staff-status-btn ${isUserActive(u) ? 'set-inactive' : 'set-active'}`}
+                                title={isUserActive(u) ? 'Set staff account as inactive' : 'Reactivate staff account'}
+                              >
+                                <i className={`fa-solid ${isUserActive(u) ? 'fa-user-slash' : 'fa-user-check'}`}></i>
+                                {isUserActive(u) ? 'Set Inactive' : 'Reactivate'}
+                              </button>
+                            )}
                         </td>
                       </tr>
                     ))}

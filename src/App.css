@@ -619,7 +619,59 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
 .profile-fields-grid label,
 .profile-password-fields label { display: block; }
 .profile-fields-grid label > span,
-.profile-password-fields label > span { display: block; margin-bottom: 7px; color: #334155; font-size: 0.78rem; font-weight: 800; }
+.profile-password-fields label > span,
+.profile-birthdate-field > span { display: block; margin-bottom: 7px; color: #334155; font-size: 0.78rem; font-weight: 800; }
+.profile-field-wide { grid-column: 1 / -1; }
+.profile-date-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 7px 0 12px;
+  background: #fff;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 9px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.profile-date-entry:focus-within { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.profile-date-entry > i { width: 20px; flex: 0 0 20px; color: #94a3b8; }
+.profile-date-entry > input[type="text"] {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 11px 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+}
+.profile-date-entry > input[type="text"]:focus { border-color: transparent; }
+.profile-calendar-btn {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.profile-calendar-btn:hover { background: #bfdbfe; }
+.profile-native-date-picker {
+  position: absolute;
+  right: 14px;
+  bottom: 2px;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.profile-date-help { display: block; margin-top: 5px; color: #64748b; font-size: 0.7rem; }
 .profile-input-wrap {
   display: flex;
   align-items: center;
@@ -697,7 +749,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
 .profile-form-actions .btn { justify-content: center; min-width: 130px; }
 .profile-form-actions .btn:disabled { cursor: wait; opacity: 0.65; }
 .required-field-label,
-.profile-setup-form label > span em {
+.profile-setup-form label > span em,
+.profile-setup-form .profile-birthdate-field > span em {
   margin-left: 5px;
   color: #dc2626;
   font-size: 0.67rem;
@@ -800,7 +853,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
 .profile-setup-user strong { overflow: hidden; color: #1e293b; font-size: 0.9rem; text-overflow: ellipsis; white-space: nowrap; }
 .profile-setup-user span { margin-top: 2px; color: #64748b; font-size: 0.73rem; text-transform: capitalize; }
 .profile-setup-form > label { display: block; margin-bottom: 14px; }
-.profile-setup-form > label > span { display: block; margin-bottom: 7px; color: #334155; font-size: 0.79rem; font-weight: 800; }
+.profile-setup-form > .profile-birthdate-field { margin-bottom: 14px; }
+.profile-setup-form > label > span,
+.profile-setup-form > .profile-birthdate-field > span { display: block; margin-bottom: 7px; color: #334155; font-size: 0.79rem; font-weight: 800; }
 .profile-setup-form > .reset-feedback { margin: 4px 0 14px; }
 .profile-continue-btn { width: 100%; justify-content: center; margin-top: 5px; padding: 12px 18px; }
 .profile-continue-btn:disabled { cursor: wait; opacity: 0.65; }

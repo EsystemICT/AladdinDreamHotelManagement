@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc } from 'firebase/firestore';
 import './App.css';
@@ -77,11 +77,85 @@ const isProfileComplete = (user) => (
   EMAIL_PATTERN.test(user?.email?.trim() || '') && isValidDateOfBirth(user?.dateOfBirth)
 );
 
-const getLocalDateInputValue = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+const isoDateToDisplay = (value) => {
+  if (!isValidDateOfBirth(value)) return '';
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const displayDateToIso = (value) => {
+  const match = (value || '').trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) return '';
+  const [, day, month, year] = match;
+  const isoValue = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  return isValidDateOfBirth(isoValue) ? isoValue : '';
+};
+
+const getLocalIsoDate = (date = new Date()) => (
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+);
+
+const DateOfBirthField = ({ defaultValue = '', idPrefix }) => {
+  const pickerRef = useRef(null);
+  const [displayValue, setDisplayValue] = useState(() => isoDateToDisplay(defaultValue));
+  const [isoValue, setIsoValue] = useState(() => isValidDateOfBirth(defaultValue) ? defaultValue : '');
+
+  const handleTextChange = (e) => {
+    const nextDisplayValue = e.target.value;
+    setDisplayValue(nextDisplayValue);
+    setIsoValue(displayDateToIso(nextDisplayValue));
+  };
+
+  const handleCalendarChange = (e) => {
+    const nextIsoValue = e.target.value;
+    setIsoValue(nextIsoValue);
+    setDisplayValue(isoDateToDisplay(nextIsoValue));
+  };
+
+  const openCalendar = () => {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    try {
+      if (typeof picker.showPicker === 'function') picker.showPicker();
+      else picker.click();
+    } catch {
+      picker.click();
+    }
+  };
+
+  return (
+    <>
+      <div className="profile-date-entry">
+        <i className="fa-solid fa-cake-candles"></i>
+        <input
+          id={`${idPrefix}-display`}
+          type="text"
+          value={displayValue}
+          onChange={handleTextChange}
+          placeholder="DD/MM/YYYY"
+          inputMode="numeric"
+          autoComplete="bday"
+          aria-label="Date of birth in day month year format"
+          required
+        />
+        <button type="button" className="profile-calendar-btn" onClick={openCalendar} aria-label="Choose date of birth from calendar" title="Choose from calendar">
+          <i className="fa-solid fa-calendar-days"></i>
+        </button>
+        <input
+          ref={pickerRef}
+          className="profile-native-date-picker"
+          type="date"
+          value={isoValue}
+          max={getLocalIsoDate()}
+          onChange={handleCalendarChange}
+          tabIndex="-1"
+          aria-hidden="true"
+        />
+      </div>
+      <input type="hidden" name="dateOfBirth" value={isoValue} readOnly />
+      <small className="profile-date-help">Enter DD/MM/YYYY or choose from the calendar.</small>
+    </>
+  );
 };
 
 const DEVICE_ID_STORAGE_KEY = 'hotelApprovedDeviceId';
@@ -935,10 +1009,6 @@ export default function App() {
       setProfileFeedback({ type: 'error', message: 'Your current password is incorrect.' });
       return;
     }
-    if (newPass.length < 4) {
-      setProfileFeedback({ type: 'error', message: 'The new password must be at least 4 characters.' });
-      return;
-    }
     if (newPass !== confirmPass) {
       setProfileFeedback({ type: 'error', message: 'The new passwords do not match.' });
       return;
@@ -970,7 +1040,7 @@ export default function App() {
   const handleAdminChangePassword = async (staffDocId, staffName) => {
     const newPass = prompt(`Enter new password for ${staffName}:`);
     if (newPass === null) return; 
-    if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
+    if (!newPass) return alert("Password cannot be empty.");
     try {
         await updateDoc(doc(db, "users", staffDocId), {
           password: newPass,
@@ -1940,10 +2010,10 @@ export default function App() {
               <div className="profile-input-wrap"><i className="fa-solid fa-envelope"></i><input name="email" type="email" defaultValue={currentUser.email || ''} placeholder="name@example.com" autoComplete="email" autoFocus required /></div>
             </label>
 
-            <label>
+            <div className="profile-birthdate-field">
               <span>Date of birth <em>Required</em></span>
-              <div className="profile-input-wrap"><i className="fa-solid fa-cake-candles"></i><input name="dateOfBirth" type="date" defaultValue={currentUser.dateOfBirth || ''} max={getLocalDateInputValue()} autoComplete="bday" required /></div>
-            </label>
+              <DateOfBirthField defaultValue={currentUser.dateOfBirth || ''} idPrefix="required-profile-birth-date" />
+            </div>
 
             <label>
               <span>Phone number <small>Optional</small></span>
@@ -3366,10 +3436,10 @@ export default function App() {
                     <span>Email address <em className="required-field-label">Required</em></span>
                     <div className="profile-input-wrap"><i className="fa-solid fa-envelope"></i><input name="email" type="email" defaultValue={currentUser.email || ''} placeholder="name@example.com" autoComplete="email" required /></div>
                   </label>
-                  <label>
+                  <div className="profile-birthdate-field profile-field-wide">
                     <span>Date of birth <em className="required-field-label">Required</em></span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-cake-candles"></i><input name="dateOfBirth" type="date" defaultValue={currentUser.dateOfBirth || ''} max={getLocalDateInputValue()} autoComplete="bday" required /></div>
-                  </label>
+                    <DateOfBirthField defaultValue={currentUser.dateOfBirth || ''} idPrefix="profile-birth-date" />
+                  </div>
                   <label>
                     <span>Phone number <small className="optional-field-label">Optional</small></span>
                     <div className="profile-input-wrap"><i className="fa-solid fa-phone"></i><input name="phone" type="tel" defaultValue={currentUser.phone || ''} placeholder="e.g. 0123456789" autoComplete="tel" /></div>
@@ -3424,11 +3494,11 @@ export default function App() {
                   </label>
                   <label>
                     <span>New password</span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-key"></i><input name="newPass" type="password" minLength="4" autoComplete="new-password" required /></div>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-key"></i><input name="newPass" type="password" autoComplete="new-password" required /></div>
                   </label>
                   <label>
                     <span>Confirm new password</span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-check-double"></i><input name="confirmPass" type="password" minLength="4" autoComplete="new-password" required /></div>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-check-double"></i><input name="confirmPass" type="password" autoComplete="new-password" required /></div>
                   </label>
                 </div>
 

@@ -251,6 +251,28 @@ const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
   );
 };
 
+const PasswordField = ({ wrapperClassName = '', leadingIcon = '', toggleLabel = 'password', ...inputProps }) => {
+  const [isVisible, setIsVisible] = useState(false);
+  const visibilityAction = isVisible ? 'Hide' : 'Show';
+
+  return (
+    <div className={`password-field ${wrapperClassName}`.trim()}>
+      {leadingIcon && <i className={leadingIcon} aria-hidden="true"></i>}
+      <input {...inputProps} type={isVisible ? 'text' : 'password'} />
+      <button
+        type="button"
+        className="password-visibility-toggle"
+        onClick={() => setIsVisible((visible) => !visible)}
+        aria-label={`${visibilityAction} ${toggleLabel}`}
+        aria-pressed={isVisible}
+        title={`${visibilityAction} ${toggleLabel}`}
+      >
+        <i className={`fa-solid ${isVisible ? 'fa-eye-slash' : 'fa-eye'}`} aria-hidden="true"></i>
+      </button>
+    </div>
+  );
+};
+
 const DEVICE_ID_STORAGE_KEY = 'hotelApprovedDeviceId';
 const DEVICE_BINDING_ERROR = 'This account is already linked to another device. Please contact the administrator to reset the linked device.';
 const DEVICE_BINDING_RESET_MESSAGE = '\u88dd\u7f6e\u7d81\u5b9a\u5df2\u91cd\u8a2d\uff0c\u8acb\u91cd\u65b0\u767b\u5165\u3002';
@@ -2289,7 +2311,15 @@ export default function App() {
               <h1>Aladdin Dream Hotel</h1>
               <p className="login-welcome">Welcome back. Sign in to continue.</p>
               <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} autoComplete="username" required />
-              <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} autoComplete="current-password" required />
+              <PasswordField
+                wrapperClassName="login-password-field"
+                toggleLabel="login password"
+                placeholder="Password"
+                value={loginPass}
+                onChange={e => setLoginPass(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
               {loginError && <p className="error-msg">{loginError}</p>}
               <button type="submit" className="btn blue login-submit-btn">Login</button>
               <button type="button" className="login-link-btn" onClick={openForgotPassword}>Forgot Password?</button>
@@ -3482,7 +3512,14 @@ export default function App() {
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
                 <input name="userid" placeholder="ID" required style={{flex:1}} />
                 <input name="name" placeholder="Name" required style={{flex:1}} />
-                <input name="password" placeholder="Pass" required style={{width:'100px'}} />
+                <PasswordField
+                  wrapperClassName="staff-create-password-field"
+                  toggleLabel="staff password"
+                  name="password"
+                  placeholder="Pass"
+                  autoComplete="new-password"
+                  required
+                />
                 <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
                 <button className="btn green">Add</button>
               </form>
@@ -3914,15 +3951,15 @@ export default function App() {
                 <div className="profile-password-fields">
                   <label>
                     <span>Current password</span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-lock"></i><input name="currentPass" type="password" autoComplete="current-password" required /></div>
+                    <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-lock" toggleLabel="current password" name="currentPass" autoComplete="current-password" required />
                   </label>
                   <label>
                     <span>New password</span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-key"></i><input name="newPass" type="password" autoComplete="new-password" required /></div>
+                    <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-key" toggleLabel="new password" name="newPass" autoComplete="new-password" required />
                   </label>
                   <label>
                     <span>Confirm new password</span>
-                    <div className="profile-input-wrap"><i className="fa-solid fa-check-double"></i><input name="confirmPass" type="password" autoComplete="new-password" required /></div>
+                    <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-check-double" toggleLabel="new password confirmation" name="confirmPass" autoComplete="new-password" required />
                   </label>
                 </div>
 

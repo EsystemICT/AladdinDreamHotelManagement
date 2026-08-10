@@ -1967,6 +1967,56 @@ tbody tr:last-child td { border-bottom: 0; }
 .login-submit-btn { min-height: 46px; margin-top: 4px; }
 .login-link-btn { color: var(--hotel-navy-700); }
 
+/* Password visibility controls */
+.password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.password-field input {
+  width: 100%;
+  margin-bottom: 0;
+  padding-right: 45px !important;
+}
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  z-index: 2;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  color: var(--hotel-slate-500);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.password-visibility-toggle:hover {
+  color: var(--hotel-navy-800);
+  background: rgba(23, 55, 94, 0.08);
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+.password-visibility-toggle:focus-visible {
+  outline: 2px solid var(--hotel-gold-500);
+  outline-offset: 1px;
+}
+.password-visibility-toggle i { pointer-events: none; }
+.login-password-field { margin-bottom: 10px; }
+.profile-input-wrap.password-field input { padding-right: 40px !important; }
+.staff-create-password-field {
+  width: 130px;
+  min-width: 130px;
+}
+.staff-create-password-field input { min-height: 42px; }
+
 .profile-setup-card,
 .profile-portal,
 .modal-content { border: 1px solid rgba(168, 117, 49, 0.18); box-shadow: var(--hotel-shadow-lg); }

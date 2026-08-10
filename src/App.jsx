@@ -92,6 +92,30 @@ const displayDateToIso = (value) => {
   return isValidDateOfBirth(isoValue) ? isoValue : '';
 };
 
+const isValidCalendarDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const calendarDate = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(calendarDate.getTime()) &&
+    calendarDate.getFullYear() === year &&
+    calendarDate.getMonth() + 1 === month &&
+    calendarDate.getDate() === day;
+};
+
+const calendarIsoToDisplay = (value) => {
+  if (!isValidCalendarDate(value)) return '';
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
+};
+
+const calendarDisplayToIso = (value) => {
+  const match = (value || '').trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (!match) return '';
+  const [, day, month, year] = match;
+  const isoValue = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  return isValidCalendarDate(isoValue) ? isoValue : '';
+};
+
 const getLocalIsoDate = (date = new Date()) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
@@ -154,6 +178,74 @@ const DateOfBirthField = ({ defaultValue = '', idPrefix }) => {
         />
       </div>
       <input type="hidden" name="dateOfBirth" value={isoValue} readOnly />
+      <small className="profile-date-help">Enter DD/MM/YYYY or choose from the calendar.</small>
+    </>
+  );
+};
+
+const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
+  const pickerRef = useRef(null);
+  const hiddenInputRef = useRef(null);
+  const [displayValue, setDisplayValue] = useState('');
+  const [isoValue, setIsoValue] = useState('');
+
+  useEffect(() => {
+    const form = hiddenInputRef.current?.form;
+    if (!form) return undefined;
+    const handleReset = () => {
+      setDisplayValue('');
+      setIsoValue('');
+    };
+    form.addEventListener('reset', handleReset);
+    return () => form.removeEventListener('reset', handleReset);
+  }, []);
+
+  const openCalendar = () => {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    try {
+      if (typeof picker.showPicker === 'function') picker.showPicker();
+      else picker.click();
+    } catch {
+      picker.click();
+    }
+  };
+
+  return (
+    <>
+      <div className="profile-date-entry mc-date-entry">
+        <i className="fa-solid fa-calendar-day"></i>
+        <input
+          id={`${idPrefix}-display`}
+          type="text"
+          value={displayValue}
+          onChange={(event) => {
+            setDisplayValue(event.target.value);
+            setIsoValue(calendarDisplayToIso(event.target.value));
+          }}
+          placeholder="DD/MM/YYYY"
+          inputMode="numeric"
+          autoComplete="off"
+          aria-label={ariaLabel}
+          required
+        />
+        <button type="button" className="profile-calendar-btn" onClick={openCalendar} aria-label={`Choose ${ariaLabel} from calendar`} title="Choose from calendar">
+          <i className="fa-solid fa-calendar-days"></i>
+        </button>
+        <input
+          ref={pickerRef}
+          className="profile-native-date-picker"
+          type="date"
+          value={isoValue}
+          onChange={(event) => {
+            setIsoValue(event.target.value);
+            setDisplayValue(calendarIsoToDisplay(event.target.value));
+          }}
+          tabIndex="-1"
+          aria-hidden="true"
+        />
+      </div>
+      <input ref={hiddenInputRef} type="hidden" name={name} value={isoValue} readOnly />
       <small className="profile-date-help">Enter DD/MM/YYYY or choose from the calendar.</small>
     </>
   );
@@ -2912,12 +3004,12 @@ export default function App() {
             <form className="mc-request-form" onSubmit={handleSubmitMcRequest}>
               <div className="mc-form-grid">
                 <label>
-                  <span>Start Date</span>
-                  <input name="startDate" type="date" onClick={event => event.currentTarget.showPicker?.()} required />
+                  <span>Start Date (DD/MM/YYYY)</span>
+                  <CalendarDateField name="startDate" idPrefix="mc-start-date" ariaLabel="MC start date in day month year format" />
                 </label>
                 <label>
-                  <span>End Date</span>
-                  <input name="endDate" type="date" onClick={event => event.currentTarget.showPicker?.()} required />
+                  <span>End Date (DD/MM/YYYY)</span>
+                  <CalendarDateField name="endDate" idPrefix="mc-end-date" ariaLabel="MC end date in day month year format" />
                 </label>
                 <label className="mc-field-wide">
                   <span>Clinic / Hospital Name <small>(Optional)</small></span>

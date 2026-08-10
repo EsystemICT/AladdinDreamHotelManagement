@@ -434,6 +434,43 @@ body {
   border-radius: 6px;
 }
 
+/* MEDICAL CERTIFICATE REQUEST */
+.mc-page { align-items: start; }
+.mc-request-panel { border-top: 4px solid #2563eb; }
+.mc-intro { margin: -5px 0 18px; color: #64748b; }
+.mc-request-form { display: flex; flex-direction: column; gap: 16px; }
+.mc-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.mc-form-grid label { display: flex; flex-direction: column; gap: 6px; color: #334155; font-size: 0.84rem; font-weight: 800; }
+.mc-form-grid label span small { color: #94a3b8; font-weight: 600; }
+.mc-form-grid input,
+.mc-form-grid textarea { width: 100%; margin: 0; box-sizing: border-box; }
+.mc-field-wide { grid-column: 1 / -1; }
+.mc-submit-btn { align-self: flex-start; justify-content: center; min-width: 190px; }
+.mc-request-list { display: grid; gap: 12px; }
+.mc-request-card { padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #f59e0b; border-radius: 12px; }
+.mc-request-card.mc-approved { border-left-color: #10b981; background: #f0fdf4; }
+.mc-request-card.mc-rejected { border-left-color: #ef4444; background: #fff7f7; }
+.mc-request-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mc-request-card-top > div { display: flex; flex-direction: column; gap: 3px; }
+.mc-request-card-top > div > strong { color: #0f172a; font-size: 1rem; }
+.mc-request-card-top small,
+.mc-reviewed-by { color: #64748b; }
+.mc-request-card p { margin: 12px 0 0; color: #334155; }
+.mc-request-card p i { margin-right: 5px; color: #2563eb; }
+.mc-remarks { padding: 10px 12px; background: rgba(255, 255, 255, 0.72); border-radius: 8px; white-space: pre-wrap; }
+.mc-reviewed-by { display: block; margin-top: 9px; }
+.mc-withdraw-btn { margin-top: 12px; padding: 7px 10px; font-size: 0.78rem; }
+.mc-empty-state { padding: 28px 15px; color: #94a3b8; text-align: center; border: 1px dashed #cbd5e1; border-radius: 12px; }
+.mc-empty-state i { font-size: 1.7rem; }
+.mc-empty-state p { margin: 8px 0 0; }
+
+@media (max-width: 600px) {
+  .mc-form-grid { grid-template-columns: 1fr; }
+  .mc-field-wide { grid-column: auto; }
+  .mc-submit-btn { align-self: stretch; width: 100%; }
+  .mc-request-card-top { align-items: flex-start; }
+}
+
 /* UTILS */
 .admin-table-container { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #333; min-width: 600px; }

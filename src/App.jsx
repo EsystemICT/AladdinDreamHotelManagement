@@ -14,6 +14,7 @@ const ICONS = {
   VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" },
+  MC: { icon: "fa-solid fa-notes-medical", label: "Request MC" },
   ATT_REPORT: { icon: "fa-solid fa-clipboard-user", label: "Attendance Portal" }
 };
 
@@ -397,8 +398,13 @@ const processAttendanceSessions = (rawLogs, usersList, leavesList, referenceTime
 
     const lastLog = logs[logs.length - 1];
     const todayStr = referenceTime.toLocaleDateString('en-MY');
+    const todayIso = getLocalIsoDate(referenceTime);
     const isOnLeaveToday = leavesList.some(l => {
       if (l.userId !== uid || l.status !== 'approved') return false;
+      if (l.startDate) {
+        const leaveEndDate = l.endDate || l.startDate;
+        return l.startDate <= todayIso && todayIso <= leaveEndDate;
+      }
       const lDate = l.createdAt?.toDate ? l.createdAt.toDate().toLocaleDateString('en-MY') : '';
       return lDate === todayStr;
     });
@@ -505,6 +511,7 @@ export default function App() {
   const [resetFeedback, setResetFeedback] = useState({ type: '', message: '' });
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState('');
+  const [isMcSubmitting, setIsMcSubmitting] = useState(false);
 
   // Forms UI
   const [lastClock, setLastClock] = useState(null);
@@ -759,9 +766,16 @@ export default function App() {
       }));
     }
 
-    if (view === 'SHIFT' && currentUser.role !== 'admin') {
-      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(100));
-      unsubs.push(onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    if (['SHIFT', 'MC'].includes(view) && currentUser.role !== 'admin') {
+      const qLeaves = query(collection(db, "leaves"), where("userId", "==", currentUser.userid), limit(100));
+      unsubs.push(onSnapshot(qLeaves, (snap) => {
+        const staffLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+          const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+          const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+        setLeaves(staffLeaves);
+      }));
     }
 
     if (view === 'ITEMS') {
@@ -1515,6 +1529,98 @@ export default function App() {
       alert('Unable to acknowledge this attendance alert. Please try again.');
     } finally {
       setAcknowledgingAlertId('');
+    }
+  };
+
+  const handleSubmitMcRequest = async (event) => {
+    event.preventDefault();
+    if (isMcSubmitting) return;
+
+    const form = event.currentTarget;
+    const startDate = form.startDate.value;
+    const endDate = form.endDate.value;
+    const clinicName = form.clinicName.value.trim();
+    const remarks = form.remarks.value.trim();
+
+    if (!startDate || !endDate || endDate < startDate) {
+      alert('Please select a valid MC date range.');
+      return;
+    }
+
+    const overlapsPendingRequest = leaves.some(leave => (
+      leave.userId === currentUser.userid &&
+      leave.status === 'pending' &&
+      startDate <= (leave.endDate || leave.startDate || '') &&
+      endDate >= (leave.startDate || leave.endDate || '')
+    ));
+    if (overlapsPendingRequest) {
+      alert('You already have a pending MC request for this date range.');
+      return;
+    }
+
+    setIsMcSubmitting(true);
+    try {
+      await addDoc(collection(db, 'leaves'), {
+        userId: currentUser.userid,
+        userDocId: currentUser.dbId,
+        userName: currentUser.name,
+        type: 'MC',
+        startDate,
+        endDate,
+        clinicName,
+        remarks,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      await logSystemAction(
+        currentUser.name,
+        'MC_REQUEST',
+        `Requested MC from ${startDate} to ${endDate}${clinicName ? ` (${clinicName})` : ''}`
+      );
+      form.reset();
+      alert('MC request submitted successfully.');
+    } catch (error) {
+      console.error('MC request failed:', error);
+      alert('Unable to submit the MC request. Please try again.');
+    } finally {
+      setIsMcSubmitting(false);
+    }
+  };
+
+  const handleWithdrawMcRequest = async (mcRequest) => {
+    if (mcRequest.userId !== currentUser.userid || mcRequest.status !== 'pending') return;
+    if (!confirm('Withdraw this pending MC request?')) return;
+
+    try {
+      await deleteDoc(doc(db, 'leaves', mcRequest.id));
+      await logSystemAction(
+        currentUser.name,
+        'MC_WITHDRAW',
+        `Withdrew MC request from ${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'}`
+      );
+    } catch (error) {
+      console.error('MC withdrawal failed:', error);
+      alert('Unable to withdraw this MC request.');
+    }
+  };
+
+  const handleReviewMcRequest = async (mcRequest, status) => {
+    if (currentUser.role !== 'admin' || !['approved', 'rejected'].includes(status)) return;
+
+    try {
+      await updateDoc(doc(db, 'leaves', mcRequest.id), {
+        status,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: currentUser.name
+      });
+      await logSystemAction(
+        currentUser.name,
+        status === 'approved' ? 'MC_APPROVED' : 'MC_REJECTED',
+        `${status === 'approved' ? 'Approved' : 'Rejected'} MC request for ${mcRequest.userName} (${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'})`
+      );
+    } catch (error) {
+      console.error('MC review failed:', error);
+      alert(`Unable to mark this MC request as ${status}.`);
     }
   };
 
@@ -2794,6 +2900,78 @@ export default function App() {
         </div>
       )}
 
+      {/* --- VIEW: REQUEST MEDICAL CERTIFICATE --- */}
+      {view === 'MC' && (
+        <div className="dashboard mc-page">
+          <div className="floor-section mc-request-panel">
+            <div className="floor-title">
+              <span><i className="fa-solid fa-notes-medical"></i> Request Medical Certificate (MC)</span>
+            </div>
+            <p className="mc-intro">Submit your MC dates and details for Admin review.</p>
+
+            <form className="mc-request-form" onSubmit={handleSubmitMcRequest}>
+              <div className="mc-form-grid">
+                <label>
+                  <span>Start Date</span>
+                  <input name="startDate" type="date" onClick={event => event.currentTarget.showPicker?.()} required />
+                </label>
+                <label>
+                  <span>End Date</span>
+                  <input name="endDate" type="date" onClick={event => event.currentTarget.showPicker?.()} required />
+                </label>
+                <label className="mc-field-wide">
+                  <span>Clinic / Hospital Name <small>(Optional)</small></span>
+                  <input name="clinicName" type="text" maxLength="100" placeholder="e.g. Klinik Sentosa" />
+                </label>
+                <label className="mc-field-wide">
+                  <span>Reason / Remarks</span>
+                  <textarea name="remarks" rows="4" maxLength="500" placeholder="Briefly describe your MC request..." required></textarea>
+                </label>
+              </div>
+              <button type="submit" className="btn blue mc-submit-btn" disabled={isMcSubmitting}>
+                {isMcSubmitting
+                  ? <><i className="fa-solid fa-spinner fa-spin"></i> Submitting...</>
+                  : <><i className="fa-solid fa-paper-plane"></i> Submit MC Request</>}
+              </button>
+            </form>
+          </div>
+
+          <div className="floor-section">
+            <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> My MC Requests</h2>
+            <div className="mc-request-list">
+              {leaves.filter(leave => leave.userId === currentUser.userid && leave.type === 'MC').length === 0 ? (
+                <div className="mc-empty-state">
+                  <i className="fa-regular fa-folder-open"></i>
+                  <p>No MC requests submitted yet.</p>
+                </div>
+              ) : (
+                leaves
+                  .filter(leave => leave.userId === currentUser.userid && leave.type === 'MC')
+                  .map(leave => (
+                    <article key={leave.id} className={`mc-request-card mc-${leave.status || 'pending'}`}>
+                      <div className="mc-request-card-top">
+                        <div>
+                          <strong>{formatDate(leave.startDate)}{leave.endDate && leave.endDate !== leave.startDate ? ` – ${formatDate(leave.endDate)}` : ''}</strong>
+                          <small>Submitted {formatDate(leave.createdAt)} · {formatTime(leave.createdAt)}</small>
+                        </div>
+                        <span className={`req-status status-${leave.status || 'pending'}`}>{leave.status || 'pending'}</span>
+                      </div>
+                      {leave.clinicName && <p><i className="fa-solid fa-house-medical"></i> {leave.clinicName}</p>}
+                      <p className="mc-remarks">{leave.remarks}</p>
+                      {leave.reviewedBy && <small className="mc-reviewed-by">Reviewed by {leave.reviewedBy}</small>}
+                      {leave.status === 'pending' && (
+                        <button type="button" className="btn red mc-withdraw-btn" onClick={() => handleWithdrawMcRequest(leave)}>
+                          <i className="fa-solid fa-xmark"></i> Withdraw Request
+                        </button>
+                      )}
+                    </article>
+                  ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- VIEW: ATTENDANCE PORTAL & REPORTS (ADMIN ONLY) --- */}
       {view === 'ATT_REPORT' && currentUser.role === 'admin' && (
         <div className="dashboard">
@@ -3297,22 +3475,25 @@ export default function App() {
             </div>
 
           <div className="floor-section" style={{marginTop: '20px'}}>
-            <h2 className="floor-title">Leave Applications</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-notes-medical"></i> Medical Certificate Requests</h2>
             <div className="admin-table-container scroll-pane">
                <table>
-                   <thead><tr><th>Staff</th><th>Type</th><th>Remarks</th><th>Date</th><th>Status</th></tr></thead>
+                   <thead><tr><th>Staff</th><th>MC Dates</th><th>Clinic</th><th>Remarks</th><th>Submitted</th><th>Status</th></tr></thead>
                    <tbody>
-                       {leaves.map(l => (
+                       {leaves.filter(l => l.type === 'MC').length === 0 ? (
+                         <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No MC requests submitted.</td></tr>
+                       ) : leaves.filter(l => l.type === 'MC').map(l => (
                            <tr key={l.id}>
                                <td>{l.userName}</td>
-                               <td><span className="badge purple" style={{fontSize:'0.7rem', padding:'4px 8px'}}>{l.type}</span></td>
+                               <td><strong>{formatDate(l.startDate)}</strong>{l.endDate && l.endDate !== l.startDate ? <> – <strong>{formatDate(l.endDate)}</strong></> : ''}</td>
+                               <td>{l.clinicName || '-'}</td>
                                <td>{l.remarks}</td>
                                <td>{formatDate(l.createdAt)}</td>
                                <td>
                                    {l.status === 'pending' ? (
                                        <div style={{display:'flex', gap:'5px'}}>
-                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'approved'})} className="btn green" style={{padding:'5px'}}>✓</button>
-                                           <button onClick={() => updateDoc(doc(db, "leaves", l.id), {status: 'rejected'})} className="btn red" style={{padding:'5px'}}>✕</button>
+                                           <button onClick={() => handleReviewMcRequest(l, 'approved')} className="btn green" style={{padding:'6px 9px'}} title="Approve MC"><i className="fa-solid fa-check"></i></button>
+                                           <button onClick={() => handleReviewMcRequest(l, 'rejected')} className="btn red" style={{padding:'6px 9px'}} title="Reject MC"><i className="fa-solid fa-xmark"></i></button>
                                        </div>
                                    ) : (
                                        <span style={{fontWeight:'bold', color: l.status==='approved'?'green':'red'}}>{l.status.toUpperCase()}</span>

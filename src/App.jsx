@@ -466,7 +466,8 @@ export default function App() {
   // Data
   const [rooms, setRooms] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [requests, setRequests] = useState([]);
+  const [receivedRequests, setReceivedRequests] = useState([]);
+  const [sentRequests, setSentRequests] = useState([]);
   const [users, setUsers] = useState([]); 
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
@@ -535,6 +536,17 @@ export default function App() {
   const [attFilterSearch, setAttFilterSearch] = useState('');
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
   const [hotelLocation, setHotelLocation] = useState(DEFAULT_HOTEL_COORDS);
+  const isRequestView = view === 'REQ';
+
+  const requests = useMemo(() => {
+    const uniqueRequests = new Map();
+    [...receivedRequests, ...sentRequests].forEach(request => uniqueRequests.set(request.id, request));
+    return [...uniqueRequests.values()].sort((a, b) => {
+      const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+      const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+  }, [receivedRequests, sentRequests]);
 
   // --- 1. PERSISTENCE, CLOCK & SECRET ROUTE ---
   useEffect(() => {
@@ -620,7 +632,7 @@ export default function App() {
   // Avoid re-rendering the entire application every second on pages that do
   // not display a live clock or running attendance durations.
   useEffect(() => {
-    if (!currentUser || !['SHIFT', 'ATT_REPORT', 'ADMIN'].includes(view)) return;
+    if (!currentUser || !['SHIFT', 'ATT_REPORT'].includes(view)) return;
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, [currentUser, view]);
@@ -632,9 +644,6 @@ export default function App() {
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
       setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-
-    const qRequests = query(collection(db, "requests"), orderBy("createdAt", "desc"), limit(500));
-    const unsubRequests = onSnapshot(qRequests, (snap) => setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
       const loadedUsers = snap.docs.map(d => ({ dbId: d.id, ...d.data() }));
@@ -662,17 +671,48 @@ export default function App() {
 
     let unsubAdminLeaves = () => {};
     if (currentUser.role === 'admin') {
-      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(100));
       unsubAdminLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
     
     return () => {
       unsubRooms();
-      unsubRequests();
       unsubUsers();
       unsubAdminLeaves();
     };
   }, [currentUser]);
+
+  // Only read messages that belong to the signed-in user. Sent history is
+  // subscribed to only while the Request Staff page is actually open.
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return undefined;
+
+    const incomingQuery = query(
+      collection(db, 'requests'),
+      where('receiverId', '==', currentUser.dbId),
+      limit(100)
+    );
+    const unsubIncoming = onSnapshot(incomingQuery, (snapshot) => {
+      setReceivedRequests(snapshot.docs.map(requestDoc => ({ id: requestDoc.id, ...requestDoc.data() })));
+    });
+
+    let unsubSent = () => {};
+    if (isRequestView) {
+      const sentQuery = query(
+        collection(db, 'requests'),
+        where('senderId', '==', currentUser.dbId),
+        limit(100)
+      );
+      unsubSent = onSnapshot(sentQuery, (snapshot) => {
+        setSentRequests(snapshot.docs.map(requestDoc => ({ id: requestDoc.id, ...requestDoc.data() })));
+      });
+    }
+
+    return () => {
+      unsubIncoming();
+      unsubSent();
+    };
+  }, [currentUser, isRequestView]);
 
   // Load each section only when it is opened instead of downloading every
   // collection immediately after login.
@@ -681,66 +721,86 @@ export default function App() {
     const unsubs = [];
 
     if (view === 'ROOMS' && !selectedRoom) {
-      const qOpenTickets = query(collection(db, "tickets"), where("status", "==", "open"), limit(500));
+      const qOpenTickets = query(collection(db, "tickets"), where("status", "==", "open"), limit(100));
       unsubs.push(onSnapshot(qOpenTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     } else if (view === 'TICKETS' || selectedRoom) {
-      const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(500));
+      const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
-    if (['SHIFT', 'ATT_REPORT', 'ADMIN'].includes(view)) {
-      const qAtt = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(2000));
-      unsubs.push(onSnapshot(qAtt, (snap) => {
+    let attendanceQuery = null;
+    if (view === 'SHIFT') {
+      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(100));
+    } else if (view === 'ATT_REPORT' && currentUser.role === 'admin') {
+      if (attFilterMonth) {
+        const [filterYear, filterMonth] = attFilterMonth.split('-').map(Number);
+        const monthStart = new Date(filterYear, filterMonth - 1, 1);
+        const monthEnd = new Date(filterYear, filterMonth, 1);
+        attendanceQuery = query(
+          collection(db, "attendance"),
+          where("timestamp", ">=", monthStart),
+          where("timestamp", "<", monthEnd),
+          orderBy("timestamp", "desc"),
+          limit(1000)
+        );
+      } else {
+        attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(1000));
+      }
+    } else if (view === 'ADMIN' && currentUser.role === 'admin' && staffModal) {
+      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(200));
+    }
+
+    if (attendanceQuery) {
+      unsubs.push(onSnapshot(attendanceQuery, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setAttendance(data);
         const myLogs = data.filter(a => a.userId === currentUser.userid);
         setLastClock(myLogs.length > 0 ? myLogs[0] : null);
       }));
-
     }
 
     if (view === 'SHIFT' && currentUser.role !== 'admin') {
-      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(100));
       unsubs.push(onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'ITEMS') {
-      const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(500));
+      const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(200));
       unsubs.push(onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'CLAIMS') {
-      const qClaims = query(collection(db, "claimDays"), orderBy("createdAt", "desc"), limit(500));
+      const qClaims = query(collection(db, "claimDays"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qClaims, (snap) => setClaimDays(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'LAUNDRY') {
-      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"), limit(500));
+      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
       unsubs.push(onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
         if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
       }));
-      const qStock = query(collection(db, "stock"), orderBy("order", "asc"), limit(500));
+      const qStock = query(collection(db, "stock"), orderBy("order", "asc"), limit(200));
       unsubs.push(onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'DEPOSIT') {
-      const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"), limit(500));
+      const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'VERIFY') {
-      const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"), limit(500));
+      const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     if (view === 'ADMIN' && currentUser.role === 'admin') {
-      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(1000));
+      const qAudit = query(collection(db, "auditLogs"), orderBy("timestamp", "desc"), limit(300));
       unsubs.push(onSnapshot(qAudit, (snap) => setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     return () => unsubs.forEach(unsubscribe => unsubscribe());
-  }, [currentUser, view, selectedRoom]);
+  }, [currentUser, view, selectedRoom, staffModal, attFilterMonth]);
 
   // Keep attendance alerts live for admins on every page. Unacknowledged
   // alerts remain visible after logout so an offline admin sees them later.
@@ -749,7 +809,7 @@ export default function App() {
       return undefined;
     }
 
-    const alertsQuery = query(collection(db, 'adminAlerts'), orderBy('createdAt', 'desc'), limit(100));
+    const alertsQuery = query(collection(db, 'adminAlerts'), orderBy('createdAt', 'desc'), limit(30));
     return onSnapshot(alertsQuery, (snapshot) => {
       setAdminAlerts(snapshot.docs.map(alertDoc => ({ id: alertDoc.id, ...alertDoc.data() })));
     }, (error) => {

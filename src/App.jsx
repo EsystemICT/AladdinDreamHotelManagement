@@ -2284,8 +2284,10 @@ export default function App() {
             </form>
           ) : (
             <form className="login-card" onSubmit={handleLogin}>
-              <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
-              <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
+              <div className="login-icon login-monogram" aria-hidden="true"><span>AD</span></div>
+              <span className="login-eyebrow">Hotel Management Portal</span>
+              <h1>Aladdin Dream Hotel</h1>
+              <p className="login-welcome">Welcome back. Sign in to continue.</p>
               <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} autoComplete="username" required />
               <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} autoComplete="current-password" required />
               {loginError && <p className="error-msg">{loginError}</p>}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import './App.css';
 
 // ICONS & TABS
@@ -476,6 +476,7 @@ export default function App() {
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
+  const [adminAlerts, setAdminAlerts] = useState([]);
   const [deposits, setDeposits] = useState([]); 
   const [verifications, setVerifications] = useState([]); 
 
@@ -502,6 +503,7 @@ export default function App() {
   const [resetUserId, setResetUserId] = useState('');
   const [resetFeedback, setResetFeedback] = useState({ type: '', message: '' });
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
+  const [acknowledgingAlertId, setAcknowledgingAlertId] = useState('');
 
   // Forms UI
   const [lastClock, setLastClock] = useState(null);
@@ -739,6 +741,21 @@ export default function App() {
 
     return () => unsubs.forEach(unsubscribe => unsubscribe());
   }, [currentUser, view, selectedRoom]);
+
+  // Keep attendance alerts live for admins on every page. Unacknowledged
+  // alerts remain visible after logout so an offline admin sees them later.
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' || !isProfileComplete(currentUser)) {
+      return undefined;
+    }
+
+    const alertsQuery = query(collection(db, 'adminAlerts'), orderBy('createdAt', 'desc'), limit(100));
+    return onSnapshot(alertsQuery, (snapshot) => {
+      setAdminAlerts(snapshot.docs.map(alertDoc => ({ id: alertDoc.id, ...alertDoc.data() })));
+    }, (error) => {
+      console.error('Admin alert listener failed:', error);
+    });
+  }, [currentUser]);
 
   const { sessions: allAttSessions, rosterStatus: attRosterStatus } = useMemo(
     () => processAttendanceSessions(attendance, users, leaves, currentTime),
@@ -1379,7 +1396,9 @@ export default function App() {
         locLabel = 'Away (No GPS)';
       }
 
-      await addDoc(collection(db, "attendance"), { 
+      const clockBatch = writeBatch(db);
+      const attendanceRef = doc(collection(db, "attendance"));
+      clockBatch.set(attendanceRef, {
         userId: currentUser.userid, 
         userName: currentUser.name, 
         type: type, 
@@ -1390,6 +1409,24 @@ export default function App() {
         deviceId: currentUser.role === 'admin' ? null : getDeviceId(false),
         deviceName: getDeviceName()
       });
+
+      if (locStatus === 'away') {
+        const adminAlertRef = doc(collection(db, 'adminAlerts'));
+        clockBatch.set(adminAlertRef, {
+          type: 'ATTENDANCE_AWAY',
+          attendanceId: attendanceRef.id,
+          staffId: currentUser.userid,
+          staffName: currentUser.name,
+          clockType: type,
+          locationLabel: locLabel,
+          coords,
+          deviceName: getDeviceName(),
+          acknowledged: false,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      await clockBatch.commit();
       
       logSystemAction(currentUser.name, 'ATTENDANCE', `Clocked ${type.toUpperCase()} - Location: ${locLabel}`);
       if (locStatus === 'away') {
@@ -1397,6 +1434,28 @@ export default function App() {
       } else {
         alert(`Clock ${type.toUpperCase()} saved. Location verified ON SITE.`);
       }
+  };
+
+  const acknowledgeAdminAlert = async (adminAlert) => {
+    if (currentUser.role !== 'admin' || acknowledgingAlertId) return;
+    setAcknowledgingAlertId(adminAlert.id);
+    try {
+      await updateDoc(doc(db, 'adminAlerts', adminAlert.id), {
+        acknowledged: true,
+        acknowledgedAt: serverTimestamp(),
+        acknowledgedBy: currentUser.name
+      });
+      await logSystemAction(
+        currentUser.name,
+        'ATTENDANCE_AWAY_ACKNOWLEDGED',
+        `Acknowledged ${adminAlert.staffName}'s away Clock ${String(adminAlert.clockType).toUpperCase()}`
+      );
+    } catch (error) {
+      console.error('Unable to acknowledge admin alert:', error);
+      alert('Unable to acknowledge this attendance alert. Please try again.');
+    } finally {
+      setAcknowledgingAlertId('');
+    }
   };
 
   const handleSaveHotelLocation = async (e) => {
@@ -1834,6 +1893,8 @@ export default function App() {
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
   const pendingPasswordResetCount = users.filter(u => u.passwordResetStatus === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
+  const unreadAdminAlerts = adminAlerts.filter(adminAlert => !adminAlert.acknowledged);
+  const activeAdminAlert = unreadAdminAlerts[0] || null;
 
   const processedTickets = [...tickets].filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase())).sort((a, b) => {
       const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
@@ -2044,6 +2105,32 @@ export default function App() {
   // --- RENDER APP ---
   return (
     <div className="app-container">
+      {currentUser.role === 'admin' && activeAdminAlert && (
+        <aside className="admin-away-alert" role="alert" aria-live="assertive">
+          <div className="admin-away-alert-icon"><i className="fa-solid fa-location-dot"></i></div>
+          <div className="admin-away-alert-content">
+            <div className="admin-away-alert-heading">
+              <strong>Away Punch Alert</strong>
+              {unreadAdminAlerts.length > 1 && <span>{unreadAdminAlerts.length} pending</span>}
+            </div>
+            <p>
+              <strong>{activeAdminAlert.staffName}</strong> punched <strong>{String(activeAdminAlert.clockType).toUpperCase()}</strong> away from the hotel.
+            </p>
+            <small>{activeAdminAlert.locationLabel || 'Away'} · {formatTime(activeAdminAlert.createdAt)}</small>
+            <div className="admin-away-alert-actions">
+              <button type="button" onClick={() => setView('ATT_REPORT')}>View Attendance</button>
+              <button
+                type="button"
+                className="acknowledge"
+                disabled={acknowledgingAlertId === activeAdminAlert.id}
+                onClick={() => acknowledgeAdminAlert(activeAdminAlert)}
+              >
+                {acknowledgingAlertId === activeAdminAlert.id ? 'Saving...' : 'Acknowledge'}
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
       <header className="header">
         <div className="header-content">
           <div className="header-top">
@@ -2077,7 +2164,9 @@ export default function App() {
             {currentUser.role === 'admin' && (
               <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => setView('ADMIN')}>
                 <i className="fa-solid fa-lock"></i> <span>Admin</span>
-                {(pendingLeavesCount + pendingPasswordResetCount) > 0 && <span className="nav-badge">{pendingLeavesCount + pendingPasswordResetCount}</span>}
+                {(pendingLeavesCount + pendingPasswordResetCount + unreadAdminAlerts.length) > 0 && (
+                  <span className="nav-badge">{pendingLeavesCount + pendingPasswordResetCount + unreadAdminAlerts.length}</span>
+                )}
               </button>
             )}
           </div>

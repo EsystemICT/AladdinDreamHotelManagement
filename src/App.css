@@ -1463,6 +1463,56 @@ body { padding-top: 148px; }
 
 .logout-btn:hover { background: #fee2e2 !important; color: #991b1b !important; }
 
+/* REAL-TIME ADMIN AWAY ATTENDANCE ALERT */
+.admin-away-alert {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 2100;
+  display: flex;
+  gap: 12px;
+  width: min(420px, calc(100vw - 36px));
+  padding: 16px;
+  box-sizing: border-box;
+  color: #7f1d1d;
+  background: #fff7ed;
+  border: 2px solid #f97316;
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(127, 29, 29, 0.24);
+}
+
+.admin-away-alert-icon {
+  display: flex;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  color: #fff;
+  background: #dc2626;
+  border-radius: 50%;
+  font-size: 1.1rem;
+}
+
+.admin-away-alert-content { flex: 1; min-width: 0; }
+.admin-away-alert-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-away-alert-heading strong { font-size: 1rem; }
+.admin-away-alert-heading span { padding: 3px 7px; color: #fff; background: #dc2626; border-radius: 999px; font-size: 0.7rem; font-weight: 800; }
+.admin-away-alert p { margin: 7px 0 4px; color: #7f1d1d; line-height: 1.4; }
+.admin-away-alert small { color: #9a3412; }
+.admin-away-alert-actions { display: flex; gap: 8px; margin-top: 12px; }
+.admin-away-alert-actions button {
+  padding: 7px 10px;
+  color: #9a3412;
+  background: #fff;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.admin-away-alert-actions button.acknowledge { color: #fff; background: #dc2626; border-color: #dc2626; }
+.admin-away-alert-actions button:disabled { cursor: wait; opacity: 0.65; }
+
 @media (max-width: 768px) {
   body { padding-top: 142px; }
   .header { padding: 0; }
@@ -1507,6 +1557,7 @@ body { padding-top: 148px; }
   .tabs button i { font-size: 0.82rem; }
   .nav-badge { top: -4px; right: -3px; }
   .floor-section { border-radius: 10px; padding: 12px; }
+  .admin-away-alert { top: 8px; right: 8px; width: calc(100vw - 16px); padding: 13px; }
 }
 
 @media (max-width: 600px) {

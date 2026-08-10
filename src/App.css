@@ -210,6 +210,12 @@ body {
   border-radius: 16px;
   margin-bottom: 20px;
 }
+.attendance-greeting {
+  margin: 0;
+  color: #166534;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
 .clock-display { display: flex; flex-direction: column; align-items: center; margin: 15px 0; }
 .clock-date { font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 .clock-time { font-size: 3rem; font-weight: 800; color: #166534; line-height: 1; font-family: monospace; }
@@ -227,8 +233,6 @@ body {
   border-radius: 8px;
   font-size: 0.9rem;
 }
-.leave-form { background: #f9fafb; padding: 20px; border-radius: 12px; border: 1px solid #eee; }
-
 /* LISTS & TICKETS */
 .list-view { 
   background: white;

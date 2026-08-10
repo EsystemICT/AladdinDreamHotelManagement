@@ -1276,14 +1276,6 @@ export default function App() {
     setTimeout(() => { printWindow.print(); }, 300);
   };
 
-  const handleApplyLeave = async (e) => {
-      e.preventDefault();
-      const f = e.target;
-      await addDoc(collection(db, "leaves"), { userId: currentUser.userid, userName: currentUser.name, type: f.leaveType.value, remarks: f.remarks.value, status: 'pending', createdAt: serverTimestamp() });
-      logSystemAction(currentUser.name, 'LEAVE_APPLY', `Applied for ${f.leaveType.value}`); 
-      f.reset(); alert("Leave Application Sent!");
-  };
-
   const handleItemRequest = async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -2229,6 +2221,9 @@ export default function App() {
       {view === 'SHIFT' && (
         <div className="dashboard">
             <div className="clock-card">
+                <p className="attendance-greeting">
+                  Hi, have a productive day. Happy working. TQ.
+                </p>
                 <div className="clock-display">
                     <div className="clock-date">{currentTime.toLocaleDateString('en-MY', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</div>
                     <div className="clock-time">{currentTime.toLocaleTimeString('en-MY', {hour12:false})}</div>
@@ -2265,39 +2260,22 @@ export default function App() {
                 </div>
             </div>
 
-            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(300px, 1fr))', gap:'20px'}}>
-                <div className="leave-form">
-                    <h3>Apply Leave / MC</h3>
-                    <form onSubmit={handleApplyLeave}>
-                        <select name="leaveType" required>
-                            <option value="Annual Leave">Annual Leave</option>
-                            <option value="Urgent Leave">Urgent Leave</option>
-                            <option value="Unpaid Leave">Unpaid Leave</option>
-                            <option value="MC">MC</option>
-                            <option value="Others">Others</option>
-                        </select>
-                        <textarea name="remarks" placeholder="Reason / Remarks" required rows="3"></textarea>
-                        <button className="btn purple" style={{justifyContent:'center', width:'100%'}}>Submit Application</button>
-                    </form>
-                </div>
-
-                <div className="list-view" style={{margin:0}}>
-                    <h3>My Logs</h3>
-                    <div className="scroll-pane">
-                        {attendance.filter(a => a.userId === currentUser.userid).map(a => (
-                            <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                <div>
-                                  <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red', marginRight:'8px'}}>{a.type.toUpperCase()}</span>
-                                  {a.locationStatus === 'away' ? (
-                                    <span className="status-badge away" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-location-dot"></i> {getLocationText(a, hotelLocation)}</span>
-                                  ) : (
-                                    <span className="status-badge on_site" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-hotel"></i> On Site</span>
-                                  )}
-                                </div>
-                                <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
+            <div className="list-view" style={{margin:0}}>
+                <h3>My Logs</h3>
+                <div className="scroll-pane">
+                    {attendance.filter(a => a.userId === currentUser.userid).map(a => (
+                        <div key={a.id} style={{padding:'10px', borderBottom:'1px solid #eee', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <div>
+                              <span style={{fontWeight:'bold', color: a.type==='in'?'green':'red', marginRight:'8px'}}>{a.type.toUpperCase()}</span>
+                              {a.locationStatus === 'away' ? (
+                                <span className="status-badge away" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-location-dot"></i> {getLocationText(a, hotelLocation)}</span>
+                              ) : (
+                                <span className="status-badge on_site" style={{fontSize:'0.7rem'}}><i className="fa-solid fa-hotel"></i> On Site</span>
+                              )}
                             </div>
-                        ))}
-                    </div>
+                            <span>{formatDate(a.timestamp)} {formatTime(a.timestamp)}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

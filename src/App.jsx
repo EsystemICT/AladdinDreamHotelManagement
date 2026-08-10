@@ -60,6 +60,30 @@ const getCurrentMonthString = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const isValidDateOfBirth = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const birthDate = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(birthDate.getTime()) &&
+    birthDate.getFullYear() === year &&
+    birthDate.getMonth() + 1 === month &&
+    birthDate.getDate() === day &&
+    birthDate <= new Date();
+};
+
+const isProfileComplete = (user) => (
+  EMAIL_PATTERN.test(user?.email?.trim() || '') && isValidDateOfBirth(user?.dateOfBirth)
+);
+
+const getLocalDateInputValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const DEVICE_ID_STORAGE_KEY = 'hotelApprovedDeviceId';
 const DEVICE_BINDING_ERROR = 'This account is already linked to another device. Please contact the administrator to reset the linked device.';
 const DEVICE_BINDING_RESET_MESSAGE = '\u88dd\u7f6e\u7d81\u5b9a\u5df2\u91cd\u8a2d\uff0c\u8acb\u91cd\u65b0\u767b\u5165\u3002';
@@ -383,7 +407,10 @@ export default function App() {
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileTab, setProfileTab] = useState('PROFILE');
+  const [profileFeedback, setProfileFeedback] = useState({ type: '', message: '' });
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
   const [rejectModal, setRejectModal] = useState({ show: false, reqId: null });
@@ -397,6 +424,10 @@ export default function App() {
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetUserId, setResetUserId] = useState('');
+  const [resetFeedback, setResetFeedback] = useState({ type: '', message: '' });
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
 
   // Forms UI
   const [lastClock, setLastClock] = useState(null);
@@ -520,7 +551,7 @@ export default function App() {
 
   // --- 2. CORE DATA LISTENERS ---
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !isProfileComplete(currentUser)) return;
 
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
       setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -570,7 +601,7 @@ export default function App() {
   // Load each section only when it is opened instead of downloading every
   // collection immediately after login.
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !isProfileComplete(currentUser)) return;
     const unsubs = [];
 
     if (view === 'ROOMS' && !selectedRoom) {
@@ -766,17 +797,174 @@ export default function App() {
     setCurrentUser(null);
     setLoginId('');
     setLoginPass('');
+    setShowProfileModal(false);
+    setProfileFeedback({ type: '', message: '' });
     setView('ROOMS');
+  };
+
+  const openForgotPassword = () => {
+    setResetUserId(loginId.trim());
+    setResetFeedback({ type: '', message: '' });
+    setLoginError('');
+    setShowForgotPassword(true);
+  };
+
+  const closeForgotPassword = () => {
+    setShowForgotPassword(false);
+    setResetFeedback({ type: '', message: '' });
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    const userId = resetUserId.trim();
+    if (!userId || isResetSubmitting) return;
+
+    setIsResetSubmitting(true);
+    setResetFeedback({ type: '', message: '' });
+
+    try {
+      const resetQuery = query(collection(db, 'users'), where('userid', '==', userId));
+      const resetSnapshot = await getDocs(resetQuery);
+
+      if (resetSnapshot.empty) {
+        setResetFeedback({ type: 'error', message: 'User ID not found. Please check and try again.' });
+        return;
+      }
+
+      const userDocument = resetSnapshot.docs[0];
+      const userData = userDocument.data();
+      if (!isUserActive(userData)) {
+        setResetFeedback({ type: 'error', message: 'This account is inactive. Please contact an administrator.' });
+        return;
+      }
+
+      if (userData.passwordResetStatus !== 'pending') {
+        await updateDoc(doc(db, 'users', userDocument.id), {
+          passwordResetStatus: 'pending',
+          passwordResetRequestedAt: serverTimestamp()
+        });
+        await logSystemAction(userData.name, 'PASSWORD_RESET_REQUEST', `Requested a password reset for User ID: ${userId}`);
+      }
+
+      setResetFeedback({
+        type: 'success',
+        message: 'Request sent. Please contact an administrator to receive your new password.'
+      });
+    } catch (error) {
+      console.error('Password reset request failed:', error);
+      setResetFeedback({ type: 'error', message: 'Unable to send the request. Please try again.' });
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  };
+
+  const openProfilePortal = () => {
+    setProfileTab('PROFILE');
+    setProfileFeedback({ type: '', message: '' });
+    setShowProfileModal(true);
+  };
+
+  const closeProfilePortal = () => {
+    setShowProfileModal(false);
+    setProfileFeedback({ type: '', message: '' });
+  };
+
+  const changeProfileTab = (tab) => {
+    setProfileTab(tab);
+    setProfileFeedback({ type: '', message: '' });
+  };
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    if (isProfileSaving) return;
+
+    const form = e.currentTarget;
+    const name = form.fullName.value.trim();
+    const email = form.email.value.trim().toLowerCase();
+    const dateOfBirth = form.dateOfBirth.value;
+    const phone = form.phone.value.trim();
+
+    if (name.length < 2) {
+      setProfileFeedback({ type: 'error', message: 'Please enter a valid full name.' });
+      return;
+    }
+    if (!EMAIL_PATTERN.test(email)) {
+      setProfileFeedback({ type: 'error', message: 'A valid email address is required.' });
+      return;
+    }
+    if (!isValidDateOfBirth(dateOfBirth)) {
+      setProfileFeedback({ type: 'error', message: 'A valid date of birth is required.' });
+      return;
+    }
+
+    setIsProfileSaving(true);
+    setProfileFeedback({ type: '', message: '' });
+
+    try {
+      await updateDoc(doc(db, 'users', currentUser.dbId), {
+        name,
+        email,
+        dateOfBirth,
+        phone,
+        profileUpdatedAt: serverTimestamp()
+      });
+
+      const updatedUser = { ...currentUser, name, email, dateOfBirth, phone };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
+      await logSystemAction(name, 'PROFILE_UPDATE', 'Updated personal profile information');
+      setProfileFeedback({ type: 'success', message: 'Your profile has been updated successfully.' });
+    } catch (error) {
+      console.error('Profile update failed:', error);
+      setProfileFeedback({ type: 'error', message: 'Unable to update your profile. Please try again.' });
+    } finally {
+      setIsProfileSaving(false);
+    }
   };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
-    const newPass = e.target.newPass.value;
-    if(newPass.length < 4) return alert("Password too short");
-    await updateDoc(doc(db, "users", currentUser.dbId), { password: newPass });
-    logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password'); 
-    setShowPasswordModal(false);
-    alert("Password updated!");
+    if (isProfileSaving) return;
+
+    const form = e.currentTarget;
+    const currentPass = form.currentPass.value;
+    const newPass = form.newPass.value;
+    const confirmPass = form.confirmPass.value;
+
+    if (currentPass !== currentUser.password) {
+      setProfileFeedback({ type: 'error', message: 'Your current password is incorrect.' });
+      return;
+    }
+    if (newPass.length < 4) {
+      setProfileFeedback({ type: 'error', message: 'The new password must be at least 4 characters.' });
+      return;
+    }
+    if (newPass !== confirmPass) {
+      setProfileFeedback({ type: 'error', message: 'The new passwords do not match.' });
+      return;
+    }
+
+    setIsProfileSaving(true);
+    setProfileFeedback({ type: '', message: '' });
+
+    try {
+      await updateDoc(doc(db, "users", currentUser.dbId), {
+        password: newPass,
+        passwordResetStatus: deleteField(),
+        passwordResetRequestedAt: deleteField()
+      });
+      const updatedUser = { ...currentUser, password: newPass };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
+      await logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password');
+      form.reset();
+      setProfileFeedback({ type: 'success', message: 'Your password has been changed successfully.' });
+    } catch (error) {
+      console.error('Password change failed:', error);
+      setProfileFeedback({ type: 'error', message: 'Unable to change your password. Please try again.' });
+    } finally {
+      setIsProfileSaving(false);
+    }
   };
 
   const handleAdminChangePassword = async (staffDocId, staffName) => {
@@ -784,7 +972,15 @@ export default function App() {
     if (newPass === null) return; 
     if (newPass.length < 4) return alert("Password must be at least 4 characters long.");
     try {
-        await updateDoc(doc(db, "users", staffDocId), { password: newPass });
+        await updateDoc(doc(db, "users", staffDocId), {
+          password: newPass,
+          passwordResetStatus: deleteField(),
+          passwordResetRequestedAt: deleteField()
+        });
+        setStaffModal(previous => previous?.dbId === staffDocId
+          ? { ...previous, passwordResetStatus: undefined, passwordResetRequestedAt: undefined }
+          : previous
+        );
         logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); 
         alert(`Password for ${staffName} updated successfully!`);
     } catch {
@@ -1566,6 +1762,7 @@ export default function App() {
 
   const filteredRooms = rooms.filter(r => String(r.id).toLowerCase().includes(roomSearch.toLowerCase()));
   const pendingLeavesCount = leaves.filter(l => l.status === 'pending').length;
+  const pendingPasswordResetCount = users.filter(u => u.passwordResetStatus === 'pending').length;
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
 
   const processedTickets = [...tickets].filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase())).sort((a, b) => {
@@ -1664,14 +1861,111 @@ export default function App() {
     return (
       <div className="app-container">
         <div className="login-container">
-          <form className="login-card" onSubmit={handleLogin}>
-            <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
-            <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
-            <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} required />
-            <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} required />
-            {loginError && <p style={{color:'red'}}>{loginError}</p>}
-            <button type="submit" className="btn blue" style={{justifyContent:'center', width:'100%'}}>Login</button>
+          {showForgotPassword ? (
+            <form className="login-card" onSubmit={handleForgotPassword}>
+              <div className="login-icon"><i className="fa-solid fa-key"></i></div>
+              <h1>Forgot Password</h1>
+              <p className="forgot-password-instructions">
+                Enter your User ID. An administrator will be notified to reset your password.
+              </p>
+              <label className="login-field-label" htmlFor="reset-user-id">User ID</label>
+              <input
+                id="reset-user-id"
+                placeholder="Enter your User ID"
+                value={resetUserId}
+                onChange={e => setResetUserId(e.target.value)}
+                autoComplete="username"
+                autoFocus
+                required
+              />
+              {resetFeedback.message && (
+                <p className={`reset-feedback ${resetFeedback.type}`} role="status">
+                  <i className={`fa-solid ${resetFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                  {resetFeedback.message}
+                </p>
+              )}
+              {resetFeedback.type !== 'success' && (
+                <button type="submit" className="btn blue login-submit-btn" disabled={isResetSubmitting}>
+                  {isResetSubmitting ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Send Reset Request</>}
+                </button>
+              )}
+              <button type="button" className="login-link-btn" onClick={closeForgotPassword}>
+                <i className="fa-solid fa-arrow-left"></i> Back to Login
+              </button>
+            </form>
+          ) : (
+            <form className="login-card" onSubmit={handleLogin}>
+              <h1><i className="fa-solid fa-hotel"></i> Aladdin Dream Hotel</h1>
+              <h3 style={{color:'#666', marginBottom:'20px'}}>Staff Login</h3>
+              <input placeholder="User ID" value={loginId} onChange={e => setLoginId(e.target.value)} autoComplete="username" required />
+              <input type="password" placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} autoComplete="current-password" required />
+              {loginError && <p className="error-msg">{loginError}</p>}
+              <button type="submit" className="btn blue login-submit-btn">Login</button>
+              <button type="button" className="login-link-btn" onClick={openForgotPassword}>Forgot Password?</button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // New and existing accounts must complete the required profile fields before
+  // any operational data or navigation is made available.
+  if (!isProfileComplete(currentUser)) {
+    return (
+      <div className="profile-setup-page">
+        <div className="profile-setup-card">
+          <div className="profile-setup-header">
+            <div className="profile-setup-logo"><i className="fa-solid fa-hotel"></i></div>
+            <span className="profile-required-badge"><i className="fa-solid fa-circle-exclamation"></i> Required setup</span>
+            <h1>Complete your profile</h1>
+            <p>Please provide your email address and date of birth before accessing the hotel portal.</p>
+          </div>
+
+          <form className="profile-setup-form" onSubmit={handleUpdateProfile}>
+            <div className="profile-setup-user">
+              <div className="profile-avatar small" aria-hidden="true">
+                {currentUser.name?.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'U'}
+              </div>
+              <div>
+                <strong>{currentUser.name}</strong>
+                <span>{currentUser.userid} · {currentUser.role}</span>
+              </div>
+            </div>
+
+            <input name="fullName" type="hidden" value={currentUser.name || ''} readOnly />
+
+            <label>
+              <span>Email address <em>Required</em></span>
+              <div className="profile-input-wrap"><i className="fa-solid fa-envelope"></i><input name="email" type="email" defaultValue={currentUser.email || ''} placeholder="name@example.com" autoComplete="email" autoFocus required /></div>
+            </label>
+
+            <label>
+              <span>Date of birth <em>Required</em></span>
+              <div className="profile-input-wrap"><i className="fa-solid fa-cake-candles"></i><input name="dateOfBirth" type="date" defaultValue={currentUser.dateOfBirth || ''} max={getLocalDateInputValue()} autoComplete="bday" required /></div>
+            </label>
+
+            <label>
+              <span>Phone number <small>Optional</small></span>
+              <div className="profile-input-wrap"><i className="fa-solid fa-phone"></i><input name="phone" type="tel" defaultValue={currentUser.phone || ''} placeholder="e.g. 0123456789" autoComplete="tel" /></div>
+            </label>
+
+            {profileFeedback.message && (
+              <p className={`reset-feedback ${profileFeedback.type}`} role="status">
+                <i className={`fa-solid ${profileFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                {profileFeedback.message}
+              </p>
+            )}
+
+            <button type="submit" className="btn blue profile-continue-btn" disabled={isProfileSaving}>
+              {isProfileSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <>Save & Continue <i className="fa-solid fa-arrow-right"></i></>}
+            </button>
+            <button type="button" className="profile-setup-logout" onClick={handleLogout}>
+              <i className="fa-solid fa-right-from-bracket"></i> Sign out
+            </button>
           </form>
+
+          <p className="profile-privacy-note"><i className="fa-solid fa-lock"></i> Your personal information is stored securely in your staff profile.</p>
         </div>
       </div>
     );
@@ -1691,10 +1985,10 @@ export default function App() {
               </div>
             </div>
             <div className="header-actions">
-             <div className="user-profile" onClick={() => setShowPasswordModal(true)}>
+             <button type="button" className="user-profile" onClick={openProfilePortal} title="Open profile">
                <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
                <span>{currentUser.name}</span>
-             </div>
+             </button>
               <button onClick={handleLogout} className="logout-btn" title="Logout">
                 <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
               </button>
@@ -1713,7 +2007,7 @@ export default function App() {
             {currentUser.role === 'admin' && (
               <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => setView('ADMIN')}>
                 <i className="fa-solid fa-lock"></i> <span>Admin</span>
-                {pendingLeavesCount > 0 && <span className="nav-badge">{pendingLeavesCount}</span>}
+                {(pendingLeavesCount + pendingPasswordResetCount) > 0 && <span className="nav-badge">{pendingLeavesCount + pendingPasswordResetCount}</span>}
               </button>
             )}
           </div>
@@ -2685,7 +2979,15 @@ export default function App() {
             </div>
 
             <div className="floor-section" style={{marginTop: '20px'}}>
-              <h2 className="floor-title"><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</h2>
+              <h2 className="floor-title">
+                <span><i className="fa-solid fa-users-gear"></i> Manage Staff (Click row for history)</span>
+                {pendingPasswordResetCount > 0 && (
+                  <span className="password-reset-count">
+                    <i className="fa-solid fa-key"></i>
+                    {pendingPasswordResetCount} reset request{pendingPasswordResetCount === 1 ? '' : 's'}
+                  </span>
+                )}
+              </h2>
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
                 <input name="userid" placeholder="ID" required style={{flex:1}} />
                 <input name="name" placeholder="Name" required style={{flex:1}} />
@@ -2698,13 +3000,18 @@ export default function App() {
                   <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Approved Device</th><th>Manage</th></tr></thead>
                   <tbody>
                     {users.map(u => (
-                      <tr key={u.dbId} className={`clickable-row ${isUserActive(u) ? '' : 'inactive-staff-row'}`} onClick={() => setStaffModal(u)}>
+                      <tr key={u.dbId} className={`clickable-row ${isUserActive(u) ? '' : 'inactive-staff-row'} ${u.passwordResetStatus === 'pending' ? 'password-reset-row' : ''}`} onClick={() => setStaffModal(u)}>
                         <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
                         <td>
                           <span className={`staff-account-status ${isUserActive(u) ? 'active' : 'inactive'}`}>
                             <i className={`fa-solid ${isUserActive(u) ? 'fa-circle-check' : 'fa-circle-minus'}`}></i>
                             {isUserActive(u) ? 'Active' : 'Inactive'}
                           </span>
+                          {u.passwordResetStatus === 'pending' && (
+                            <span className="password-reset-badge" title={`Requested ${formatTime(u.passwordResetRequestedAt)}`}>
+                              <i className="fa-solid fa-key"></i> Reset requested
+                            </span>
+                          )}
                         </td>
                         <td>
                           {u.role === 'admin' ? (
@@ -2716,6 +3023,11 @@ export default function App() {
                           )}
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
+                            {u.passwordResetStatus === 'pending' && (
+                              <button onClick={() => handleAdminChangePassword(u.dbId, u.name)} className="btn password-reset-btn" title="Set a new password and complete this request">
+                                <i className="fa-solid fa-key"></i> Reset Password
+                              </button>
+                            )}
                             {u.role !== 'admin' && isUserActive(u) && u.approvedDeviceId && (
                               <button onClick={() => handleResetApprovedDevice(u)} className="btn device-reset-btn" title="Reset approved device">
                                 <i className="fa-solid fa-mobile-screen-button"></i> Reset Device
@@ -2950,6 +3262,12 @@ export default function App() {
           <div className="modal-overlay" onClick={() => setStaffModal(null)}>
               <div className="modal-content" onClick={e => e.stopPropagation()}>
                   <h2>{staffModal.name}</h2>
+                  {staffModal.passwordResetStatus === 'pending' && (
+                    <div className="password-reset-alert">
+                      <i className="fa-solid fa-key"></i>
+                      This staff member requested a password reset.
+                    </div>
+                  )}
                   <h3 style={{fontSize:'1rem', marginTop:'20px', borderBottom:'2px solid #eee'}}>Attendance History</h3>
                   <div className="scroll-pane scroll-pane-modal" style={{marginBottom:'20px'}}>
                       <table style={{fontSize:'0.85rem'}}>
@@ -2992,14 +3310,143 @@ export default function App() {
           </div>
       )}
 
-      {showPasswordModal && (
-        <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>Change Password</h2>
-            <form onSubmit={handleChangePassword} style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-              <input name="newPass" placeholder="New Password" required />
-              <button className="btn blue" style={{justifyContent:'center'}}>Update</button>
-            </form>
+      {showProfileModal && (
+        <div className="modal-overlay" onClick={closeProfilePortal}>
+          <div className="modal-content profile-portal" onClick={e => e.stopPropagation()}>
+            <button type="button" className="profile-close-btn" onClick={closeProfilePortal} aria-label="Close profile">
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+
+            <div className="profile-hero">
+              <div className="profile-avatar" aria-hidden="true">
+                {currentUser.name?.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'U'}
+              </div>
+              <div className="profile-identity">
+                <p>MY PROFILE</p>
+                <h2>{currentUser.name}</h2>
+                <span className="profile-role-badge"><i className="fa-solid fa-shield-halved"></i> {currentUser.role}</span>
+              </div>
+            </div>
+
+            <div className="profile-tabs" role="tablist" aria-label="Profile sections">
+              <button type="button" role="tab" aria-selected={profileTab === 'PROFILE'} className={profileTab === 'PROFILE' ? 'active' : ''} onClick={() => changeProfileTab('PROFILE')}>
+                <i className="fa-solid fa-user"></i> Personal Details
+              </button>
+              <button type="button" role="tab" aria-selected={profileTab === 'SECURITY'} className={profileTab === 'SECURITY' ? 'active' : ''} onClick={() => changeProfileTab('SECURITY')}>
+                <i className="fa-solid fa-lock"></i> Password & Security
+              </button>
+            </div>
+
+            {profileTab === 'PROFILE' ? (
+              <form className="profile-form" onSubmit={handleUpdateProfile}>
+                <div className="profile-section-heading">
+                  <div>
+                    <h3>Personal information</h3>
+                    <p>Keep your contact details up to date.</p>
+                  </div>
+                </div>
+
+                <div className="profile-account-grid">
+                  <div className="profile-account-item">
+                    <span>User ID</span>
+                    <strong>{currentUser.userid}</strong>
+                  </div>
+                  <div className="profile-account-item">
+                    <span>Account status</span>
+                    <strong className="profile-status-active"><i className="fa-solid fa-circle-check"></i> Active</strong>
+                  </div>
+                </div>
+
+                <div className="profile-fields-grid">
+                  <label>
+                    <span>Full name</span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-user"></i><input name="fullName" defaultValue={currentUser.name || ''} autoComplete="name" required /></div>
+                  </label>
+                  <label>
+                    <span>Email address <em className="required-field-label">Required</em></span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-envelope"></i><input name="email" type="email" defaultValue={currentUser.email || ''} placeholder="name@example.com" autoComplete="email" required /></div>
+                  </label>
+                  <label>
+                    <span>Date of birth <em className="required-field-label">Required</em></span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-cake-candles"></i><input name="dateOfBirth" type="date" defaultValue={currentUser.dateOfBirth || ''} max={getLocalDateInputValue()} autoComplete="bday" required /></div>
+                  </label>
+                  <label>
+                    <span>Phone number <small className="optional-field-label">Optional</small></span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-phone"></i><input name="phone" type="tel" defaultValue={currentUser.phone || ''} placeholder="e.g. 0123456789" autoComplete="tel" /></div>
+                  </label>
+                  <label>
+                    <span>Role</span>
+                    <div className="profile-input-wrap readonly"><i className="fa-solid fa-id-badge"></i><input value={currentUser.role} readOnly aria-label="Account role" /></div>
+                  </label>
+                </div>
+
+                <div className="profile-device-card">
+                  <span className="profile-device-icon"><i className={`fa-solid ${currentUser.role === 'admin' ? 'fa-shield-halved' : 'fa-mobile-screen-button'}`}></i></span>
+                  <div>
+                    <span>{currentUser.role === 'admin' ? 'Device access' : 'Approved device'}</span>
+                    <strong>{currentUser.role === 'admin' ? 'Administrator - device restriction exempt' : (currentUser.approvedDeviceName || 'No mobile device approved')}</strong>
+                  </div>
+                  <i className={`fa-solid ${currentUser.role === 'admin' || currentUser.approvedDeviceId ? 'fa-circle-check' : 'fa-circle-minus'} profile-device-state`}></i>
+                </div>
+
+                {profileFeedback.message && (
+                  <p className={`reset-feedback ${profileFeedback.type}`} role="status">
+                    <i className={`fa-solid ${profileFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                    {profileFeedback.message}
+                  </p>
+                )}
+
+                <div className="profile-form-actions">
+                  <button type="button" className="btn grey" onClick={closeProfilePortal}>Cancel</button>
+                  <button type="submit" className="btn blue" disabled={isProfileSaving}>
+                    {isProfileSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <><i className="fa-solid fa-floppy-disk"></i> Save Profile</>}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form className="profile-form" onSubmit={handleChangePassword}>
+                <div className="profile-section-heading">
+                  <div>
+                    <h3>Change password</h3>
+                    <p>Confirm your current password before choosing a new one.</p>
+                  </div>
+                </div>
+
+                <div className="profile-security-note">
+                  <i className="fa-solid fa-shield-halved"></i>
+                  <div><strong>Protect your account</strong><span>Use a password that other people cannot easily guess.</span></div>
+                </div>
+
+                <div className="profile-password-fields">
+                  <label>
+                    <span>Current password</span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-lock"></i><input name="currentPass" type="password" autoComplete="current-password" required /></div>
+                  </label>
+                  <label>
+                    <span>New password</span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-key"></i><input name="newPass" type="password" minLength="4" autoComplete="new-password" required /></div>
+                  </label>
+                  <label>
+                    <span>Confirm new password</span>
+                    <div className="profile-input-wrap"><i className="fa-solid fa-check-double"></i><input name="confirmPass" type="password" minLength="4" autoComplete="new-password" required /></div>
+                  </label>
+                </div>
+
+                {profileFeedback.message && (
+                  <p className={`reset-feedback ${profileFeedback.type}`} role="status">
+                    <i className={`fa-solid ${profileFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                    {profileFeedback.message}
+                  </p>
+                )}
+
+                <div className="profile-form-actions">
+                  <button type="button" className="btn grey" onClick={closeProfilePortal}>Cancel</button>
+                  <button type="submit" className="btn blue" disabled={isProfileSaving}>
+                    {isProfileSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Updating...</> : <><i className="fa-solid fa-key"></i> Update Password</>}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

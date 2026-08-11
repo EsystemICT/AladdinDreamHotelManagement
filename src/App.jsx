@@ -2377,6 +2377,25 @@ export default function App() {
     givenOut: totals.givenOut + row.givenOut,
     net: totals.net + row.net
   }), { received: 0, givenOut: 0, net: 0 });
+  const laundryStockDailyMovementMap = laundryStockMovements.reduce((dailyMap, movement) => {
+    const dateKey = movement.transactionDate;
+    if (!dateKey || !LAUNDRY_STOCK_ITEMS.includes(movement.item)) return dailyMap;
+    if (!dailyMap[dateKey]) dailyMap[dateKey] = {};
+    if (!dailyMap[dateKey][movement.item]) dailyMap[dateKey][movement.item] = { received: 0, givenOut: 0 };
+    if (movement.movementType === 'received') {
+      dailyMap[dateKey][movement.item].received += Number(movement.quantity) || 0;
+    } else if (movement.movementType === 'given_out') {
+      dailyMap[dateKey][movement.item].givenOut += Number(movement.quantity) || 0;
+    }
+    return dailyMap;
+  }, {});
+  const [laundryStockYear, laundryStockMonthNumber] = laundryStockMonth.split('-').map(Number);
+  const laundryStockDaysInMonth = new Date(laundryStockYear, laundryStockMonthNumber, 0).getDate();
+  const laundryStockDailyRows = Array.from({ length: laundryStockDaysInMonth }, (_, index) => {
+    const day = index + 1;
+    const dateKey = `${laundryStockMonth}-${String(day).padStart(2, '0')}`;
+    return { day, dateKey, items: laundryStockDailyMovementMap[dateKey] || {} };
+  });
   const laundryStockMonthName = new Date(`${laundryStockMonth}-01T00:00:00`).toLocaleDateString('en-MY', {
     month: 'long', year: 'numeric'
   });
@@ -2938,28 +2957,53 @@ export default function App() {
             </form>
 
             <div className="laundry-stock-summary-heading">
-              <h3>{laundryStockMonthName} Summary</h3>
-              <small>Net movement = received minus given out</small>
+              <h3>{laundryStockMonthName} Daily Stock Table</h3>
+              <div className="laundry-stock-month-totals">
+                <span className="received">Received <b>+{monthlyLaundryStockTotals.received}</b></span>
+                <span className="given-out">Given Out <b>-{monthlyLaundryStockTotals.givenOut}</b></span>
+                <span className={monthlyLaundryStockTotals.net < 0 ? 'net negative' : 'net'}>Net <b>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</b></span>
+              </div>
             </div>
-            <div className="admin-table-container">
-              <table className="laundry-stock-summary-table">
-                <thead><tr><th>Item</th><th>Received</th><th>Given Out</th><th>Net Movement</th></tr></thead>
+            <div className="admin-table-container laundry-stock-month-table-wrap">
+              <table className="laundry-stock-month-table">
+                <thead>
+                  <tr>
+                    <th>Date / Item</th>
+                    {LAUNDRY_STOCK_ITEMS.map(item => <th key={item}>{item}</th>)}
+                  </tr>
+                </thead>
                 <tbody>
-                  {monthlyLaundryStockSummary.map(row => (
-                    <tr key={row.item}>
-                      <td><strong>{row.item}</strong></td>
-                      <td><span className="stock-quantity received">+{row.received}</span></td>
-                      <td><span className="stock-quantity given-out">-{row.givenOut}</span></td>
-                      <td><strong className={row.net < 0 ? 'stock-net negative' : 'stock-net'}>{row.net > 0 ? '+' : ''}{row.net}</strong></td>
+                  {laundryStockDailyRows.map(row => (
+                    <tr key={row.dateKey}>
+                      <td className="laundry-stock-day"><strong>{row.day}</strong></td>
+                      {LAUNDRY_STOCK_ITEMS.map(item => {
+                        const dailyTotals = row.items[item] || { received: 0, givenOut: 0 };
+                        const hasMovement = dailyTotals.received > 0 || dailyTotals.givenOut > 0;
+                        return (
+                          <td key={item} className={hasMovement ? 'has-stock-movement' : ''}>
+                            {hasMovement ? (
+                              <div className="daily-stock-cell">
+                                {dailyTotals.received > 0 && <span className="received">R +{dailyTotals.received}</span>}
+                                {dailyTotals.givenOut > 0 && <span className="given-out">G -{dailyTotals.givenOut}</span>}
+                              </div>
+                            ) : <span className="no-stock-movement">-</span>}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td>Total</td>
-                    <td>+{monthlyLaundryStockTotals.received}</td>
-                    <td>-{monthlyLaundryStockTotals.givenOut}</td>
-                    <td>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</td>
+                    <td>Month Total</td>
+                    {monthlyLaundryStockSummary.map(row => (
+                      <td key={row.item}>
+                        <div className="daily-stock-cell total">
+                          <span className="received">R +{row.received}</span>
+                          <span className="given-out">G -{row.givenOut}</span>
+                        </div>
+                      </td>
+                    ))}
                   </tr>
                 </tfoot>
               </table>

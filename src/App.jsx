@@ -3026,8 +3026,8 @@ export default function App() {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr>
-                    <td>Month Total</td>
+                  <tr className="movement-total-row">
+                    <td>Monthly In / Out</td>
                     {monthlyLaundryStockSummary.map(row => (
                       <React.Fragment key={row.item}>
                         <td>+{row.received}</td>
@@ -3036,8 +3036,102 @@ export default function App() {
                     ))}
                     <td></td>
                   </tr>
+                  <tr className="net-total-row">
+                    <td>Final Total</td>
+                    {monthlyLaundryStockSummary.map(row => (
+                      <td key={row.item} colSpan="2">
+                        <strong className={row.net < 0 ? 'negative' : ''}>{row.net > 0 ? '+' : ''}{row.net}</strong>
+                        <small>Received − Given Out</small>
+                      </td>
+                    ))}
+                    <td></td>
+                  </tr>
                 </tfoot>
               </table>
+            </div>
+
+            <div className="laundry-stock-mobile-table">
+              <div className="mobile-stock-legend">
+                <span className="received"><i className="fa-solid fa-arrow-down"></i> Received</span>
+                <span className="given-out"><i className="fa-solid fa-arrow-up"></i> Given Out</span>
+              </div>
+              {laundryStockDailyRows.map(row => {
+                const dayReceived = Object.values(row.items).reduce((total, item) => total + item.received, 0);
+                const dayGivenOut = Object.values(row.items).reduce((total, item) => total + item.givenOut, 0);
+                return (
+                  <details className="mobile-stock-day" key={row.dateKey}>
+                    <summary>
+                      <span className="mobile-stock-date">
+                        <strong>{row.day}</strong>
+                        <span>{new Date(`${row.dateKey}T00:00:00`).toLocaleDateString('en-MY', { weekday: 'short', month: 'short' })}</span>
+                      </span>
+                      <span className="mobile-day-totals">
+                        <b className="received">+{dayReceived}</b>
+                        <b className="given-out">-{dayGivenOut}</b>
+                      </span>
+                    </summary>
+                    <div className="mobile-stock-column-headings"><span>Item</span><span>Received</span><span>Given Out</span></div>
+                    {LAUNDRY_STOCK_ITEMS.map(item => {
+                      const dailyTotals = row.items[item] || { received: 0, givenOut: 0 };
+                      const receivedEntryKey = `${row.dateKey}|${item}|received`;
+                      const givenOutEntryKey = `${row.dateKey}|${item}|given_out`;
+                      return (
+                        <div className="mobile-stock-item-row" key={item}>
+                          <strong>{item}</strong>
+                          <label className="received">
+                            <span>Current {dailyTotals.received}</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={laundryStockInlineEntries[receivedEntryKey] || ''}
+                              onChange={event => handleLaundryStockInlineChange(row.dateKey, item, 'received', event.target.value)}
+                              onKeyDown={event => event.key === 'Enter' && handleSaveLaundryStockRow(row.dateKey)}
+                              placeholder="+ Qty"
+                              aria-label={`${item} received on day ${row.day}`}
+                              disabled={savingLaundryStockDate === row.dateKey}
+                            />
+                          </label>
+                          <label className="given-out">
+                            <span>Current {dailyTotals.givenOut}</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={laundryStockInlineEntries[givenOutEntryKey] || ''}
+                              onChange={event => handleLaundryStockInlineChange(row.dateKey, item, 'given_out', event.target.value)}
+                              onKeyDown={event => event.key === 'Enter' && handleSaveLaundryStockRow(row.dateKey)}
+                              placeholder="+ Qty"
+                              aria-label={`${item} given out on day ${row.day}`}
+                              disabled={savingLaundryStockDate === row.dateKey}
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      className="btn blue mobile-stock-save"
+                      onClick={() => handleSaveLaundryStockRow(row.dateKey)}
+                      disabled={Boolean(savingLaundryStockDate)}
+                    >
+                      <i className={`fa-solid ${savingLaundryStockDate === row.dateKey ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                      {savingLaundryStockDate === row.dateKey ? 'Saving...' : `Save Day ${row.day}`}
+                    </button>
+                  </details>
+                );
+              })}
+
+              <section className="mobile-month-total-card">
+                <h4><i className="fa-solid fa-calculator"></i> {laundryStockMonthName} Totals</h4>
+                <div className="mobile-total-headings"><span>Item</span><span>Received</span><span>Given Out</span><span>Final Total</span></div>
+                {monthlyLaundryStockSummary.map(row => (
+                  <div className="mobile-total-row" key={row.item}>
+                    <strong>{row.item}</strong>
+                    <span className="received">+{row.received}</span>
+                    <span className="given-out">-{row.givenOut}</span>
+                    <span className={row.net < 0 ? 'net negative' : 'net'}>{row.net > 0 ? '+' : ''}{row.net}</span>
+                  </div>
+                ))}
+              </section>
             </div>
 
             <details className="laundry-stock-records" open>

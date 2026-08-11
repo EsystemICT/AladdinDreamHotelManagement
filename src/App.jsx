@@ -7,6 +7,7 @@ import './App.css';
 const ICONS = { 
   ROOMS: { icon: "fa-solid fa-bed", label: "Rooms" },
   TICKETS: { icon: "fa-solid fa-wrench", label: "Tickets" },
+  CUSTOMERS: { icon: "fa-solid fa-address-book", label: "Customer Details" },
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
   LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry/Stock" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
@@ -46,6 +47,15 @@ const formatDate = (timestamp) => {
   if (!timestamp) return '-';
   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   return date.toLocaleDateString('en-MY');
+};
+
+const formatDateTime = (timestamp) => {
+  if (!timestamp) return '-';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  return date.toLocaleString('en-MY', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true
+  });
 };
 
 const formatDuration = (ms) => {
@@ -119,6 +129,20 @@ const calendarDisplayToIso = (value) => {
 const getLocalIsoDate = (date = new Date()) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
+
+const getLocalTimeValue = (date = new Date()) => (
+  `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+);
+
+const formatClockTime = (value) => {
+  if (!/^\d{2}:\d{2}$/.test(value || '')) return value || '-';
+  const [hours, minutes] = value.split(':').map(Number);
+  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString('en-MY', {
+    hour: '2-digit', minute: '2-digit', hour12: true
+  });
+};
+
+const CUSTOMER_PHONE_PATTERN = /^\+?[0-9][0-9\s-]{7,18}$/;
 
 const DateOfBirthField = ({ defaultValue = '', idPrefix }) => {
   const pickerRef = useRef(null);
@@ -586,6 +610,7 @@ export default function App() {
   // Data
   const [rooms, setRooms] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [customerDetails, setCustomerDetails] = useState([]);
   const [receivedRequests, setReceivedRequests] = useState([]);
   const [sentRequests, setSentRequests] = useState([]);
   const [users, setUsers] = useState([]); 
@@ -631,6 +656,10 @@ export default function App() {
   const [lastClock, setLastClock] = useState(null);
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSort, setTicketSort] = useState('date-desc');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerCallTime, setCustomerCallTime] = useState(getLocalTimeValue);
+  const [customerFeedback, setCustomerFeedback] = useState({ type: '', message: '' });
+  const [isCustomerSaving, setIsCustomerSaving] = useState(false);
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -847,6 +876,11 @@ export default function App() {
     } else if (view === 'TICKETS' || selectedRoom) {
       const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'CUSTOMERS') {
+      const qCustomerDetails = query(collection(db, "customerDetails"), orderBy("createdAt", "desc"), limit(200));
+      unsubs.push(onSnapshot(qCustomerDetails, (snap) => setCustomerDetails(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
     let attendanceQuery = null;
@@ -1502,6 +1536,45 @@ export default function App() {
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
     logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); 
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
+  };
+
+  const handleAddCustomerDetail = async (event) => {
+    event.preventDefault();
+    if (isCustomerSaving) return;
+
+    const form = event.currentTarget;
+    const customerName = form.customerName.value.trim();
+    const phoneNumber = form.phoneNumber.value.trim();
+    const callTime = customerCallTime;
+
+    if (!CUSTOMER_PHONE_PATTERN.test(phoneNumber)) {
+      setCustomerFeedback({ type: 'error', message: 'Please enter a valid phone number (8 to 19 digits, spaces or hyphens).' });
+      return;
+    }
+
+    setIsCustomerSaving(true);
+    setCustomerFeedback({ type: '', message: '' });
+
+    try {
+      await addDoc(collection(db, "customerDetails"), {
+        customerName,
+        phoneNumber,
+        callTime,
+        keyedInBy: currentUser.name,
+        keyedInById: currentUser.userid,
+        keyedInByDocId: currentUser.dbId,
+        createdAt: serverTimestamp()
+      });
+      await logSystemAction(currentUser.name, 'CUSTOMER_DETAIL_ADD', `Added customer detail for ${customerName}`);
+      form.reset();
+      setCustomerCallTime(getLocalTimeValue());
+      setCustomerFeedback({ type: 'success', message: 'Customer detail added successfully.' });
+    } catch (error) {
+      console.error('Customer detail save failed:', error);
+      setCustomerFeedback({ type: 'error', message: 'Unable to add the customer detail. Please try again.' });
+    } finally {
+      setIsCustomerSaving(false);
+    }
   };
 
   // --- 8. OTHER ACTIONS & ATTENDANCE PORTAL FUNCTIONS ---
@@ -2190,6 +2263,14 @@ export default function App() {
       }
   });
 
+  const normalizedCustomerSearch = customerSearch.trim().toLowerCase();
+  const filteredCustomerDetails = customerDetails.filter(customer => (
+    !normalizedCustomerSearch ||
+    (customer.customerName || '').toLowerCase().includes(normalizedCustomerSearch) ||
+    (customer.phoneNumber || '').toLowerCase().includes(normalizedCustomerSearch) ||
+    (customer.keyedInBy || '').toLowerCase().includes(normalizedCustomerSearch)
+  ));
+
   const currentMonthName = currentTime.toLocaleString('en-MY', { month: 'long', year: 'numeric' }).toUpperCase();
   const currentMonthIndex = currentTime.getMonth();
   const currentYear = currentTime.getFullYear();
@@ -2556,6 +2637,91 @@ export default function App() {
                     <div style={{color:'green', fontWeight:'bold', fontSize:'0.8rem'}}>FIXED</div>
                   </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- VIEW: CUSTOMER DETAILS --- */}
+      {view === 'CUSTOMERS' && (
+        <div className="dashboard customer-details-page">
+          <div className="list-view customer-entry-panel">
+            <h2><i className="fa-solid fa-address-card"></i> Add Customer Detail</h2>
+            <p className="customer-entry-intro">Record a customer call. Staff and added time are captured automatically.</p>
+            <form className="customer-entry-form" onSubmit={handleAddCustomerDetail}>
+              <label>
+                <span>Customer Name</span>
+                <div className="customer-input-wrap">
+                  <i className="fa-solid fa-user"></i>
+                  <input name="customerName" type="text" placeholder="Enter customer name" autoComplete="name" maxLength="100" required />
+                </div>
+              </label>
+              <label>
+                <span>Phone Number</span>
+                <div className="customer-input-wrap">
+                  <i className="fa-solid fa-phone"></i>
+                  <input name="phoneNumber" type="tel" placeholder="e.g. 0123456789" autoComplete="tel" inputMode="tel" maxLength="20" required />
+                </div>
+              </label>
+              <label>
+                <span>Keyed In By <small>Auto</small></span>
+                <div className="customer-input-wrap readonly">
+                  <i className="fa-solid fa-id-badge"></i>
+                  <input value={`${currentUser.name} (${currentUser.userid})`} readOnly aria-label="Staff recording this customer detail" />
+                </div>
+              </label>
+              <label>
+                <span>Call Time</span>
+                <div className="customer-input-wrap">
+                  <i className="fa-solid fa-phone-volume"></i>
+                  <input type="time" value={customerCallTime} onChange={event => setCustomerCallTime(event.target.value)} required />
+                </div>
+              </label>
+              <div className="customer-form-actions">
+                <small><i className="fa-solid fa-clock"></i> Added date and time will be saved automatically.</small>
+                <button type="submit" className="btn blue" disabled={isCustomerSaving}>
+                  <i className="fa-solid fa-plus"></i> {isCustomerSaving ? 'Saving...' : 'Add Customer'}
+                </button>
+              </div>
+              {customerFeedback.message && (
+                <div className={`customer-feedback ${customerFeedback.type}`} role={customerFeedback.type === 'error' ? 'alert' : 'status'}>
+                  <i className={`fa-solid ${customerFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                  {customerFeedback.message}
+                </div>
+              )}
+            </form>
+          </div>
+
+          <div className="list-view customer-history-panel">
+            <h2 className="customer-history-title">
+              <span><i className="fa-solid fa-clock-rotate-left"></i> Customer History</span>
+              <input
+                className="search-bar"
+                type="search"
+                placeholder="Search name, phone or staff..."
+                value={customerSearch}
+                onChange={event => setCustomerSearch(event.target.value)}
+              />
+            </h2>
+            <div className="admin-table-container scroll-pane scroll-pane-tall">
+              <table className="customer-details-table">
+                <thead>
+                  <tr><th>Customer Name</th><th>Phone Number</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
+                </thead>
+                <tbody>
+                  {filteredCustomerDetails.length === 0 ? (
+                    <tr><td colSpan="5" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
+                  ) : filteredCustomerDetails.map(customer => (
+                    <tr key={customer.id}>
+                      <td><strong>{customer.customerName || '-'}</strong></td>
+                      <td><a className="customer-phone-link" href={`tel:${customer.phoneNumber}`}>{customer.phoneNumber || '-'}</a></td>
+                      <td>{customer.keyedInBy || '-'}{customer.keyedInById && <small className="customer-staff-id">{customer.keyedInById}</small>}</td>
+                      <td>{formatClockTime(customer.callTime)}</td>
+                      <td>{formatDateTime(customer.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

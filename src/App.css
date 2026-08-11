@@ -2031,6 +2031,77 @@ tbody tr:last-child td { border-bottom: 0; }
 .modal-content { padding: 27px; border-radius: 20px; background: var(--hotel-ivory-50); }
 .modal-content h2 { margin-top: 0; color: var(--hotel-navy-900); letter-spacing: -0.025em; }
 
+/* Customer details */
+.customer-details-page { max-width: 1180px; margin: 0 auto; }
+.customer-entry-panel { position: relative; overflow: hidden; }
+.customer-entry-panel::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  content: "";
+  background: linear-gradient(to bottom, var(--hotel-gold-500), var(--hotel-navy-700));
+}
+.customer-entry-panel > h2 { margin: 0 0 6px; }
+.customer-entry-intro { margin: 0 0 20px; color: var(--hotel-slate-500); font-size: 0.88rem; }
+.customer-entry-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+.customer-entry-form > label { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
+.customer-entry-form > label > span { color: var(--hotel-slate-700); font-size: 0.82rem; font-weight: 800; }
+.customer-entry-form > label > span small {
+  margin-left: 5px;
+  padding: 2px 6px;
+  color: var(--hotel-gold-600);
+  background: rgba(200, 154, 85, 0.12);
+  border-radius: 999px;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+.customer-input-wrap { position: relative; display: flex; align-items: center; }
+.customer-input-wrap > i {
+  position: absolute;
+  left: 13px;
+  z-index: 1;
+  color: #7c899b;
+  pointer-events: none;
+}
+.customer-input-wrap input { width: 100%; min-height: 44px; margin: 0; padding: 10px 12px 10px 39px; box-sizing: border-box; }
+.customer-input-wrap.readonly input { color: #596579; background: var(--hotel-ivory-100); cursor: not-allowed; }
+.customer-form-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding-top: 2px;
+}
+.customer-form-actions small { color: var(--hotel-slate-500); }
+.customer-form-actions small i { margin-right: 5px; color: var(--hotel-gold-600); }
+.customer-feedback {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  margin-top: -4px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.customer-feedback.success { color: #087054; background: #ecfdf5; border: 1px solid #a7f3d0; }
+.customer-feedback.error { color: #b42335; background: #fff1f2; border: 1px solid #fecdd3; }
+.customer-history-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 0; }
+.customer-history-title > span > i { margin-right: 7px; color: var(--hotel-gold-600); }
+.customer-history-title .search-bar { width: min(100%, 320px); }
+.customer-details-table { min-width: 760px; }
+.customer-details-table td { vertical-align: middle; }
+.customer-phone-link { color: var(--hotel-navy-700); font-weight: 700; text-decoration: none; }
+.customer-phone-link:hover { color: var(--hotel-gold-600); text-decoration: underline; }
+.customer-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.7rem; }
+.customer-empty-state { padding: 30px; color: #8a96a8; text-align: center; }
+
 /* Scrollbars and motion */
 * { scrollbar-width: thin; scrollbar-color: #a8b2c1 transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -2066,6 +2137,11 @@ tbody tr:last-child td { border-bottom: 0; }
   .filter-bar > * { min-width: 140px; }
   .login-container { min-height: calc(100vh - 175px); padding: 18px 8px; }
   .login-card { padding: 37px 24px 30px; border-radius: 20px; }
+  .customer-entry-form { grid-template-columns: 1fr; }
+  .customer-form-actions { align-items: stretch; flex-direction: column; }
+  .customer-form-actions .btn { justify-content: center; }
+  .customer-history-title { align-items: stretch; flex-direction: column; }
+  .customer-history-title .search-bar { width: 100%; max-width: none; }
 }
 
 @media (max-width: 480px) {

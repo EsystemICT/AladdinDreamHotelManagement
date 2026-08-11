@@ -671,9 +671,9 @@ export default function App() {
   const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
   const [editStockModal, setEditStockModal] = useState(null);
   const [laundryStockMonth, setLaundryStockMonth] = useState(getCurrentMonthString);
-  const [laundryStockDate, setLaundryStockDate] = useState(getLocalIsoDate);
+  const [laundryStockInlineEntries, setLaundryStockInlineEntries] = useState({});
   const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
-  const [isLaundryStockSaving, setIsLaundryStockSaving] = useState(false);
+  const [savingLaundryStockDate, setSavingLaundryStockDate] = useState('');
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -1563,49 +1563,63 @@ export default function App() {
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
   };
 
-  const handleAddLaundryStockMovement = async (event) => {
-    event.preventDefault();
-    if (isLaundryStockSaving) return;
+  const handleLaundryStockInlineChange = (dateKey, item, movementType, value) => {
+    if (value !== '' && !/^\d+$/.test(value)) return;
+    const entryKey = `${dateKey}|${item}|${movementType}`;
+    setLaundryStockInlineEntries(previousEntries => ({ ...previousEntries, [entryKey]: value }));
+  };
 
-    const form = event.currentTarget;
-    const item = form.item.value;
-    const movementType = form.movementType.value;
-    const quantity = Number.parseInt(form.quantity.value, 10);
-    const transactionDate = laundryStockDate;
+  const handleSaveLaundryStockRow = async (transactionDate) => {
+    if (savingLaundryStockDate) return;
 
-    if (!LAUNDRY_STOCK_ITEMS.includes(item) || !['received', 'given_out'].includes(movementType) || !Number.isInteger(quantity) || quantity <= 0) {
-      setLaundryStockFeedback({ type: 'error', message: 'Please select an item and enter a quantity greater than zero.' });
+    const entriesToSave = LAUNDRY_STOCK_ITEMS.flatMap(item => ['received', 'given_out'].map(movementType => {
+      const entryKey = `${transactionDate}|${item}|${movementType}`;
+      return {
+        entryKey,
+        item,
+        movementType,
+        quantity: Number.parseInt(laundryStockInlineEntries[entryKey], 10)
+      };
+    })).filter(entry => Number.isInteger(entry.quantity) && entry.quantity > 0);
+
+    if (entriesToSave.length === 0) {
+      setLaundryStockFeedback({ type: 'error', message: `Enter at least one Received or Given Out quantity for day ${Number(transactionDate.slice(-2))}.` });
       return;
     }
 
-    setIsLaundryStockSaving(true);
+    setSavingLaundryStockDate(transactionDate);
     setLaundryStockFeedback({ type: '', message: '' });
 
     try {
-      await addDoc(collection(db, "laundryStockMovements"), {
-        item,
-        movementType,
-        quantity,
-        transactionDate,
-        month: transactionDate.slice(0, 7),
-        recordedBy: currentUser.name,
-        recordedById: currentUser.userid,
-        createdAt: serverTimestamp()
+      const movementBatch = writeBatch(db);
+      entriesToSave.forEach(entry => {
+        const movementRef = doc(collection(db, "laundryStockMovements"));
+        movementBatch.set(movementRef, {
+          item: entry.item,
+          movementType: entry.movementType,
+          quantity: entry.quantity,
+          transactionDate,
+          month: transactionDate.slice(0, 7),
+          recordedBy: currentUser.name,
+          recordedById: currentUser.userid,
+          createdAt: serverTimestamp()
+        });
       });
+      await movementBatch.commit();
       await logSystemAction(
         currentUser.name,
-        movementType === 'received' ? 'LAUNDRY_STOCK_RECEIVED' : 'LAUNDRY_STOCK_GIVEN_OUT',
-        `${movementType === 'received' ? 'Received' : 'Gave out'} ${quantity} ${item}`
+        'LAUNDRY_STOCK_DAILY_ENTRY',
+        `Recorded ${entriesToSave.length} laundry stock movement(s) for ${transactionDate}`
       );
-      form.reset();
-      setLaundryStockMonth(transactionDate.slice(0, 7));
-      setLaundryStockDate(getLocalIsoDate());
-      setLaundryStockFeedback({ type: 'success', message: 'Laundry stock movement recorded successfully.' });
+      setLaundryStockInlineEntries(previousEntries => Object.fromEntries(
+        Object.entries(previousEntries).filter(([entryKey]) => !entryKey.startsWith(`${transactionDate}|`))
+      ));
+      setLaundryStockFeedback({ type: 'success', message: `Day ${Number(transactionDate.slice(-2))} stock movements saved successfully.` });
     } catch (error) {
       console.error('Laundry stock movement save failed:', error);
       setLaundryStockFeedback({ type: 'error', message: 'Unable to save the stock movement. Please try again.' });
     } finally {
-      setIsLaundryStockSaving(false);
+      setSavingLaundryStockDate('');
     }
   };
 
@@ -2912,64 +2926,49 @@ export default function App() {
                 <input
                   type="month"
                   value={laundryStockMonth}
-                  onChange={event => event.target.value && setLaundryStockMonth(event.target.value)}
+                  onChange={event => {
+                    if (!event.target.value) return;
+                    setLaundryStockMonth(event.target.value);
+                    setLaundryStockInlineEntries({});
+                    setLaundryStockFeedback({ type: '', message: '' });
+                  }}
                   aria-label="Select laundry stock month"
                 />
               </label>
             </h2>
 
-            <form className="laundry-stock-entry-form" onSubmit={handleAddLaundryStockMovement}>
-              <label>
-                <span>Date</span>
-                <input type="date" value={laundryStockDate} onChange={event => setLaundryStockDate(event.target.value)} required />
-              </label>
-              <label>
-                <span>Item</span>
-                <select name="item" defaultValue="" required>
-                  <option value="" disabled>Select item</option>
-                  {LAUNDRY_STOCK_ITEMS.map(item => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>Movement</span>
-                <select name="movementType" defaultValue="received" required>
-                  <option value="received">Stock Received</option>
-                  <option value="given_out">Given Out</option>
-                </select>
-              </label>
-              <label>
-                <span>Quantity</span>
-                <input name="quantity" type="number" min="1" step="1" placeholder="0" required />
-              </label>
-              <label>
-                <span>Recorded By <small>Auto</small></span>
-                <input value={`${currentUser.name} (${currentUser.userid})`} readOnly aria-label="Staff recording this stock movement" />
-              </label>
-              <button type="submit" className="btn blue" disabled={isLaundryStockSaving}>
-                <i className="fa-solid fa-plus"></i> {isLaundryStockSaving ? 'Saving...' : 'Record Movement'}
-              </button>
-              {laundryStockFeedback.message && (
-                <div className={`laundry-stock-feedback ${laundryStockFeedback.type}`} role={laundryStockFeedback.type === 'error' ? 'alert' : 'status'}>
-                  <i className={`fa-solid ${laundryStockFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
-                  {laundryStockFeedback.message}
-                </div>
-              )}
-            </form>
-
             <div className="laundry-stock-summary-heading">
-              <h3>{laundryStockMonthName} Daily Stock Table</h3>
+              <div>
+                <h3>{laundryStockMonthName} Daily Stock Table</h3>
+                <small className="laundry-stock-inline-help">Enter quantities directly in the table, then save that date. Staff is recorded automatically as {currentUser.name}.</small>
+              </div>
               <div className="laundry-stock-month-totals">
                 <span className="received">Received <b>+{monthlyLaundryStockTotals.received}</b></span>
                 <span className="given-out">Given Out <b>-{monthlyLaundryStockTotals.givenOut}</b></span>
                 <span className={monthlyLaundryStockTotals.net < 0 ? 'net negative' : 'net'}>Net <b>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</b></span>
               </div>
             </div>
+            {laundryStockFeedback.message && (
+              <div className={`laundry-stock-feedback ${laundryStockFeedback.type}`} role={laundryStockFeedback.type === 'error' ? 'alert' : 'status'}>
+                <i className={`fa-solid ${laundryStockFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                {laundryStockFeedback.message}
+              </div>
+            )}
             <div className="admin-table-container laundry-stock-month-table-wrap">
               <table className="laundry-stock-month-table">
                 <thead>
                   <tr>
-                    <th>Date / Item</th>
-                    {LAUNDRY_STOCK_ITEMS.map(item => <th key={item}>{item}</th>)}
+                    <th rowSpan="2">Date / Item</th>
+                    {LAUNDRY_STOCK_ITEMS.map(item => <th key={item} colSpan="2" className="laundry-stock-item-heading">{item}</th>)}
+                    <th rowSpan="2" className="laundry-stock-save-heading">Action</th>
+                  </tr>
+                  <tr>
+                    {LAUNDRY_STOCK_ITEMS.map(item => (
+                      <React.Fragment key={item}>
+                        <th className="received-subheading">Received</th>
+                        <th className="given-out-subheading">Given Out</th>
+                      </React.Fragment>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -2978,18 +2977,51 @@ export default function App() {
                       <td className="laundry-stock-day"><strong>{row.day}</strong></td>
                       {LAUNDRY_STOCK_ITEMS.map(item => {
                         const dailyTotals = row.items[item] || { received: 0, givenOut: 0 };
-                        const hasMovement = dailyTotals.received > 0 || dailyTotals.givenOut > 0;
+                        const receivedEntryKey = `${row.dateKey}|${item}|received`;
+                        const givenOutEntryKey = `${row.dateKey}|${item}|given_out`;
                         return (
-                          <td key={item} className={hasMovement ? 'has-stock-movement' : ''}>
-                            {hasMovement ? (
-                              <div className="daily-stock-cell">
-                                {dailyTotals.received > 0 && <span className="received">R +{dailyTotals.received}</span>}
-                                {dailyTotals.givenOut > 0 && <span className="given-out">G -{dailyTotals.givenOut}</span>}
-                              </div>
-                            ) : <span className="no-stock-movement">-</span>}
-                          </td>
+                          <React.Fragment key={item}>
+                            <td className="inline-stock-entry received-entry">
+                              <strong>{dailyTotals.received}</strong>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={laundryStockInlineEntries[receivedEntryKey] || ''}
+                                onChange={event => handleLaundryStockInlineChange(row.dateKey, item, 'received', event.target.value)}
+                                onKeyDown={event => event.key === 'Enter' && handleSaveLaundryStockRow(row.dateKey)}
+                                placeholder="+ Qty"
+                                aria-label={`${item} received on day ${row.day}`}
+                                disabled={savingLaundryStockDate === row.dateKey}
+                              />
+                            </td>
+                            <td className="inline-stock-entry given-out-entry">
+                              <strong>{dailyTotals.givenOut}</strong>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={laundryStockInlineEntries[givenOutEntryKey] || ''}
+                                onChange={event => handleLaundryStockInlineChange(row.dateKey, item, 'given_out', event.target.value)}
+                                onKeyDown={event => event.key === 'Enter' && handleSaveLaundryStockRow(row.dateKey)}
+                                placeholder="+ Qty"
+                                aria-label={`${item} given out on day ${row.day}`}
+                                disabled={savingLaundryStockDate === row.dateKey}
+                              />
+                            </td>
+                          </React.Fragment>
                         );
                       })}
+                      <td className="laundry-stock-row-action">
+                        <button
+                          type="button"
+                          className="btn blue"
+                          onClick={() => handleSaveLaundryStockRow(row.dateKey)}
+                          disabled={Boolean(savingLaundryStockDate)}
+                          title={`Save day ${row.day}`}
+                        >
+                          <i className={`fa-solid ${savingLaundryStockDate === row.dateKey ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                          <span>{savingLaundryStockDate === row.dateKey ? 'Saving' : 'Save'}</span>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2997,13 +3029,12 @@ export default function App() {
                   <tr>
                     <td>Month Total</td>
                     {monthlyLaundryStockSummary.map(row => (
-                      <td key={row.item}>
-                        <div className="daily-stock-cell total">
-                          <span className="received">R +{row.received}</span>
-                          <span className="given-out">G -{row.givenOut}</span>
-                        </div>
-                      </td>
+                      <React.Fragment key={row.item}>
+                        <td>+{row.received}</td>
+                        <td>-{row.givenOut}</td>
+                      </React.Fragment>
                     ))}
+                    <td></td>
                   </tr>
                 </tfoot>
               </table>

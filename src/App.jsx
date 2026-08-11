@@ -27,6 +27,10 @@ const LAUNDRY_ITEMS = [
   "Night Curtain", "Floor Mat", "Blanket", "Wiping Cloth", "Bed Runner"
 ];
 
+const LAUNDRY_STOCK_ITEMS = [
+  "Bed Sheet", "Duvet Cover", "Pillow Case", "Towel", "Pillow", "Blanket", "Sejadah"
+];
+
 // HELPERS
 const getStatusColor = (status) => {
   switch(status) {
@@ -619,6 +623,7 @@ export default function App() {
   const [inventory, setInventory] = useState([]);
   const [claimDays, setClaimDays] = useState([]);
   const [laundry, setLaundry] = useState([]);
+  const [laundryStockMovements, setLaundryStockMovements] = useState([]);
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
@@ -665,6 +670,10 @@ export default function App() {
   const [laundryForm, setLaundryForm] = useState({});
   const [receiveLaundryModal, setReceiveLaundryModal] = useState(null);
   const [editStockModal, setEditStockModal] = useState(null);
+  const [laundryStockMonth, setLaundryStockMonth] = useState(getCurrentMonthString);
+  const [laundryStockDate, setLaundryStockDate] = useState(getLocalIsoDate);
+  const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
+  const [isLaundryStockSaving, setIsLaundryStockSaving] = useState(false);
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -944,6 +953,22 @@ export default function App() {
       }));
       const qStock = query(collection(db, "stock"), orderBy("order", "asc"), limit(200));
       unsubs.push(onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+      const qLaundryStockMovements = query(
+        collection(db, "laundryStockMovements"),
+        where("month", "==", laundryStockMonth),
+        limit(500)
+      );
+      unsubs.push(onSnapshot(qLaundryStockMovements, (snap) => {
+        const movements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        movements.sort((a, b) => {
+          const dateComparison = (b.transactionDate || '').localeCompare(a.transactionDate || '');
+          if (dateComparison !== 0) return dateComparison;
+          const aCreated = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const bCreated = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return bCreated - aCreated;
+        });
+        setLaundryStockMovements(movements);
+      }));
     }
 
     if (view === 'DEPOSIT') {
@@ -962,7 +987,7 @@ export default function App() {
     }
 
     return () => unsubs.forEach(unsubscribe => unsubscribe());
-  }, [currentUser, view, selectedRoom, staffModal, attFilterMonth]);
+  }, [currentUser, view, selectedRoom, staffModal, attFilterMonth, laundryStockMonth]);
 
   // Keep attendance alerts live for admins on every page. Unacknowledged
   // alerts remain visible after logout so an offline admin sees them later.
@@ -1536,6 +1561,52 @@ export default function App() {
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
     logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); 
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
+  };
+
+  const handleAddLaundryStockMovement = async (event) => {
+    event.preventDefault();
+    if (isLaundryStockSaving) return;
+
+    const form = event.currentTarget;
+    const item = form.item.value;
+    const movementType = form.movementType.value;
+    const quantity = Number.parseInt(form.quantity.value, 10);
+    const transactionDate = laundryStockDate;
+
+    if (!LAUNDRY_STOCK_ITEMS.includes(item) || !['received', 'given_out'].includes(movementType) || !Number.isInteger(quantity) || quantity <= 0) {
+      setLaundryStockFeedback({ type: 'error', message: 'Please select an item and enter a quantity greater than zero.' });
+      return;
+    }
+
+    setIsLaundryStockSaving(true);
+    setLaundryStockFeedback({ type: '', message: '' });
+
+    try {
+      await addDoc(collection(db, "laundryStockMovements"), {
+        item,
+        movementType,
+        quantity,
+        transactionDate,
+        month: transactionDate.slice(0, 7),
+        recordedBy: currentUser.name,
+        recordedById: currentUser.userid,
+        createdAt: serverTimestamp()
+      });
+      await logSystemAction(
+        currentUser.name,
+        movementType === 'received' ? 'LAUNDRY_STOCK_RECEIVED' : 'LAUNDRY_STOCK_GIVEN_OUT',
+        `${movementType === 'received' ? 'Received' : 'Gave out'} ${quantity} ${item}`
+      );
+      form.reset();
+      setLaundryStockMonth(transactionDate.slice(0, 7));
+      setLaundryStockDate(getLocalIsoDate());
+      setLaundryStockFeedback({ type: 'success', message: 'Laundry stock movement recorded successfully.' });
+    } catch (error) {
+      console.error('Laundry stock movement save failed:', error);
+      setLaundryStockFeedback({ type: 'error', message: 'Unable to save the stock movement. Please try again.' });
+    } finally {
+      setIsLaundryStockSaving(false);
+    }
   };
 
   const handleAddCustomerDetail = async (event) => {
@@ -2291,6 +2362,25 @@ export default function App() {
       groupedStock[cat][sub].push(item);
   });
 
+  const monthlyLaundryStockSummary = LAUNDRY_STOCK_ITEMS.map(item => {
+    const itemMovements = laundryStockMovements.filter(movement => movement.item === item);
+    const received = itemMovements
+      .filter(movement => movement.movementType === 'received')
+      .reduce((total, movement) => total + (Number(movement.quantity) || 0), 0);
+    const givenOut = itemMovements
+      .filter(movement => movement.movementType === 'given_out')
+      .reduce((total, movement) => total + (Number(movement.quantity) || 0), 0);
+    return { item, received, givenOut, net: received - givenOut };
+  });
+  const monthlyLaundryStockTotals = monthlyLaundryStockSummary.reduce((totals, row) => ({
+    received: totals.received + row.received,
+    givenOut: totals.givenOut + row.givenOut,
+    net: totals.net + row.net
+  }), { received: 0, givenOut: 0, net: 0 });
+  const laundryStockMonthName = new Date(`${laundryStockMonth}-01T00:00:00`).toLocaleDateString('en-MY', {
+    month: 'long', year: 'numeric'
+  });
+
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
   attendance.forEach(a => {
@@ -2795,6 +2885,110 @@ export default function App() {
       {/* --- VIEW: LAUNDRY & CATEGORIZED STOCK --- */}
       {view === 'LAUNDRY' && (
         <div className="dashboard">
+          <div className="floor-section laundry-stock-ledger">
+            <h2 className="floor-title laundry-stock-title">
+              <span><i className="fa-solid fa-arrow-right-arrow-left"></i> Laundry Stock Received &amp; Given Out</span>
+              <label className="laundry-stock-month-picker">
+                <span>Month</span>
+                <input
+                  type="month"
+                  value={laundryStockMonth}
+                  onChange={event => event.target.value && setLaundryStockMonth(event.target.value)}
+                  aria-label="Select laundry stock month"
+                />
+              </label>
+            </h2>
+
+            <form className="laundry-stock-entry-form" onSubmit={handleAddLaundryStockMovement}>
+              <label>
+                <span>Date</span>
+                <input type="date" value={laundryStockDate} onChange={event => setLaundryStockDate(event.target.value)} required />
+              </label>
+              <label>
+                <span>Item</span>
+                <select name="item" defaultValue="" required>
+                  <option value="" disabled>Select item</option>
+                  {LAUNDRY_STOCK_ITEMS.map(item => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Movement</span>
+                <select name="movementType" defaultValue="received" required>
+                  <option value="received">Stock Received</option>
+                  <option value="given_out">Given Out</option>
+                </select>
+              </label>
+              <label>
+                <span>Quantity</span>
+                <input name="quantity" type="number" min="1" step="1" placeholder="0" required />
+              </label>
+              <label>
+                <span>Recorded By <small>Auto</small></span>
+                <input value={`${currentUser.name} (${currentUser.userid})`} readOnly aria-label="Staff recording this stock movement" />
+              </label>
+              <button type="submit" className="btn blue" disabled={isLaundryStockSaving}>
+                <i className="fa-solid fa-plus"></i> {isLaundryStockSaving ? 'Saving...' : 'Record Movement'}
+              </button>
+              {laundryStockFeedback.message && (
+                <div className={`laundry-stock-feedback ${laundryStockFeedback.type}`} role={laundryStockFeedback.type === 'error' ? 'alert' : 'status'}>
+                  <i className={`fa-solid ${laundryStockFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                  {laundryStockFeedback.message}
+                </div>
+              )}
+            </form>
+
+            <div className="laundry-stock-summary-heading">
+              <h3>{laundryStockMonthName} Summary</h3>
+              <small>Net movement = received minus given out</small>
+            </div>
+            <div className="admin-table-container">
+              <table className="laundry-stock-summary-table">
+                <thead><tr><th>Item</th><th>Received</th><th>Given Out</th><th>Net Movement</th></tr></thead>
+                <tbody>
+                  {monthlyLaundryStockSummary.map(row => (
+                    <tr key={row.item}>
+                      <td><strong>{row.item}</strong></td>
+                      <td><span className="stock-quantity received">+{row.received}</span></td>
+                      <td><span className="stock-quantity given-out">-{row.givenOut}</span></td>
+                      <td><strong className={row.net < 0 ? 'stock-net negative' : 'stock-net'}>{row.net > 0 ? '+' : ''}{row.net}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>Total</td>
+                    <td>+{monthlyLaundryStockTotals.received}</td>
+                    <td>-{monthlyLaundryStockTotals.givenOut}</td>
+                    <td>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <details className="laundry-stock-records" open>
+              <summary>Monthly Records ({laundryStockMovements.length})</summary>
+              <div className="admin-table-container scroll-pane">
+                <table className="laundry-stock-records-table">
+                  <thead><tr><th>Date</th><th>Item</th><th>Movement</th><th>Quantity</th><th>Recorded By</th><th>Added At</th></tr></thead>
+                  <tbody>
+                    {laundryStockMovements.length === 0 ? (
+                      <tr><td colSpan="6" className="laundry-stock-empty">No stock movements recorded for this month.</td></tr>
+                    ) : laundryStockMovements.map(movement => (
+                      <tr key={movement.id}>
+                        <td>{calendarIsoToDisplay(movement.transactionDate) || '-'}</td>
+                        <td><strong>{movement.item}</strong></td>
+                        <td><span className={`stock-movement-badge ${movement.movementType}`}>{movement.movementType === 'received' ? 'Received' : 'Given Out'}</span></td>
+                        <td><strong>{movement.quantity}</strong></td>
+                        <td>{movement.recordedBy || '-'}{movement.recordedById && <small className="laundry-stock-staff-id">{movement.recordedById}</small>}</td>
+                        <td>{formatDateTime(movement.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+
           <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px'}}>
               
               <div className="floor-section" style={{margin:0}}>

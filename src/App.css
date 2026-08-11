@@ -2114,6 +2114,74 @@ tbody tr:last-child td { border-bottom: 0; }
 .customer-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.7rem; }
 .customer-empty-state { padding: 30px; color: #8a96a8; text-align: center; }
 
+/* Monthly laundry stock ledger */
+.laundry-stock-ledger { position: relative; overflow: hidden; }
+.laundry-stock-ledger::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  content: "";
+  background: linear-gradient(90deg, var(--hotel-navy-800), var(--hotel-gold-500), var(--hotel-navy-800));
+}
+.laundry-stock-title { gap: 16px; }
+.laundry-stock-month-picker { display: flex; align-items: center; gap: 8px; color: var(--hotel-slate-500); font-size: 0.75rem; }
+.laundry-stock-month-picker input { width: auto; min-height: 38px; margin: 0; padding: 7px 10px; }
+.laundry-stock-entry-form {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 1.2fr 0.75fr 1.4fr auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--hotel-ivory-50);
+  border: 1px solid var(--hotel-line);
+  border-radius: 13px;
+}
+.laundry-stock-entry-form > label { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.laundry-stock-entry-form > label > span { color: var(--hotel-slate-700); font-size: 0.76rem; font-weight: 800; }
+.laundry-stock-entry-form > label > span small { color: var(--hotel-gold-600); font-size: 0.62rem; text-transform: uppercase; }
+.laundry-stock-entry-form input,
+.laundry-stock-entry-form select { width: 100%; min-height: 42px; margin: 0; padding: 9px 10px; box-sizing: border-box; }
+.laundry-stock-entry-form input[readonly] { color: #596579; background: #f0ede6; cursor: not-allowed; }
+.laundry-stock-entry-form > .btn { min-height: 42px; white-space: nowrap; justify-content: center; }
+.laundry-stock-feedback {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.laundry-stock-feedback.success { color: #087054; background: #ecfdf5; border: 1px solid #a7f3d0; }
+.laundry-stock-feedback.error { color: #b42335; background: #fff1f2; border: 1px solid #fecdd3; }
+.laundry-stock-summary-heading { display: flex; align-items: end; justify-content: space-between; gap: 15px; margin: 0 0 10px; }
+.laundry-stock-summary-heading h3 { margin: 0; color: var(--hotel-navy-900); font-size: 1rem; text-transform: capitalize; }
+.laundry-stock-summary-heading small { color: var(--hotel-slate-500); }
+.laundry-stock-summary-table { min-width: 560px; }
+.laundry-stock-summary-table th:not(:first-child),
+.laundry-stock-summary-table td:not(:first-child) { text-align: center; }
+.laundry-stock-summary-table tfoot td {
+  color: #fff;
+  background: var(--hotel-navy-800);
+  border: 0;
+  font-weight: 900;
+}
+.stock-quantity { display: inline-flex; min-width: 48px; padding: 4px 9px; justify-content: center; border-radius: 999px; font-weight: 900; }
+.stock-quantity.received { color: #087054; background: #dcfce7; }
+.stock-quantity.given-out { color: #b42335; background: #ffe4e6; }
+.stock-net { color: #087054; }
+.stock-net.negative { color: #b42335; }
+.laundry-stock-records { margin-top: 18px; border-top: 1px solid var(--hotel-line); }
+.laundry-stock-records > summary { padding: 15px 2px 12px; color: var(--hotel-navy-800); cursor: pointer; font-size: 0.9rem; font-weight: 900; }
+.laundry-stock-records-table { min-width: 780px; }
+.stock-movement-badge { display: inline-flex; padding: 4px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; }
+.stock-movement-badge.received { color: #087054; background: #dcfce7; }
+.stock-movement-badge.given_out { color: #b42335; background: #ffe4e6; }
+.laundry-stock-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.68rem; }
+.laundry-stock-empty { padding: 28px; color: #8a96a8; text-align: center; }
+
 /* Scrollbars and motion */
 * { scrollbar-width: thin; scrollbar-color: #a8b2c1 transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -2130,6 +2198,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .header-content { padding-inline: 18px; }
   .tabs button { padding-inline: 11px; }
   .room-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .laundry-stock-entry-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
@@ -2154,6 +2223,11 @@ tbody tr:last-child td { border-bottom: 0; }
   .customer-form-actions .btn { justify-content: center; }
   .customer-history-title { align-items: stretch; flex-direction: column; }
   .customer-history-title .search-bar { width: 100%; max-width: none; }
+  .laundry-stock-title { align-items: stretch; flex-direction: column; }
+  .laundry-stock-month-picker { justify-content: space-between; }
+  .laundry-stock-entry-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .laundry-stock-entry-form > .btn { width: 100%; }
+  .laundry-stock-summary-heading { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 480px) {
@@ -2175,6 +2249,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .mc-request-card { padding: 13px; }
   .mc-request-card-top { flex-direction: column; }
   .admin-table-container { border-radius: 10px; }
+  .laundry-stock-entry-form { grid-template-columns: 1fr; padding: 12px; }
   th,
   td { padding: 10px 11px; }
 }

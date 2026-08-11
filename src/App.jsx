@@ -1545,6 +1545,7 @@ export default function App() {
     const form = event.currentTarget;
     const customerName = form.customerName.value.trim();
     const phoneNumber = form.phoneNumber.value.trim();
+    const remark = form.remark.value.trim();
     const callTime = customerCallTime;
 
     if (!CUSTOMER_PHONE_PATTERN.test(phoneNumber)) {
@@ -1559,6 +1560,7 @@ export default function App() {
       await addDoc(collection(db, "customerDetails"), {
         customerName,
         phoneNumber,
+        remark,
         callTime,
         keyedInBy: currentUser.name,
         keyedInById: currentUser.userid,
@@ -2268,6 +2270,7 @@ export default function App() {
     !normalizedCustomerSearch ||
     (customer.customerName || '').toLowerCase().includes(normalizedCustomerSearch) ||
     (customer.phoneNumber || '').toLowerCase().includes(normalizedCustomerSearch) ||
+    (customer.remark || '').toLowerCase().includes(normalizedCustomerSearch) ||
     (customer.keyedInBy || '').toLowerCase().includes(normalizedCustomerSearch)
   ));
 
@@ -2677,6 +2680,13 @@ export default function App() {
                   <input type="time" value={customerCallTime} onChange={event => setCustomerCallTime(event.target.value)} required />
                 </div>
               </label>
+              <label className="customer-remark-field">
+                <span>Remark <small>Optional</small></span>
+                <div className="customer-input-wrap customer-textarea-wrap">
+                  <i className="fa-solid fa-note-sticky"></i>
+                  <textarea name="remark" placeholder="Add any notes about this customer call" rows="3" maxLength="500"></textarea>
+                </div>
+              </label>
               <div className="customer-form-actions">
                 <small><i className="fa-solid fa-clock"></i> Added date and time will be saved automatically.</small>
                 <button type="submit" className="btn blue" disabled={isCustomerSaving}>
@@ -2698,7 +2708,7 @@ export default function App() {
               <input
                 className="search-bar"
                 type="search"
-                placeholder="Search name, phone or staff..."
+                placeholder="Search name, phone, remark or staff..."
                 value={customerSearch}
                 onChange={event => setCustomerSearch(event.target.value)}
               />
@@ -2706,15 +2716,16 @@ export default function App() {
             <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table className="customer-details-table">
                 <thead>
-                  <tr><th>Customer Name</th><th>Phone Number</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
+                  <tr><th>Customer Name</th><th>Phone Number</th><th>Remark</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
                 </thead>
                 <tbody>
                   {filteredCustomerDetails.length === 0 ? (
-                    <tr><td colSpan="5" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
+                    <tr><td colSpan="6" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
                   ) : filteredCustomerDetails.map(customer => (
                     <tr key={customer.id}>
                       <td><strong>{customer.customerName || '-'}</strong></td>
                       <td><a className="customer-phone-link" href={`tel:${customer.phoneNumber}`}>{customer.phoneNumber || '-'}</a></td>
+                      <td className="customer-remark-cell">{customer.remark || '-'}</td>
                       <td>{customer.keyedInBy || '-'}{customer.keyedInById && <small className="customer-staff-id">{customer.keyedInById}</small>}</td>
                       <td>{formatClockTime(customer.callTime)}</td>
                       <td>{formatDateTime(customer.createdAt)}</td>

@@ -16,8 +16,170 @@ const ICONS = {
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" },
   MC: { icon: "fa-solid fa-notes-medical", label: "Request MC" },
-  ATT_REPORT: { icon: "fa-solid fa-clipboard-user", label: "Attendance Portal" }
+  ATT_REPORT: { icon: "fa-solid fa-clipboard-user", label: "Attendance Portal" },
+  HELP: { icon: "fa-solid fa-comment", label: "Help" }
 };
+
+const HELP_TOPICS = [
+  {
+    id: 'change-password',
+    icon: 'fa-solid fa-key',
+    title: 'How to change your password',
+    summary: 'Update your password from your personal profile.',
+    steps: [
+      'Select your name at the top-right of the screen.',
+      'Open Password & Security.',
+      'Enter your current password, then enter and confirm your new password.',
+      'Select Update Password to save the change.'
+    ],
+    tip: 'Use a password that other people cannot easily guess or reuse.',
+    action: 'SECURITY',
+    actionLabel: 'Open Password & Security',
+    featured: true,
+    audience: 'all',
+    keywords: 'change update password security profile account'
+  },
+  {
+    id: 'forgot-password',
+    icon: 'fa-solid fa-unlock-keyhole',
+    title: 'Forgot your password?',
+    summary: 'Send a password-reset request from the login screen.',
+    steps: [
+      'Log out and select Forgot password? on the login screen.',
+      'Enter your User ID and send the request.',
+      'Contact an administrator to receive your new password.',
+      'Log in with the new password, then change it from your profile.'
+    ],
+    tip: 'For security, only an administrator can complete a forgotten-password request.',
+    audience: 'all',
+    keywords: 'forgot reset cannot login password user id administrator'
+  },
+  {
+    id: 'update-profile',
+    icon: 'fa-solid fa-address-card',
+    title: 'Update your personal details',
+    summary: 'Keep your name, email, date of birth and phone number current.',
+    steps: [
+      'Select your name at the top-right of the screen.',
+      'Stay on Personal Details and update the required information.',
+      'Select Save Profile.'
+    ],
+    action: 'PROFILE',
+    actionLabel: 'Open Personal Details',
+    audience: 'all',
+    keywords: 'profile personal details email phone birthday name'
+  },
+  {
+    id: 'attendance',
+    icon: 'fa-solid fa-mobile-screen-button',
+    title: 'Clock in and clock out',
+    summary: 'Record attendance from your approved mobile device at the hotel.',
+    steps: [
+      'Open My Shift on your approved phone or tablet.',
+      'Allow location access when your browser asks for it.',
+      'Select Clock In when your shift starts and Clock Out when it ends.',
+      'Check Recent Activity to confirm the record was saved.'
+    ],
+    tip: 'If your account is linked to another device, ask an administrator to reset the approved device.',
+    action: 'SHIFT',
+    actionLabel: 'Go to My Shift',
+    audience: 'all',
+    keywords: 'attendance shift clock punch in out location device mobile'
+  },
+  {
+    id: 'room-ticket',
+    icon: 'fa-solid fa-screwdriver-wrench',
+    title: 'Report a room problem',
+    summary: 'Create and follow up a maintenance ticket for a room.',
+    steps: [
+      'Open Rooms and select the affected room.',
+      'Create a maintenance ticket and describe the problem clearly.',
+      'Open Tickets to check its status or update the work completed.'
+    ],
+    action: 'TICKETS',
+    actionLabel: 'Go to Tickets',
+    audience: 'all',
+    keywords: 'room issue problem repair maintenance ticket report'
+  },
+  {
+    id: 'request-staff',
+    icon: 'fa-solid fa-paper-plane',
+    title: 'Send a request to another staff member',
+    summary: 'Assign a request and track whether it is accepted or completed.',
+    steps: [
+      'Open Request Staff and choose the receiving staff member.',
+      'Write a clear request, including the room number when relevant.',
+      'Send it and check the same page for the latest status.'
+    ],
+    action: 'REQ',
+    actionLabel: 'Go to Request Staff',
+    audience: 'all',
+    keywords: 'send request staff task assign accept complete'
+  },
+  {
+    id: 'request-mc',
+    icon: 'fa-solid fa-notes-medical',
+    title: 'Submit an MC request',
+    summary: 'Send your medical certificate details for review.',
+    steps: [
+      'Open Request MC and enter the MC dates.',
+      'Add the relevant reason or remarks.',
+      'Submit the request and return to the page to check its status.'
+    ],
+    action: 'MC',
+    actionLabel: 'Go to Request MC',
+    audience: 'all',
+    keywords: 'mc medical certificate sick leave request status'
+  },
+  {
+    id: 'admin-password-reset',
+    icon: 'fa-solid fa-user-lock',
+    title: 'Reset a staff password',
+    summary: 'Complete a pending password-reset request or set a new staff password.',
+    steps: [
+      'Open Admin and find Staff Management.',
+      'Look for the Password reset requested badge, or select the staff member.',
+      'Choose Change Password, enter a temporary password and give it to the staff member securely.',
+      'Ask the staff member to change it after signing in.'
+    ],
+    action: 'ADMIN',
+    actionLabel: 'Open Admin',
+    audience: 'admin',
+    keywords: 'admin staff forgot reset password pending temporary'
+  },
+  {
+    id: 'admin-device-reset',
+    icon: 'fa-solid fa-mobile-retro',
+    title: 'Reset a staff approved device',
+    summary: 'Allow a staff member to bind their account to a replacement phone or tablet.',
+    steps: [
+      'Open Admin and locate the staff member.',
+      'Check the Approved Device status and select Reset Device.',
+      'Ask the staff member to sign in again on the device they want to use.'
+    ],
+    tip: 'Only reset a device after confirming the request belongs to that staff member.',
+    action: 'ADMIN',
+    actionLabel: 'Open Admin',
+    audience: 'admin',
+    keywords: 'admin approved device reset phone tablet bind linked'
+  },
+  {
+    id: 'admin-attendance',
+    icon: 'fa-solid fa-clipboard-user',
+    title: 'Review attendance records',
+    summary: 'Check staff logs, summaries, roster status and away punches.',
+    steps: [
+      'Open Attendance Portal.',
+      'Choose Logs, Summary or Roster depending on what you need.',
+      'Use the date, staff and search filters to narrow the results.',
+      'Review away-punch alerts and acknowledge them after checking.'
+    ],
+    action: 'ATT_REPORT',
+    actionLabel: 'Open Attendance Portal',
+    audience: 'admin',
+    keywords: 'admin attendance report logs summary roster away punch alert'
+  }
+];
 
 // LAUNDRY ITEMS
 const LAUNDRY_ITEMS = [
@@ -665,6 +827,7 @@ export default function App() {
   const [customerCallTime, setCustomerCallTime] = useState(getLocalTimeValue);
   const [customerFeedback, setCustomerFeedback] = useState({ type: '', message: '' });
   const [isCustomerSaving, setIsCustomerSaving] = useState(false);
+  const [helpSearch, setHelpSearch] = useState('');
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -1561,6 +1724,24 @@ export default function App() {
     await updateDoc(doc(db, "tickets", ticket.id), { status: 'resolved', resolvedAt: serverTimestamp(), resolvedBy: currentUser.name });
     logSystemAction(currentUser.name, 'TICKET_RESOLVE', `Resolved maintenance ticket for Room ${ticket.roomId}`); 
     await updateDoc(doc(db, "rooms", ticket.roomId), { status: 'vacant' });
+  };
+
+  const openPasswordSettings = () => {
+    setProfileTab('SECURITY');
+    setProfileFeedback({ type: '', message: '' });
+    setShowProfileModal(true);
+  };
+
+  const handleHelpAction = (action) => {
+    if (action === 'SECURITY') {
+      openPasswordSettings();
+      return;
+    }
+    if (action === 'PROFILE') {
+      openProfilePortal();
+      return;
+    }
+    setView(action);
   };
 
   const handleLaundryStockInlineChange = (dateKey, item, movementType, value) => {
@@ -2653,7 +2834,12 @@ export default function App() {
               if (v === 'ATT_REPORT' && currentUser.role !== 'admin') return null;
               return (
                 <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
-                  <i className={ICONS[v].icon}></i> <span>{ICONS[v].label}</span>
+                  {v === 'HELP' ? (
+                    <span className="help-dialog-icon" aria-hidden="true"><i className="fa-solid fa-comment"></i><b>?</b></span>
+                  ) : (
+                    <i className={ICONS[v].icon}></i>
+                  )}
+                  <span>{ICONS[v].label}</span>
                   {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
                 </button>
               );
@@ -2669,6 +2855,110 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* --- VIEW: HELP & USER GUIDE --- */}
+      {view === 'HELP' && (() => {
+        const normalizedSearch = helpSearch.trim().toLowerCase();
+        const visibleTopics = HELP_TOPICS.filter(topic => (
+          (topic.audience === 'all' || currentUser.role === topic.audience) &&
+          (!normalizedSearch || `${topic.title} ${topic.summary} ${topic.keywords}`.toLowerCase().includes(normalizedSearch))
+        ));
+
+        return (
+          <main className="help-page">
+            <section className="help-hero">
+              <div className="help-hero-copy">
+                <span className="help-hero-icon" aria-hidden="true"><i className="fa-solid fa-comment"></i><b>?</b></span>
+                <div>
+                  <p className="help-eyebrow">HELP CENTRE</p>
+                  <h2>How can we help?</h2>
+                  <p>Find quick, step-by-step guides for the hotel portal.</p>
+                </div>
+              </div>
+              <label className="help-search">
+                <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                <input
+                  type="search"
+                  value={helpSearch}
+                  onChange={event => setHelpSearch(event.target.value)}
+                  placeholder="Search help, e.g. password"
+                  aria-label="Search help guides"
+                />
+                {helpSearch && (
+                  <button type="button" onClick={() => setHelpSearch('')} aria-label="Clear help search">
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                )}
+              </label>
+            </section>
+
+            {!normalizedSearch && (
+              <section className="help-featured" aria-labelledby="help-featured-title">
+                <div className="help-featured-icon"><i className="fa-solid fa-key"></i></div>
+                <div>
+                  <span>Most viewed guide</span>
+                  <h3 id="help-featured-title">Need to change your password?</h3>
+                  <p>Open your profile, choose Password & Security, then confirm your current and new passwords.</p>
+                </div>
+                <button type="button" className="btn blue" onClick={openPasswordSettings}>
+                  Open settings <i className="fa-solid fa-arrow-right"></i>
+                </button>
+              </section>
+            )}
+
+            <section className="help-guides" aria-labelledby="help-guides-title">
+              <div className="help-section-heading">
+                <div>
+                  <p>STEP-BY-STEP</p>
+                  <h3 id="help-guides-title">{normalizedSearch ? 'Search results' : 'Popular guides'}</h3>
+                </div>
+                <span>{visibleTopics.length} {visibleTopics.length === 1 ? 'guide' : 'guides'}</span>
+              </div>
+
+              {visibleTopics.length > 0 ? (
+                <div className="help-topic-grid">
+                  {visibleTopics.map(topic => (
+                    <details className={`help-topic ${topic.featured ? 'featured' : ''}`} key={topic.id} open={topic.featured && !normalizedSearch}>
+                      <summary>
+                        <span className="help-topic-icon"><i className={topic.icon}></i></span>
+                        <span className="help-topic-title">
+                          <strong>{topic.title}</strong>
+                          <small>{topic.summary}</small>
+                        </span>
+                        {topic.audience === 'admin' && <span className="help-admin-badge">Admin</span>}
+                        <i className="fa-solid fa-chevron-down help-chevron" aria-hidden="true"></i>
+                      </summary>
+                      <div className="help-topic-body">
+                        <ol>
+                          {topic.steps.map((step, index) => <li key={step}><span>{index + 1}</span><p>{step}</p></li>)}
+                        </ol>
+                        {topic.tip && <p className="help-tip"><i className="fa-solid fa-lightbulb"></i><span><strong>Good to know:</strong> {topic.tip}</span></p>}
+                        {topic.action && (
+                          <button type="button" className="help-topic-action" onClick={() => handleHelpAction(topic.action)}>
+                            {topic.actionLabel} <i className="fa-solid fa-arrow-right"></i>
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              ) : (
+                <div className="help-empty-state">
+                  <i className="fa-solid fa-magnifying-glass"></i>
+                  <h3>No guide found</h3>
+                  <p>Try a shorter search such as “password”, “attendance” or “request”.</p>
+                  <button type="button" onClick={() => setHelpSearch('')}>Clear search</button>
+                </div>
+              )}
+            </section>
+
+            <aside className="help-support-note">
+              <i className="fa-solid fa-circle-info"></i>
+              <div><strong>Still need help?</strong><span>Contact an administrator and describe the page, room or staff account involved.</span></div>
+            </aside>
+          </main>
+        );
+      })()}
 
       {/* --- VIEW: ROOMS (GRID) --- */}
       {view === 'ROOMS' && (

@@ -1,3 +1,17 @@
+# Aladdin Dream Hotel Management
+
+## Firebase Authentication setup
+
+Password login and recovery use Firebase Authentication email/password accounts.
+
+1. Open Firebase Console for the `hotel-ops-system` project.
+2. Go to **Authentication > Sign-in method**.
+3. Enable **Email/Password** (the first option, not email-link-only sign-in).
+4. Under **Authentication > Templates > Password reset**, set the sender name and email text used for the hotel.
+5. Under **Authentication > Settings > Authorized domains**, include every domain that hosts this app.
+
+Existing Firestore-only accounts are migrated automatically on their next valid login or password-reset request. Once migrated, their plaintext `password` field is removed from Firestore. New staff accounts are created in Firebase Authentication immediately and require a valid recovery email.
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

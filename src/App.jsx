@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { db } from './firebase';
+import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword } from 'firebase/auth';
 import './App.css';
 
 // ICONS & TABS
@@ -43,14 +44,14 @@ const HELP_TOPICS = [
     id: 'forgot-password',
     icon: 'fa-solid fa-unlock-keyhole',
     title: 'Forgot your password?',
-    summary: 'Send a password-reset request from the login screen.',
+    summary: 'Receive a secure Firebase password-reset link by email.',
     steps: [
       'Log out and select Forgot password? on the login screen.',
-      'Enter your User ID and send the request.',
-      'Contact an administrator to receive your new password.',
-      'Log in with the new password, then change it from your profile.'
+      'Enter your User ID and select Email Reset Link.',
+      'Open the email sent to the address saved in your profile.',
+      'Follow the secure link, choose a new password and return to the login screen.'
     ],
-    tip: 'For security, only an administrator can complete a forgotten-password request.',
+    tip: 'Check your spam or junk folder if the Firebase email does not appear after a few minutes.',
     audience: 'all',
     keywords: 'forgot reset cannot login password user id administrator'
   },
@@ -134,13 +135,13 @@ const HELP_TOPICS = [
   {
     id: 'admin-password-reset',
     icon: 'fa-solid fa-user-lock',
-    title: 'Reset a staff password',
-    summary: 'Complete a pending password-reset request or set a new staff password.',
+    title: 'Send a staff password-reset email',
+    summary: 'Send a secure Firebase reset link to the email in a staff profile.',
     steps: [
       'Open Admin and find Staff Management.',
-      'Look for the Password reset requested badge, or select the staff member.',
-      'Choose Change Password, enter a temporary password and give it to the staff member securely.',
-      'Ask the staff member to change it after signing in.'
+      'Select the staff member and confirm that their email address is correct.',
+      'Choose Send Password Reset Email.',
+      'Ask the staff member to follow the link in their email and choose a new password.'
     ],
     action: 'ADMIN',
     actionLabel: 'Open Admin',
@@ -486,6 +487,48 @@ const isComputerDevice = () => !isMobileOrTabletDevice();
 // marks an account as inactive.
 const isUserActive = (user) => user?.active !== false;
 
+const isInvalidAuthCredential = (error) => [
+  'auth/invalid-credential',
+  'auth/invalid-login-credentials',
+  'auth/user-not-found',
+  'auth/wrong-password'
+].includes(error?.code);
+
+const getAuthSetupMessage = (error, fallback) => {
+  if (['auth/operation-not-allowed', 'auth/configuration-not-found'].includes(error?.code)) {
+    return 'Email/password sign-in is not enabled in Firebase Authentication. Please contact the system administrator.';
+  }
+  if (error?.code === 'auth/invalid-email') return 'The email address saved for this account is not valid.';
+  if (error?.code === 'auth/weak-password') return 'The password does not meet the Firebase password policy.';
+  if (error?.code === 'auth/too-many-requests') return 'Too many attempts. Please wait a few minutes and try again.';
+  return fallback;
+};
+
+const maskEmailAddress = (email) => {
+  const [localPart, domain] = (email || '').split('@');
+  if (!localPart || !domain) return 'your registered email address';
+  return `${localPart[0]}${'*'.repeat(Math.max(2, Math.min(localPart.length - 1, 5)))}@${domain}`;
+};
+
+const provisionLegacyAuthAccount = async (email, legacyPassword) => {
+  try {
+    let credential;
+    try {
+      credential = await createUserWithEmailAndPassword(staffProvisioningAuth, email, legacyPassword);
+    } catch (error) {
+      if (error.code !== 'auth/weak-password') throw error;
+      const migrationPassword = `Migrate-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-Aa1!`}`;
+      credential = await createUserWithEmailAndPassword(staffProvisioningAuth, email, migrationPassword);
+    }
+    return { uid: credential.user.uid, created: true };
+  } catch (error) {
+    if (error.code === 'auth/email-already-in-use') return { uid: null, created: false };
+    throw error;
+  } finally {
+    await signOut(staffProvisioningAuth).catch(() => {});
+  }
+};
+
 const getDeviceId = (createIfMissing = true) => {
   if (typeof window === 'undefined') return null;
   let deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
@@ -506,7 +549,7 @@ const getDeviceName = () => {
   return 'Mobile device';
 };
 
-const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null) => {
+const approveOrValidateMobileDevice = async (userDocId) => {
   const deviceId = getDeviceId(true);
   const userRef = doc(db, 'users', userDocId);
   const userSnapshot = await getDoc(userRef);
@@ -514,9 +557,6 @@ const approveOrValidateMobileDevice = async (userDocId, expectedPassword = null)
 
   const latestUser = userSnapshot.data();
   if (!isUserActive(latestUser)) throw new Error('ACCOUNT_INACTIVE');
-  if (expectedPassword !== null && latestUser.password !== expectedPassword) {
-    throw new Error('INCORRECT_PASSWORD');
-  }
   if (latestUser.role === 'admin') return { dbId: userDocId, ...latestUser };
   if (latestUser.approvedDeviceId && latestUser.approvedDeviceId !== deviceId) {
     const error = new Error('DEVICE_ALREADY_BOUND');
@@ -885,11 +925,16 @@ export default function App() {
         const savedUser = JSON.parse(storedUser);
         if (!savedUser.dbId) throw new Error('INVALID_SESSION');
 
+        await auth.authStateReady();
+
         const userSnapshot = await getDoc(doc(db, 'users', savedUser.dbId));
         if (!userSnapshot.exists()) throw new Error('USER_NOT_FOUND');
 
         const latestUser = { dbId: userSnapshot.id, ...userSnapshot.data() };
         if (!isUserActive(latestUser)) throw new Error('ACCOUNT_INACTIVE');
+        if (latestUser.authUid && auth.currentUser?.uid !== latestUser.authUid) {
+          throw new Error('AUTH_SESSION_EXPIRED');
+        }
         if (latestUser.role !== 'admin' && isMobileOrTabletDevice()) {
           if (!latestUser.approvedDeviceId) {
             const error = new Error('DEVICE_BINDING_RESET');
@@ -902,7 +947,8 @@ export default function App() {
             throw error;
           }
         }
-        const userObj = latestUser;
+        const userObj = { ...latestUser };
+        delete userObj.password;
 
         if (!cancelled) {
           setCurrentUser(userObj);
@@ -911,12 +957,15 @@ export default function App() {
         }
       } catch (error) {
         localStorage.removeItem('hotelUser');
+        await signOut(auth).catch(() => {});
         if (!cancelled && (error.code === 'DEVICE_ALREADY_BOUND' || error.message === 'DEVICE_ALREADY_BOUND')) {
           setLoginError(DEVICE_BINDING_ERROR);
         } else if (!cancelled && (error.code === 'DEVICE_BINDING_RESET' || error.message === 'DEVICE_BINDING_RESET')) {
           setLoginError(DEVICE_BINDING_RESET_MESSAGE);
         } else if (!cancelled && error.message === 'ACCOUNT_INACTIVE') {
           setLoginError('This staff account is inactive. Please contact an administrator.');
+        } else if (!cancelled && error.message === 'AUTH_SESSION_EXPIRED') {
+          setLoginError('Your session has expired. Please sign in again.');
         }
       } finally {
         if (!cancelled) setIsSessionReady(true);
@@ -1256,19 +1305,58 @@ export default function App() {
         setLoginError('This staff account is inactive. Please contact an administrator.');
         return;
       }
-      if (userData.password !== loginPass) { setLoginError('Incorrect Password'); return; }
+      let firebaseUser = null;
+      if (EMAIL_PATTERN.test(userData.email?.trim() || '')) {
+        const email = userData.email.trim().toLowerCase();
+        try {
+          const credential = await signInWithEmailAndPassword(auth, email, loginPass);
+          firebaseUser = credential.user;
+        } catch (error) {
+          if (!isInvalidAuthCredential(error) || userData.password !== loginPass) throw error;
+
+          try {
+            const credential = await createUserWithEmailAndPassword(auth, email, loginPass);
+            firebaseUser = credential.user;
+          } catch (migrationError) {
+            if (migrationError.code === 'auth/email-already-in-use') {
+              const incorrectPasswordError = new Error('INCORRECT_PASSWORD');
+              incorrectPasswordError.code = 'INCORRECT_PASSWORD';
+              throw incorrectPasswordError;
+            }
+            throw migrationError;
+          }
+        }
+
+        if (userData.authUid && userData.authUid !== firebaseUser.uid) {
+          await signOut(auth).catch(() => {});
+          throw new Error('AUTH_ACCOUNT_MISMATCH');
+        }
+
+        await updateDoc(doc(db, 'users', docId), {
+          authUid: firebaseUser.uid,
+          authMigratedAt: serverTimestamp(),
+          password: deleteField()
+        });
+      } else if (userData.password !== loginPass) {
+        setLoginError('Incorrect Password');
+        return;
+      }
 
       const isMobileStaff = userData.role !== 'admin' && isMobileOrTabletDevice();
       const shouldBindDevice = isMobileStaff && !userData.approvedDeviceId;
-      let userObj = { dbId: docId, ...userData };
+      const sanitizedUserData = { ...userData, ...(firebaseUser ? { authUid: firebaseUser.uid } : {}) };
+      delete sanitizedUserData.password;
+      let userObj = { dbId: docId, ...sanitizedUserData };
 
       if (isMobileStaff && userData.approvedDeviceId) {
         if (userData.approvedDeviceId !== getDeviceId(false)) {
+          await signOut(auth).catch(() => {});
           setLoginError(DEVICE_BINDING_ERROR);
           return;
         }
       } else if (shouldBindDevice) {
-        userObj = await approveOrValidateMobileDevice(docId, loginPass);
+        userObj = await approveOrValidateMobileDevice(docId);
+        delete userObj.password;
       }
 
       setCurrentUser(userObj);
@@ -1285,15 +1373,20 @@ export default function App() {
         setLoginError('This staff account is inactive. Please contact an administrator.');
       } else if (error.message === 'INCORRECT_PASSWORD') {
         setLoginError('Incorrect Password');
+      } else if (isInvalidAuthCredential(error)) {
+        setLoginError('Incorrect Password');
+      } else if (error.message === 'AUTH_ACCOUNT_MISMATCH') {
+        setLoginError('This email is linked to a different account. Please contact an administrator.');
       } else {
         console.error('Login failed:', error);
-        setLoginError('Login failed. Please try again.');
+        setLoginError(getAuthSetupMessage(error, 'Login failed. Please try again.'));
       }
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     logSystemAction(currentUser.name, 'LOGOUT', 'Logged out of the system');
+    await signOut(auth).catch(error => console.error('Firebase sign-out failed:', error));
     localStorage.removeItem('hotelUser');
     setCurrentUser(null);
     setLoginId('');
@@ -1339,21 +1432,41 @@ export default function App() {
         return;
       }
 
-      if (userData.passwordResetStatus !== 'pending') {
-        await updateDoc(doc(db, 'users', userDocument.id), {
-          passwordResetStatus: 'pending',
-          passwordResetRequestedAt: serverTimestamp()
-        });
-        await logSystemAction(userData.name, 'PASSWORD_RESET_REQUEST', `Requested a password reset for User ID: ${userId}`);
+      const email = userData.email?.trim().toLowerCase();
+      if (!EMAIL_PATTERN.test(email || '')) {
+        setResetFeedback({ type: 'error', message: 'No valid email is saved for this account. Please contact an administrator.' });
+        return;
       }
+
+      if (!userData.authUid && userData.password) {
+        const provisionedAccount = await provisionLegacyAuthAccount(email, userData.password);
+        if (provisionedAccount.created) {
+          await updateDoc(doc(db, 'users', userDocument.id), {
+            authUid: provisionedAccount.uid,
+            authMigratedAt: serverTimestamp(),
+            password: deleteField(),
+            passwordResetStatus: deleteField(),
+            passwordResetRequestedAt: deleteField()
+          });
+        }
+      }
+
+      await sendPasswordResetEmail(auth, email);
+      if (userData.passwordResetStatus === 'pending') {
+        await updateDoc(doc(db, 'users', userDocument.id), {
+          passwordResetStatus: deleteField(),
+          passwordResetRequestedAt: deleteField()
+        });
+      }
+      await logSystemAction(userData.name, 'PASSWORD_RESET_EMAIL', `Requested a Firebase password reset email for User ID: ${userId}`);
 
       setResetFeedback({
         type: 'success',
-        message: 'Request sent. Please contact an administrator to receive your new password.'
+        message: `Reset link sent to ${maskEmailAddress(email)}. Check your inbox and spam folder.`
       });
     } catch (error) {
-      console.error('Password reset request failed:', error);
-      setResetFeedback({ type: 'error', message: 'Unable to send the request. Please try again.' });
+      console.error('Password reset email failed:', error);
+      setResetFeedback({ type: 'error', message: getAuthSetupMessage(error, 'Unable to send the reset email. Please try again.') });
     } finally {
       setIsResetSubmitting(false);
     }
@@ -1402,22 +1515,41 @@ export default function App() {
     setProfileFeedback({ type: '', message: '' });
 
     try {
+      let firebaseUser = auth.currentUser;
+      if (!firebaseUser) {
+        const latestSnapshot = await getDoc(doc(db, 'users', currentUser.dbId));
+        const legacyPassword = latestSnapshot.data()?.password;
+        if (!legacyPassword) throw new Error('AUTH_SESSION_EXPIRED');
+        firebaseUser = (await createUserWithEmailAndPassword(auth, email, legacyPassword)).user;
+      } else if (firebaseUser.email?.toLowerCase() !== email) {
+        await updateEmail(firebaseUser, email);
+      }
+
       await updateDoc(doc(db, 'users', currentUser.dbId), {
         name,
         email,
         dateOfBirth,
         phone,
+        authUid: firebaseUser.uid,
+        authMigratedAt: serverTimestamp(),
+        password: deleteField(),
         profileUpdatedAt: serverTimestamp()
       });
 
-      const updatedUser = { ...currentUser, name, email, dateOfBirth, phone };
+      const updatedUser = { ...currentUser, name, email, dateOfBirth, phone, authUid: firebaseUser.uid };
+      delete updatedUser.password;
       setCurrentUser(updatedUser);
       localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
       await logSystemAction(name, 'PROFILE_UPDATE', 'Updated personal profile information');
       setProfileFeedback({ type: 'success', message: 'Your profile has been updated successfully.' });
     } catch (error) {
       console.error('Profile update failed:', error);
-      setProfileFeedback({ type: 'error', message: 'Unable to update your profile. Please try again.' });
+      const message = error.message === 'AUTH_SESSION_EXPIRED' || error.code === 'auth/email-already-in-use'
+        ? 'Please sign out and sign in again before updating your email address.'
+        : getAuthSetupMessage(error, error.code === 'auth/requires-recent-login'
+          ? 'Please sign out, sign in again and then update your email address.'
+          : 'Unable to update your profile. Please try again.');
+      setProfileFeedback({ type: 'error', message });
     } finally {
       setIsProfileSaving(false);
     }
@@ -1432,10 +1564,6 @@ export default function App() {
     const newPass = form.newPass.value;
     const confirmPass = form.confirmPass.value;
 
-    if (currentPass !== currentUser.password) {
-      setProfileFeedback({ type: 'error', message: 'Your current password is incorrect.' });
-      return;
-    }
     if (newPass !== confirmPass) {
       setProfileFeedback({ type: 'error', message: 'The new passwords do not match.' });
       return;
@@ -1445,12 +1573,35 @@ export default function App() {
     setProfileFeedback({ type: '', message: '' });
 
     try {
+      const email = currentUser.email?.trim().toLowerCase();
+      if (!EMAIL_PATTERN.test(email || '')) throw new Error('EMAIL_REQUIRED');
+
+      let firebaseUser = auth.currentUser;
+      if (!firebaseUser) {
+        try {
+          firebaseUser = (await signInWithEmailAndPassword(auth, email, currentPass)).user;
+        } catch (error) {
+          const latestSnapshot = await getDoc(doc(db, 'users', currentUser.dbId));
+          const legacyPassword = latestSnapshot.data()?.password;
+          if (!isInvalidAuthCredential(error) || legacyPassword !== currentPass) throw error;
+          firebaseUser = (await createUserWithEmailAndPassword(auth, email, currentPass)).user;
+        }
+      } else {
+        const credential = EmailAuthProvider.credential(email, currentPass);
+        await reauthenticateWithCredential(firebaseUser, credential);
+      }
+
+      if (currentUser.authUid && currentUser.authUid !== firebaseUser.uid) throw new Error('AUTH_ACCOUNT_MISMATCH');
+      await updatePassword(firebaseUser, newPass);
       await updateDoc(doc(db, "users", currentUser.dbId), {
-        password: newPass,
+        authUid: firebaseUser.uid,
+        authMigratedAt: serverTimestamp(),
+        password: deleteField(),
         passwordResetStatus: deleteField(),
         passwordResetRequestedAt: deleteField()
       });
-      const updatedUser = { ...currentUser, password: newPass };
+      const updatedUser = { ...currentUser, authUid: firebaseUser.uid };
+      delete updatedUser.password;
       setCurrentUser(updatedUser);
       localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
       await logSystemAction(currentUser.name, 'PASSWORD_CHANGE', 'Changed their own password');
@@ -1458,30 +1609,54 @@ export default function App() {
       setProfileFeedback({ type: 'success', message: 'Your password has been changed successfully.' });
     } catch (error) {
       console.error('Password change failed:', error);
-      setProfileFeedback({ type: 'error', message: 'Unable to change your password. Please try again.' });
+      const incorrectPassword = isInvalidAuthCredential(error);
+      setProfileFeedback({
+        type: 'error',
+        message: incorrectPassword
+          ? 'Your current password is incorrect.'
+          : getAuthSetupMessage(error, error.message === 'EMAIL_REQUIRED'
+            ? 'Add a valid email address to your profile before changing your password.'
+            : 'Unable to change your password. Please try again.')
+      });
     } finally {
       setIsProfileSaving(false);
     }
   };
 
-  const handleAdminChangePassword = async (staffDocId, staffName) => {
-    const newPass = prompt(`Enter new password for ${staffName}:`);
-    if (newPass === null) return; 
-    if (!newPass) return alert("Password cannot be empty.");
+  const handleAdminSendPasswordReset = async (staff) => {
+    const email = staff.email?.trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(email || '')) {
+      alert(`${staff.name} does not have a valid email address in their profile.`);
+      return;
+    }
+    if (!confirm(`Send a Firebase password reset link to ${email}?`)) return;
+
     try {
-        await updateDoc(doc(db, "users", staffDocId), {
-          password: newPass,
+        if (!staff.authUid && staff.password) {
+          const provisionedAccount = await provisionLegacyAuthAccount(email, staff.password);
+          if (provisionedAccount.created) {
+            await updateDoc(doc(db, 'users', staff.dbId), {
+              authUid: provisionedAccount.uid,
+              authMigratedAt: serverTimestamp(),
+              password: deleteField()
+            });
+          }
+        }
+
+        await sendPasswordResetEmail(auth, email);
+        await updateDoc(doc(db, "users", staff.dbId), {
           passwordResetStatus: deleteField(),
           passwordResetRequestedAt: deleteField()
         });
-        setStaffModal(previous => previous?.dbId === staffDocId
+        setStaffModal(previous => previous?.dbId === staff.dbId
           ? { ...previous, passwordResetStatus: undefined, passwordResetRequestedAt: undefined }
           : previous
         );
-        logSystemAction(currentUser.name, 'ADMIN_OVERRIDE', `Changed password for staff: ${staffName}`); 
-        alert(`Password for ${staffName} updated successfully!`);
-    } catch {
-        alert("Failed to update password.");
+        logSystemAction(currentUser.name, 'PASSWORD_RESET_EMAIL', `Sent a Firebase password reset email to staff: ${staff.name}`);
+        alert(`Password reset email sent to ${email}.`);
+    } catch (error) {
+        console.error('Admin password reset email failed:', error);
+        alert(getAuthSetupMessage(error, 'Failed to send the password reset email.'));
     }
   };
 
@@ -2274,6 +2449,7 @@ export default function App() {
     e.preventDefault();
     const f = e.target;
     const userId = f.userid.value.trim();
+    const email = f.email.value.trim().toLowerCase();
     const existingUser = users.find(user => user.userid?.toLowerCase() === userId.toLowerCase());
     if (existingUser) {
       alert(isUserActive(existingUser)
@@ -2282,16 +2458,40 @@ export default function App() {
       return;
     }
 
-    await addDoc(collection(db, "users"), {
-      userid: userId,
-      name: f.name.value.trim(),
-      password: f.password.value,
-      role: f.role.value,
-      active: true,
-      createdAt: serverTimestamp()
-    });
-    await logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.name.value.trim()} (${userId})`);
-    f.reset(); alert("User Created!");
+    if (!EMAIL_PATTERN.test(email)) {
+      alert('Enter a valid email address for password recovery.');
+      return;
+    }
+
+    let authCredential = null;
+    try {
+      authCredential = await createUserWithEmailAndPassword(staffProvisioningAuth, email, f.password.value);
+      try {
+        await addDoc(collection(db, "users"), {
+          userid: userId,
+          name: f.name.value.trim(),
+          email,
+          authUid: authCredential.user.uid,
+          role: f.role.value,
+          active: true,
+          createdAt: serverTimestamp()
+        });
+      } catch (firestoreError) {
+        await deleteUser(authCredential.user).catch(() => {});
+        throw firestoreError;
+      }
+      await logSystemAction(currentUser.name, 'STAFF_CREATE', `Created new staff profile: ${f.name.value.trim()} (${userId})`);
+      f.reset();
+      alert('User created with Firebase Authentication.');
+    } catch (error) {
+      console.error('Staff account creation failed:', error);
+      const message = error.code === 'auth/email-already-in-use'
+        ? 'That email address is already used by another Firebase account.'
+        : getAuthSetupMessage(error, 'Unable to create the staff account.');
+      alert(message);
+    } finally {
+      await signOut(staffProvisioningAuth).catch(() => {});
+    }
   };
 
   const handleSetStaffActive = async (staff, active) => {
@@ -2665,7 +2865,7 @@ export default function App() {
               <div className="login-icon"><i className="fa-solid fa-key"></i></div>
               <h1>Forgot Password</h1>
               <p className="forgot-password-instructions">
-                Enter your User ID. An administrator will be notified to reset your password.
+                Enter your User ID. Firebase will email a secure reset link to the address saved in your profile.
               </p>
               <label className="login-field-label" htmlFor="reset-user-id">User ID</label>
               <input
@@ -2685,7 +2885,7 @@ export default function App() {
               )}
               {resetFeedback.type !== 'success' && (
                 <button type="submit" className="btn blue login-submit-btn" disabled={isResetSubmitting}>
-                  {isResetSubmitting ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending...</> : <><i className="fa-solid fa-paper-plane"></i> Send Reset Request</>}
+                  {isResetSubmitting ? <><i className="fa-solid fa-spinner fa-spin"></i> Sending...</> : <><i className="fa-solid fa-envelope"></i> Email Reset Link</>}
                 </button>
               )}
               <button type="button" className="login-link-btn" onClick={closeForgotPassword}>
@@ -4342,12 +4542,14 @@ export default function App() {
               <form onSubmit={handleCreateUser} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'20px'}}>
                 <input name="userid" placeholder="ID" required style={{flex:1}} />
                 <input name="name" placeholder="Name" required style={{flex:1}} />
+                <input name="email" type="email" placeholder="Email" autoComplete="off" required style={{flex:1.4, minWidth:'190px'}} />
                 <PasswordField
                   wrapperClassName="staff-create-password-field"
                   toggleLabel="staff password"
                   name="password"
                   placeholder="Pass"
                   autoComplete="new-password"
+                  minLength="6"
                   required
                 />
                 <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>
@@ -4355,11 +4557,11 @@ export default function App() {
               </form>
               <div className="admin-table-container scroll-pane scroll-pane-tall">
                 <table>
-                  <thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Status</th><th>Approved Device</th><th>Manage</th></tr></thead>
+                  <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Approved Device</th><th>Manage</th></tr></thead>
                   <tbody>
                     {users.map(u => (
                       <tr key={u.dbId} className={`clickable-row ${isUserActive(u) ? '' : 'inactive-staff-row'} ${u.passwordResetStatus === 'pending' ? 'password-reset-row' : ''}`} onClick={() => setStaffModal(u)}>
-                        <td>{u.userid}</td><td>{u.name}</td><td>{u.role}</td>
+                        <td>{u.userid}</td><td>{u.name}</td><td>{u.email || <span style={{color:'#b45309'}}>Not set</span>}</td><td>{u.role}</td>
                         <td>
                           <span className={`staff-account-status ${isUserActive(u) ? 'active' : 'inactive'}`}>
                             <i className={`fa-solid ${isUserActive(u) ? 'fa-circle-check' : 'fa-circle-minus'}`}></i>
@@ -4381,9 +4583,9 @@ export default function App() {
                           )}
                         </td>
                         <td onClick={(e) => e.stopPropagation()}>
-                            {u.passwordResetStatus === 'pending' && (
-                              <button onClick={() => handleAdminChangePassword(u.dbId, u.name)} className="btn password-reset-btn" title="Set a new password and complete this request">
-                                <i className="fa-solid fa-key"></i> Reset Password
+                            {EMAIL_PATTERN.test(u.email?.trim() || '') && (
+                              <button onClick={() => handleAdminSendPasswordReset(u)} className="btn password-reset-btn" title="Email a secure Firebase password reset link">
+                                <i className="fa-solid fa-envelope"></i> Email Reset Link
                               </button>
                             )}
                             {u.role !== 'admin' && isUserActive(u) && u.approvedDeviceId && (
@@ -4665,7 +4867,7 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
-                  <button onClick={() => handleAdminChangePassword(staffModal.dbId, staffModal.name)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}}><i className="fa-solid fa-key"></i> Change Staff Password</button>
+                  <button onClick={() => handleAdminSendPasswordReset(staffModal)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}} disabled={!EMAIL_PATTERN.test(staffModal.email?.trim() || '')}><i className="fa-solid fa-envelope"></i> Send Password Reset Email</button>
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>

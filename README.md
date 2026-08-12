@@ -4,6 +4,8 @@
 
 Password login and recovery use Firebase Authentication email/password accounts.
 
+The application intentionally uses two Firebase projects: operational hotel records remain in the `hotel-ops-system` Firestore database, while email/password authentication and password-reset emails use `new-portal-14fcc`.
+
 1. Open Firebase Console for the `new-portal-14fcc` project.
 2. Go to **Authentication > Sign-in method**.
 3. Enable **Email/Password** (the first option, not email-link-only sign-in).

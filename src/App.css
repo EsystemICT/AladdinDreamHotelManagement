@@ -938,6 +938,27 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
   font-size: 1.45rem;
 }
 .forgot-password-instructions { margin: 0 0 20px; color: #64748b; line-height: 1.5; font-size: 0.92rem; }
+.forgot-password-spam-note,
+.password-reset-rule-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: -8px 0 17px;
+  padding: 9px 10px;
+  color: #6b5b3f;
+  background: #fff9ed;
+  border: 1px solid #f0ddb9;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: left;
+}
+.forgot-password-spam-note i,
+.password-reset-rule-note i { margin-top: 2px; color: #b7791f; }
+.password-reset-rule-note { margin: 2px 0 16px; color: #526071; background: #f6f8fa; border-color: #dce3eb; }
+.password-reset-rule-note i { color: #2563a8; }
+.reset-link-checking { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 22px 10px; color: #64748b; }
+.password-reset-page .login-card { max-width: 390px; }
 .login-field-label { display: block; margin-bottom: 7px; color: #374151; font-size: 0.86rem; font-weight: 800; text-align: left; }
 .login-submit-btn { width: 100%; justify-content: center; }
 .login-submit-btn:disabled { cursor: wait; opacity: 0.65; }

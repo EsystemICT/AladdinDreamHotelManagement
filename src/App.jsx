@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
-import { createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword } from 'firebase/auth';
+import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyPasswordResetCode } from 'firebase/auth';
 import './App.css';
 
 // ICONS & TABS
@@ -49,9 +49,9 @@ const HELP_TOPICS = [
       'Log out and select Forgot password? on the login screen.',
       'Enter your User ID and select Email Reset Link.',
       'Open the email sent to the address saved in your profile.',
-      'Follow the secure link, choose a new password and return to the login screen.'
+      'Follow the secure link, enter New Password and Confirm Password, then save it.'
     ],
-    tip: 'Check your spam or junk folder if the Firebase email does not appear after a few minutes.',
+    tip: 'If the link does not arrive after a few minutes, check your email Spam or Junk folder.',
     audience: 'all',
     keywords: 'forgot reset cannot login password user id administrator'
   },
@@ -141,7 +141,7 @@ const HELP_TOPICS = [
       'Open Admin and find Staff Management.',
       'Select the staff member and confirm that their email address is correct.',
       'Choose Send Password Reset Email.',
-      'Ask the staff member to follow the link in their email and choose a new password.'
+      'Ask the staff member to follow the link, enter New Password and Confirm Password, then save it.'
     ],
     action: 'ADMIN',
     actionLabel: 'Open Admin',
@@ -499,7 +499,7 @@ const getAuthSetupMessage = (error, fallback) => {
     return 'Email/password sign-in is not enabled in Firebase Authentication. Please contact the system administrator.';
   }
   if (error?.code === 'auth/invalid-email') return 'The email address saved for this account is not valid.';
-  if (error?.code === 'auth/weak-password') return 'The password does not meet the Firebase password policy.';
+  if (error?.code === 'auth/weak-password') return 'Firebase requires the password to contain at least 6 characters.';
   if (error?.code === 'auth/too-many-requests') return 'Too many attempts. Please wait a few minutes and try again.';
   return fallback;
 };
@@ -856,6 +856,8 @@ export default function App() {
   const [resetUserId, setResetUserId] = useState('');
   const [resetFeedback, setResetFeedback] = useState({ type: '', message: '' });
   const [isResetSubmitting, setIsResetSubmitting] = useState(false);
+  const [resetLinkState, setResetLinkState] = useState({ status: 'idle', email: '', message: '' });
+  const [isResetLinkSubmitting, setIsResetLinkSubmitting] = useState(false);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState('');
   const [isMcSubmitting, setIsMcSubmitting] = useState(false);
 
@@ -899,6 +901,34 @@ export default function App() {
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
   const [hotelLocation, setHotelLocation] = useState(DEFAULT_HOTEL_COORDS);
   const isRequestView = view === 'REQ';
+  const passwordResetCode = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'resetPassword' ? (params.get('oobCode') || '') : '';
+  }, []);
+
+  useEffect(() => {
+    if (!passwordResetCode) return;
+    let cancelled = false;
+    setResetLinkState({ status: 'checking', email: '', message: '' });
+
+    verifyPasswordResetCode(auth, passwordResetCode)
+      .then(email => {
+        if (!cancelled) setResetLinkState({ status: 'ready', email, message: '' });
+      })
+      .catch(error => {
+        console.error('Password reset link verification failed:', error);
+        if (!cancelled) {
+          setResetLinkState({
+            status: 'error',
+            email: '',
+            message: 'This password reset link is invalid or has expired. Request a new link from the login page.'
+          });
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [passwordResetCode]);
 
   const requests = useMemo(() => {
     const uniqueRequests = new Map();
@@ -1470,6 +1500,49 @@ export default function App() {
     } finally {
       setIsResetSubmitting(false);
     }
+  };
+
+  const handleCompletePasswordReset = async (e) => {
+    e.preventDefault();
+    if (!passwordResetCode || isResetLinkSubmitting) return;
+
+    const form = e.currentTarget;
+    const newPassword = form.newPassword.value;
+    const confirmPassword = form.confirmPassword.value;
+
+    if (newPassword !== confirmPassword) {
+      setResetLinkState(previous => ({ ...previous, message: 'New Password and Confirm Password do not match.' }));
+      return;
+    }
+
+    setIsResetLinkSubmitting(true);
+    setResetLinkState(previous => ({ ...previous, message: '' }));
+    try {
+      await confirmPasswordReset(auth, passwordResetCode, newPassword);
+      setResetLinkState(previous => ({
+        ...previous,
+        status: 'success',
+        message: 'Your password has been reset successfully. You can now return to login.'
+      }));
+    } catch (error) {
+      console.error('Password reset completion failed:', error);
+      const expiredLink = ['auth/expired-action-code', 'auth/invalid-action-code'].includes(error.code);
+      setResetLinkState(previous => ({
+        ...previous,
+        status: expiredLink ? 'error' : 'ready',
+        message: expiredLink
+          ? 'This password reset link is invalid or has expired. Request a new link from the login page.'
+          : getAuthSetupMessage(error, 'Unable to reset the password. Please try again.')
+      }));
+    } finally {
+      setIsResetLinkSubmitting(false);
+    }
+  };
+
+  const leavePasswordResetPage = () => {
+    const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+    window.location.reload();
   };
 
   const openProfilePortal = () => {
@@ -2842,6 +2915,78 @@ export default function App() {
   const uniqueAuditUsers = [...new Set(auditLogs.map(l => l.user))].sort();
   const uniqueAuditActions = [...new Set(auditLogs.map(l => l.action))].sort();
 
+  if (passwordResetCode) {
+    return (
+      <div className="app-container">
+        <div className="login-container password-reset-page">
+          <form className="login-card" onSubmit={handleCompletePasswordReset}>
+            <div className="login-icon"><i className="fa-solid fa-key"></i></div>
+            <h1>Reset Password</h1>
+
+            {resetLinkState.status === 'checking' && (
+              <div className="reset-link-checking" role="status">
+                <i className="fa-solid fa-spinner fa-spin"></i>
+                <span>Checking your secure reset link...</span>
+              </div>
+            )}
+
+            {resetLinkState.status === 'ready' && (
+              <>
+                <p className="forgot-password-instructions">
+                  Choose a new password for <strong>{maskEmailAddress(resetLinkState.email)}</strong>.
+                </p>
+                <label className="login-field-label" htmlFor="reset-new-password">New Password</label>
+                <PasswordField
+                  wrapperClassName="login-password-field"
+                  id="reset-new-password"
+                  name="newPassword"
+                  toggleLabel="new password"
+                  placeholder="Enter new password"
+                  autoComplete="new-password"
+                  autoFocus
+                  required
+                />
+                <label className="login-field-label" htmlFor="reset-confirm-password">Confirm Password</label>
+                <PasswordField
+                  wrapperClassName="login-password-field"
+                  id="reset-confirm-password"
+                  name="confirmPassword"
+                  toggleLabel="password confirmation"
+                  placeholder="Enter the same password again"
+                  autoComplete="new-password"
+                  required
+                />
+                <p className="password-reset-rule-note">
+                  <i className="fa-solid fa-circle-info"></i>
+                  No uppercase, number or symbol combination is required. Firebase requires at least 6 characters.
+                </p>
+              </>
+            )}
+
+            {resetLinkState.message && (
+              <p className={`reset-feedback ${resetLinkState.status === 'success' ? 'success' : 'error'}`} role="status">
+                <i className={`fa-solid ${resetLinkState.status === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                {resetLinkState.message}
+              </p>
+            )}
+
+            {resetLinkState.status === 'ready' && (
+              <button type="submit" className="btn blue login-submit-btn" disabled={isResetLinkSubmitting}>
+                {isResetLinkSubmitting ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <><i className="fa-solid fa-floppy-disk"></i> Save New Password</>}
+              </button>
+            )}
+
+            {['success', 'error'].includes(resetLinkState.status) && (
+              <button type="button" className="btn blue login-submit-btn" onClick={leavePasswordResetPage}>
+                <i className="fa-solid fa-arrow-left"></i> Return to Login
+              </button>
+            )}
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!isSessionReady) {
     return (
       <div className="app-container">
@@ -2866,6 +3011,10 @@ export default function App() {
               <h1>Forgot Password</h1>
               <p className="forgot-password-instructions">
                 Enter your User ID. Firebase will email a secure reset link to the address saved in your profile.
+              </p>
+              <p className="forgot-password-spam-note">
+                <i className="fa-solid fa-envelope-open-text"></i>
+                Didn&apos;t receive the link? Please check your email Spam or Junk folder.
               </p>
               <label className="login-field-label" htmlFor="reset-user-id">User ID</label>
               <input
@@ -4549,7 +4698,6 @@ export default function App() {
                   name="password"
                   placeholder="Pass"
                   autoComplete="new-password"
-                  minLength="6"
                   required
                 />
                 <select name="role" style={{width:'100px'}}><option value="staff">Staff</option><option value="admin">Admin</option></select>

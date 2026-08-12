@@ -4,7 +4,7 @@
 
 Password login and recovery use Firebase Authentication email/password accounts.
 
-1. Open Firebase Console for the `hotel-ops-system` project.
+1. Open Firebase Console for the `new-portal-14fcc` project.
 2. Go to **Authentication > Sign-in method**.
 3. Enable **Email/Password** (the first option, not email-link-only sign-in).
 4. Under **Authentication > Templates > Password reset**, set the sender name and email text used for the hotel.

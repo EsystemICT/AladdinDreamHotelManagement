@@ -2956,10 +2956,6 @@ export default function App() {
                   autoComplete="new-password"
                   required
                 />
-                <p className="password-reset-rule-note">
-                  <i className="fa-solid fa-circle-info"></i>
-                  No uppercase, number or symbol combination is required. Firebase requires at least 6 characters.
-                </p>
               </>
             )}
 

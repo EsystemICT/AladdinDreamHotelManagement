@@ -11,6 +11,7 @@ const ICONS = {
   CUSTOMERS: { icon: "fa-solid fa-address-book", label: "Customer Details" },
   ITEMS: { icon: "fa-solid fa-boxes-stacked", label: "Item Request" },
   LAUNDRY: { icon: "fa-solid fa-shirt", label: "Laundry/Stock" },
+  HOUSEKEEPING: { icon: "fa-solid fa-broom", label: "Housekeeping" },
   CLAIMS: { icon: "fa-solid fa-calendar-check", label: "Claim Days" },
   DEPOSIT: { icon: "fa-solid fa-money-bill-wave", label: "Deposits" },
   VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" },
@@ -101,6 +102,23 @@ const HELP_TOPICS = [
     actionLabel: 'Go to Tickets',
     audience: 'all',
     keywords: 'room issue problem repair maintenance ticket report'
+  },
+  {
+    id: 'daily-housekeeping',
+    icon: 'fa-solid fa-broom',
+    title: 'Record daily room housekeeping',
+    summary: 'Record which staff member handled housekeeping for each room and date.',
+    steps: [
+      'Open Housekeeping from the navigation menu.',
+      'Choose the month and the housekeeping date.',
+      'Select the room and the staff member who handled the housekeeping.',
+      'Select Add Record and check the daily list below to confirm it was saved.'
+    ],
+    tip: 'More than one staff member can be recorded for the same room and date. Administrators can remove an incorrect record.',
+    action: 'HOUSEKEEPING',
+    actionLabel: 'Go to Housekeeping',
+    audience: 'all',
+    keywords: 'daily housekeeping room cleaner staff record assignment clean'
   },
   {
     id: 'request-staff',
@@ -293,6 +311,18 @@ const calendarDisplayToIso = (value) => {
   return isValidCalendarDate(isoValue) ? isoValue : '';
 };
 
+const monthIsoToDisplay = (value) => {
+  const match = (value || '').match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  if (!match) return '';
+  return `${Number(match[2])}/${match[1]}`;
+};
+
+const monthDisplayToIso = (value) => {
+  const match = (value || '').trim().match(/^(0?[1-9]|1[0-2])\/(\d{4})$/);
+  if (!match) return '';
+  return `${match[2]}-${match[1].padStart(2, '0')}`;
+};
+
 const getLocalIsoDate = (date = new Date()) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
@@ -439,6 +469,60 @@ const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
       <input ref={hiddenInputRef} type="hidden" name={name} value={isoValue} readOnly />
       <small className="profile-date-help">Enter DD/MM/YYYY or choose from the calendar.</small>
     </>
+  );
+};
+
+const MonthYearField = ({ value, onChange }) => {
+  const pickerRef = useRef(null);
+  const [displayValue, setDisplayValue] = useState(() => monthIsoToDisplay(value));
+
+  const openMonthPicker = () => {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    try {
+      if (typeof picker.showPicker === 'function') picker.showPicker();
+      else picker.click();
+    } catch {
+      picker.click();
+    }
+  };
+
+  return (
+    <div className="profile-date-entry laundry-month-year-entry">
+      <i className="fa-solid fa-calendar-days" aria-hidden="true"></i>
+      <input
+        type="text"
+        value={displayValue}
+        onChange={event => {
+          const nextDisplayValue = event.target.value;
+          setDisplayValue(nextDisplayValue);
+          const nextIsoValue = monthDisplayToIso(nextDisplayValue);
+          if (nextIsoValue) onChange(nextIsoValue);
+        }}
+        onBlur={() => {
+          if (!monthDisplayToIso(displayValue)) setDisplayValue(monthIsoToDisplay(value));
+        }}
+        placeholder="8/2026"
+        inputMode="numeric"
+        aria-label="Month and year in month slash year format"
+      />
+      <button type="button" className="profile-calendar-btn" onClick={openMonthPicker} aria-label="Choose month and year" title="Choose month and year">
+        <i className="fa-solid fa-calendar-days"></i>
+      </button>
+      <input
+        ref={pickerRef}
+        className="profile-native-date-picker"
+        type="month"
+        value={value}
+        onChange={event => {
+          if (!event.target.value) return;
+          setDisplayValue(monthIsoToDisplay(event.target.value));
+          onChange(event.target.value);
+        }}
+        tabIndex="-1"
+        aria-hidden="true"
+      />
+    </div>
   );
 };
 
@@ -826,6 +910,7 @@ export default function App() {
   const [claimDays, setClaimDays] = useState([]);
   const [laundry, setLaundry] = useState([]);
   const [laundryStockMovements, setLaundryStockMovements] = useState([]);
+  const [housekeepingRecords, setHousekeepingRecords] = useState([]);
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
@@ -879,6 +964,14 @@ export default function App() {
   const [laundryStockInlineEntries, setLaundryStockInlineEntries] = useState({});
   const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
   const [savingLaundryStockDate, setSavingLaundryStockDate] = useState('');
+
+  // Daily Housekeeping UI
+  const [housekeepingMonth, setHousekeepingMonth] = useState(getCurrentMonthString);
+  const [housekeepingDate, setHousekeepingDate] = useState(getLocalIsoDate);
+  const [housekeepingRoomId, setHousekeepingRoomId] = useState('');
+  const [housekeepingStaffId, setHousekeepingStaffId] = useState('');
+  const [housekeepingFeedback, setHousekeepingFeedback] = useState({ type: '', message: '' });
+  const [isHousekeepingSaving, setIsHousekeepingSaving] = useState(false);
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -1213,6 +1306,23 @@ export default function App() {
       }));
     }
 
+    if (view === 'HOUSEKEEPING') {
+      const qHousekeeping = query(
+        collection(db, "housekeepingDaily"),
+        where("month", "==", housekeepingMonth),
+        limit(1000)
+      );
+      unsubs.push(onSnapshot(qHousekeeping, (snap) => {
+        const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        records.sort((a, b) => {
+          const dateComparison = (b.serviceDate || '').localeCompare(a.serviceDate || '');
+          if (dateComparison !== 0) return dateComparison;
+          return String(a.roomId || '').localeCompare(String(b.roomId || ''), undefined, { numeric: true });
+        });
+        setHousekeepingRecords(records);
+      }));
+    }
+
     if (view === 'DEPOSIT') {
       const qDeposits = query(collection(db, "deposits"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qDeposits, (snap) => setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
@@ -1229,7 +1339,7 @@ export default function App() {
     }
 
     return () => unsubs.forEach(unsubscribe => unsubscribe());
-  }, [currentUser, view, selectedRoom, staffModal, attFilterMonth, laundryStockMonth]);
+  }, [currentUser, view, selectedRoom, staffModal, attFilterMonth, laundryStockMonth, housekeepingMonth]);
 
   // Keep attendance alerts live for admins on every page. Unacknowledged
   // alerts remain visible after logout so an offline admin sees them later.
@@ -2052,6 +2162,94 @@ export default function App() {
     }
   };
 
+  const handleHousekeepingMonthChange = (nextMonth) => {
+    setHousekeepingMonth(nextMonth);
+    const today = getLocalIsoDate();
+    setHousekeepingDate(today.startsWith(nextMonth) ? today : `${nextMonth}-01`);
+    setHousekeepingFeedback({ type: '', message: '' });
+  };
+
+  const handleHousekeepingDateChange = (nextDate) => {
+    setHousekeepingDate(nextDate);
+    if (nextDate) setHousekeepingMonth(nextDate.slice(0, 7));
+    setHousekeepingFeedback({ type: '', message: '' });
+  };
+
+  const handleAddHousekeepingRecord = async (event) => {
+    event.preventDefault();
+    if (isHousekeepingSaving) return;
+
+    const room = rooms.find(item => String(item.id) === housekeepingRoomId);
+    const staff = users.find(user => user.dbId === housekeepingStaffId && isUserActive(user));
+    if (!housekeepingDate || !room || !staff) {
+      setHousekeepingFeedback({ type: 'error', message: 'Please select a date, room and active staff member.' });
+      return;
+    }
+
+    const duplicateRecord = housekeepingRecords.some(record => (
+      record.serviceDate === housekeepingDate &&
+      String(record.roomId) === String(room.id) &&
+      (record.staffDocId === staff.dbId || record.staffId === staff.userid)
+    ));
+    if (duplicateRecord) {
+      setHousekeepingFeedback({
+        type: 'error',
+        message: `${staff.name} is already recorded for Room ${room.id} on ${calendarIsoToDisplay(housekeepingDate)}.`
+      });
+      return;
+    }
+
+    setIsHousekeepingSaving(true);
+    setHousekeepingFeedback({ type: '', message: '' });
+    try {
+      await addDoc(collection(db, 'housekeepingDaily'), {
+        serviceDate: housekeepingDate,
+        month: housekeepingDate.slice(0, 7),
+        roomId: String(room.id),
+        roomType: room.type || '',
+        staffDocId: staff.dbId,
+        staffId: staff.userid || '',
+        staffName: staff.name || staff.userid || 'Staff',
+        recordedBy: currentUser.name,
+        recordedById: currentUser.userid,
+        createdAt: serverTimestamp()
+      });
+      await logSystemAction(
+        currentUser.name,
+        'HOUSEKEEPING_DAILY_ADD',
+        `Recorded ${staff.name} for housekeeping Room ${room.id} on ${housekeepingDate}`
+      );
+      setHousekeepingRoomId('');
+      setHousekeepingFeedback({
+        type: 'success',
+        message: `Room ${room.id} housekeeping by ${staff.name} was recorded for ${calendarIsoToDisplay(housekeepingDate)}.`
+      });
+    } catch (error) {
+      console.error('Daily housekeeping record save failed:', error);
+      setHousekeepingFeedback({ type: 'error', message: 'Unable to save the housekeeping record. Please try again.' });
+    } finally {
+      setIsHousekeepingSaving(false);
+    }
+  };
+
+  const handleDeleteHousekeepingRecord = async (record) => {
+    if (currentUser.role !== 'admin') return;
+    if (!window.confirm(`Delete ${record.staffName}'s housekeeping record for Room ${record.roomId} on ${calendarIsoToDisplay(record.serviceDate)}?`)) return;
+
+    try {
+      await deleteDoc(doc(db, 'housekeepingDaily', record.id));
+      await logSystemAction(
+        currentUser.name,
+        'HOUSEKEEPING_DAILY_DELETE',
+        `Deleted ${record.staffName} housekeeping record for Room ${record.roomId} on ${record.serviceDate}`
+      );
+      setHousekeepingFeedback({ type: 'success', message: 'The housekeeping record was removed.' });
+    } catch (error) {
+      console.error('Daily housekeeping record deletion failed:', error);
+      setHousekeepingFeedback({ type: 'error', message: 'Unable to delete the housekeeping record. Please try again.' });
+    }
+  };
+
   const handleAddCustomerDetail = async (event) => {
     event.preventDefault();
     if (isCustomerSaving) return;
@@ -2864,9 +3062,36 @@ export default function App() {
     const dateKey = `${laundryStockMonth}-${String(day).padStart(2, '0')}`;
     return { day, dateKey, items: laundryStockDailyMovementMap[dateKey] || {} };
   });
-  const laundryStockMonthName = new Date(`${laundryStockMonth}-01T00:00:00`).toLocaleDateString('en-MY', {
-    month: 'long', year: 'numeric'
+  const laundryStockMonthDisplay = monthIsoToDisplay(laundryStockMonth);
+
+  const housekeepingRooms = [...rooms]
+    .filter(room => room.type !== 'STORE' && room.floor !== 'Public')
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const housekeepingStaff = users
+    .filter(user => user.role !== 'admin' && isUserActive(user))
+    .sort((a, b) => (a.name || a.userid || '').localeCompare(b.name || b.userid || ''));
+  const housekeepingDailyRecordMap = housekeepingRecords.reduce((dailyMap, record) => {
+    if (!record.serviceDate) return dailyMap;
+    if (!dailyMap[record.serviceDate]) dailyMap[record.serviceDate] = [];
+    dailyMap[record.serviceDate].push(record);
+    return dailyMap;
+  }, {});
+  Object.values(housekeepingDailyRecordMap).forEach(records => records.sort((a, b) => {
+    const roomComparison = String(a.roomId || '').localeCompare(String(b.roomId || ''), undefined, { numeric: true });
+    if (roomComparison !== 0) return roomComparison;
+    return String(a.staffName || '').localeCompare(String(b.staffName || ''));
+  }));
+  const [housekeepingYear, housekeepingMonthNumber] = housekeepingMonth.split('-').map(Number);
+  const housekeepingDaysInMonth = new Date(housekeepingYear, housekeepingMonthNumber, 0).getDate();
+  const housekeepingDailyRows = Array.from({ length: housekeepingDaysInMonth }, (_, index) => {
+    const day = index + 1;
+    const dateKey = `${housekeepingMonth}-${String(day).padStart(2, '0')}`;
+    return { day, dateKey, records: housekeepingDailyRecordMap[dateKey] || [] };
   });
+  const housekeepingUniqueRooms = new Set(housekeepingRecords.map(record => String(record.roomId))).size;
+  const housekeepingUniqueStaff = new Set(housekeepingRecords.map(record => record.staffDocId || record.staffId)).size;
+  const housekeepingMonthDisplay = monthIsoToDisplay(housekeepingMonth);
+  const todayIsoDate = getLocalIsoDate();
 
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
@@ -3557,24 +3782,22 @@ export default function App() {
             <h2 className="floor-title laundry-stock-title">
               <span><i className="fa-solid fa-arrow-right-arrow-left"></i> Laundry Stock Received &amp; Given Out</span>
               <label className="laundry-stock-month-picker">
-                <span>Month</span>
-                <input
-                  type="month"
+                <span>Month / Year</span>
+                <MonthYearField
+                  key={laundryStockMonth}
                   value={laundryStockMonth}
-                  onChange={event => {
-                    if (!event.target.value) return;
-                    setLaundryStockMonth(event.target.value);
+                  onChange={nextMonth => {
+                    setLaundryStockMonth(nextMonth);
                     setLaundryStockInlineEntries({});
                     setLaundryStockFeedback({ type: '', message: '' });
                   }}
-                  aria-label="Select laundry stock month"
                 />
               </label>
             </h2>
 
             <div className="laundry-stock-summary-heading">
               <div>
-                <h3>{laundryStockMonthName} Daily Stock Table</h3>
+                <h3>{laundryStockMonthDisplay} Daily Stock Table</h3>
                 <small className="laundry-stock-inline-help">Enter quantities directly in the table, then save that date. Staff is recorded automatically as {currentUser.name}.</small>
               </div>
               <div className="laundry-stock-month-totals">
@@ -3756,7 +3979,7 @@ export default function App() {
               })}
 
               <section className="mobile-month-total-card">
-                <h4><i className="fa-solid fa-calculator"></i> {laundryStockMonthName} Totals</h4>
+                <h4><i className="fa-solid fa-calculator"></i> {laundryStockMonthDisplay} Totals</h4>
                 <div className="mobile-total-headings"><span>Item</span><span>Received</span><span>Given Out</span><span>Final Total</span></div>
                 {monthlyLaundryStockSummary.map(row => (
                   <div className="mobile-total-row" key={row.item}>
@@ -3922,6 +4145,150 @@ export default function App() {
                 }
              </div>
           </div>
+        </div>
+      )}
+
+      {/* --- VIEW: DAILY HOUSEKEEPING --- */}
+      {view === 'HOUSEKEEPING' && (
+        <div className="dashboard housekeeping-page">
+          <section className="floor-section housekeeping-entry-panel">
+            <div className="housekeeping-title-row">
+              <div>
+                <p className="housekeeping-eyebrow">ROOM OPERATIONS</p>
+                <h2 className="floor-title"><i className="fa-solid fa-broom"></i> Daily Housekeeping Room Record</h2>
+                <p className="housekeeping-intro">Record who handled housekeeping for each room on each day.</p>
+              </div>
+              <label className="housekeeping-month-picker">
+                <span>View month</span>
+                <MonthYearField key={housekeepingMonth} value={housekeepingMonth} onChange={handleHousekeepingMonthChange} />
+              </label>
+            </div>
+
+            <form className="housekeeping-entry-form" onSubmit={handleAddHousekeepingRecord}>
+              <label>
+                <span><i className="fa-regular fa-calendar"></i> Housekeeping Date</span>
+                <input
+                  type="date"
+                  value={housekeepingDate}
+                  onChange={event => handleHousekeepingDateChange(event.target.value)}
+                  onClick={event => event.target.showPicker && event.target.showPicker()}
+                  required
+                />
+              </label>
+              <label>
+                <span><i className="fa-solid fa-door-open"></i> Room</span>
+                <select value={housekeepingRoomId} onChange={event => setHousekeepingRoomId(event.target.value)} required>
+                  <option value="">-- Select Room --</option>
+                  {housekeepingRooms.map(room => (
+                    <option key={room.id} value={room.id}>Room {room.id}{room.type ? ` · ${room.type}` : ''}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span><i className="fa-solid fa-user-check"></i> Housekeeping Staff</span>
+                <select value={housekeepingStaffId} onChange={event => setHousekeepingStaffId(event.target.value)} required>
+                  <option value="">-- Select Staff --</option>
+                  {housekeepingStaff.map(staff => (
+                    <option key={staff.dbId} value={staff.dbId}>{staff.name} ({staff.userid})</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" className="btn blue housekeeping-add-button" disabled={isHousekeepingSaving || housekeepingStaff.length === 0}>
+                <i className={`fa-solid ${isHousekeepingSaving ? 'fa-spinner fa-spin' : 'fa-plus'}`}></i>
+                {isHousekeepingSaving ? 'Saving...' : 'Add Record'}
+              </button>
+            </form>
+
+            {housekeepingStaff.length === 0 && (
+              <div className="housekeeping-feedback error" role="alert">
+                <i className="fa-solid fa-circle-exclamation"></i> No active staff accounts are available. Ask an administrator to activate or add a staff account.
+              </div>
+            )}
+            {housekeepingFeedback.message && (
+              <div className={`housekeeping-feedback ${housekeepingFeedback.type}`} role={housekeepingFeedback.type === 'error' ? 'alert' : 'status'}>
+                <i className={`fa-solid ${housekeepingFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                {housekeepingFeedback.message}
+              </div>
+            )}
+
+            <div className="housekeeping-summary-grid">
+              <div><i className="fa-solid fa-list-check"></i><span><strong>{housekeepingRecords.length}</strong> records</span></div>
+              <div><i className="fa-solid fa-door-closed"></i><span><strong>{housekeepingUniqueRooms}</strong> rooms</span></div>
+              <div><i className="fa-solid fa-users"></i><span><strong>{housekeepingUniqueStaff}</strong> staff</span></div>
+            </div>
+          </section>
+
+          <section className="floor-section housekeeping-month-panel">
+            <div className="housekeeping-list-heading">
+              <div>
+                <p>MONTHLY DAILY VIEW</p>
+                <h3>{housekeepingMonthDisplay} Housekeeping</h3>
+              </div>
+              <span>{housekeepingDaysInMonth} days</span>
+            </div>
+
+            <div className="housekeeping-day-list">
+              {housekeepingDailyRows.map(row => {
+                const date = new Date(`${row.dateKey}T00:00:00`);
+                const isToday = row.dateKey === todayIsoDate;
+                return (
+                  <details
+                    className={`housekeeping-day-card ${isToday ? 'today' : ''} ${row.records.length ? 'has-records' : ''}`}
+                    key={row.dateKey}
+                    defaultOpen={row.dateKey === housekeepingDate || row.records.length > 0}
+                  >
+                    <summary>
+                      <span className="housekeeping-day-number">{row.day}</span>
+                      <span className="housekeeping-day-date">
+                        <strong>{date.toLocaleDateString('en-MY', { weekday: 'long' })}{isToday ? ' · Today' : ''}</strong>
+                        <small>{calendarIsoToDisplay(row.dateKey)}</small>
+                      </span>
+                      <span className={`housekeeping-day-count ${row.records.length ? 'filled' : ''}`}>
+                        {row.records.length} {row.records.length === 1 ? 'record' : 'records'}
+                      </span>
+                      <i className="fa-solid fa-chevron-down housekeeping-day-chevron"></i>
+                    </summary>
+                    <div className="housekeeping-day-body">
+                      {row.records.length === 0 ? (
+                        <div className="housekeeping-empty-day"><i className="fa-regular fa-clipboard"></i> No housekeeping recorded for this day.</div>
+                      ) : (
+                        <div className="housekeeping-record-grid">
+                          {row.records.map(record => (
+                            <article className="housekeeping-record-card" key={record.id}>
+                              <div className="housekeeping-room-badge">
+                                <i className="fa-solid fa-bed"></i>
+                                <span>Room</span>
+                                <strong>{record.roomId}</strong>
+                              </div>
+                              <div className="housekeeping-record-person">
+                                <div className="housekeeping-staff-avatar"><i className="fa-solid fa-user"></i></div>
+                                <div>
+                                  <strong>{record.staffName || 'Staff'}</strong>
+                                  <small>{record.staffId ? `Staff ID: ${record.staffId}` : 'Housekeeping staff'}</small>
+                                  <span>Recorded by {record.recordedBy || '-'} · {record.createdAt ? formatDateTime(record.createdAt) : 'Saving...'}</span>
+                                </div>
+                              </div>
+                              {currentUser.role === 'admin' && (
+                                <button
+                                  type="button"
+                                  className="housekeeping-delete-button"
+                                  onClick={() => handleDeleteHousekeepingRecord(record)}
+                                  title="Delete housekeeping record"
+                                  aria-label={`Delete Room ${record.roomId} housekeeping record for ${record.staffName}`}
+                                >
+                                  <i className="fa-solid fa-trash"></i>
+                                </button>
+                              )}
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </section>
         </div>
       )}
 

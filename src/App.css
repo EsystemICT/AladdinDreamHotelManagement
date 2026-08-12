@@ -2142,7 +2142,10 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .laundry-stock-title { gap: 16px; }
 .laundry-stock-month-picker { display: flex; align-items: center; gap: 8px; color: var(--hotel-slate-500); font-size: 0.75rem; }
-.laundry-stock-month-picker input { width: auto; min-height: 38px; margin: 0; padding: 7px 10px; }
+.laundry-stock-month-picker > span { font-weight: 800; white-space: nowrap; }
+.laundry-month-year-entry { width: 168px; min-height: 40px; padding-left: 10px; }
+.laundry-month-year-entry > input[type="text"] { width: 72px; min-height: 38px; padding-block: 7px; letter-spacing: 0; }
+.laundry-month-year-entry .profile-calendar-btn { width: 31px; height: 31px; flex-basis: 31px; }
 .laundry-stock-entry-form {
   display: grid;
   grid-template-columns: 1fr 1.35fr 1.2fr 0.75fr 1.4fr auto;
@@ -2295,6 +2298,87 @@ tbody tr:last-child td { border-bottom: 0; }
 .stock-movement-badge.given_out { color: #b42335; background: #ffe4e6; }
 .laundry-stock-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.68rem; }
 .laundry-stock-empty { padding: 28px; color: #8a96a8; text-align: center; }
+
+/* Daily housekeeping room records */
+.housekeeping-page { width: min(100%, 1180px); margin: 0 auto; }
+.housekeeping-entry-panel { position: relative; overflow: hidden; }
+.housekeeping-entry-panel::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  content: "";
+  background: linear-gradient(90deg, var(--hotel-navy-800), #3f8f89, var(--hotel-gold-500));
+}
+.housekeeping-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; }
+.housekeeping-title-row .floor-title { margin-bottom: 4px; }
+.housekeeping-eyebrow { margin: 0 0 6px; color: #277873; font-size: 0.64rem; font-weight: 900; letter-spacing: 0.14em; }
+.housekeeping-intro { margin: 0; color: var(--hotel-slate-500); font-size: 0.82rem; }
+.housekeeping-month-picker { display: flex; align-items: center; gap: 9px; color: var(--hotel-slate-500); font-size: 0.73rem; }
+.housekeeping-month-picker > span { font-weight: 800; white-space: nowrap; }
+.housekeeping-entry-form {
+  display: grid;
+  grid-template-columns: minmax(155px, 0.9fr) minmax(170px, 1fr) minmax(210px, 1.35fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 21px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f7faf9, var(--hotel-ivory-50));
+  border: 1px solid #d9e7e5;
+  border-radius: 13px;
+}
+.housekeeping-entry-form > label { display: flex; min-width: 0; flex-direction: column; gap: 6px; }
+.housekeeping-entry-form > label > span { color: var(--hotel-slate-700); font-size: 0.7rem; font-weight: 900; }
+.housekeeping-entry-form > label > span i { margin-right: 5px; color: #277873; }
+.housekeeping-entry-form input,
+.housekeeping-entry-form select { width: 100%; min-height: 42px; margin: 0; box-sizing: border-box; background: #fff; }
+.housekeeping-add-button { min-height: 42px; padding-inline: 17px; justify-content: center; white-space: nowrap; }
+.housekeeping-feedback { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 9px; font-size: 0.76rem; font-weight: 700; }
+.housekeeping-feedback.success { color: #087054; background: #ecfdf5; border: 1px solid #b7e8d3; }
+.housekeeping-feedback.error { color: #a1273a; background: #fff1f2; border: 1px solid #f0c0c8; }
+.housekeeping-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+.housekeeping-summary-grid > div { display: flex; align-items: center; gap: 10px; padding: 11px 13px; color: var(--hotel-slate-600); background: #f8fafc; border: 1px solid var(--hotel-line); border-radius: 10px; font-size: 0.72rem; }
+.housekeeping-summary-grid i { color: #277873; }
+.housekeeping-summary-grid strong { margin-right: 3px; color: var(--hotel-navy-900); font-size: 1rem; }
+.housekeeping-month-panel { margin-top: 20px; }
+.housekeeping-list-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 15px; }
+.housekeeping-list-heading p { margin: 0 0 4px; color: #277873; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.13em; }
+.housekeeping-list-heading h3 { margin: 0; color: var(--hotel-navy-900); font-size: 1.15rem; }
+.housekeeping-list-heading > span { padding: 5px 10px; color: var(--hotel-slate-500); background: var(--hotel-ivory-100); border: 1px solid var(--hotel-line); border-radius: 999px; font-size: 0.68rem; font-weight: 800; }
+.housekeeping-day-list { display: flex; flex-direction: column; gap: 9px; }
+.housekeeping-day-card { overflow: hidden; background: #fff; border: 1px solid var(--hotel-line); border-radius: 12px; box-shadow: var(--hotel-shadow-sm); }
+.housekeeping-day-card.today { border-color: rgba(39, 120, 115, 0.48); box-shadow: 0 0 0 2px rgba(39, 120, 115, 0.07); }
+.housekeeping-day-card > summary { display: flex; min-height: 62px; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; list-style: none; background: #fbfcfd; }
+.housekeeping-day-card.has-records > summary { background: linear-gradient(110deg, #f4faf8, #fff); }
+.housekeeping-day-card > summary::-webkit-details-marker { display: none; }
+.housekeeping-day-number { display: grid; width: 39px; height: 39px; flex: 0 0 39px; place-items: center; color: #fff; background: var(--hotel-navy-800); border-radius: 10px; font-size: 1rem; font-weight: 900; }
+.housekeeping-day-card.today .housekeeping-day-number { background: #277873; }
+.housekeeping-day-date { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.housekeeping-day-date strong { color: var(--hotel-navy-900); font-size: 0.8rem; }
+.housekeeping-day-date small { color: var(--hotel-slate-500); font-size: 0.68rem; }
+.housekeeping-day-count { min-width: 70px; padding: 5px 8px; color: #7c8798; background: #eef1f5; border-radius: 999px; font-size: 0.65rem; font-weight: 900; text-align: center; }
+.housekeeping-day-count.filled { color: #087054; background: #dff5ec; }
+.housekeeping-day-chevron { color: #9aa5b5; font-size: 0.68rem; transition: transform 0.18s; }
+.housekeeping-day-card[open] .housekeeping-day-chevron { transform: rotate(180deg); }
+.housekeeping-day-body { padding: 11px 13px 13px; border-top: 1px solid #edf0f4; }
+.housekeeping-empty-day { padding: 9px; color: #8a96a8; font-size: 0.74rem; text-align: center; }
+.housekeeping-empty-day i { margin-right: 6px; }
+.housekeeping-record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.housekeeping-record-card { position: relative; display: flex; min-width: 0; align-items: center; gap: 12px; padding: 11px 42px 11px 11px; background: #fff; border: 1px solid #dfe6eb; border-radius: 11px; }
+.housekeeping-room-badge { display: grid; width: 58px; min-height: 61px; flex: 0 0 58px; place-items: center; align-content: center; color: var(--hotel-navy-800); background: #edf3f8; border-radius: 9px; }
+.housekeeping-room-badge i { font-size: 0.8rem; }
+.housekeeping-room-badge span { margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.55rem; font-weight: 800; text-transform: uppercase; }
+.housekeeping-room-badge strong { font-size: 0.94rem; }
+.housekeeping-record-person { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.housekeeping-staff-avatar { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; color: #277873; background: #e4f2f0; border-radius: 50%; font-size: 0.73rem; }
+.housekeeping-record-person > div:last-child { min-width: 0; }
+.housekeeping-record-person strong,
+.housekeeping-record-person small,
+.housekeeping-record-person span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.housekeeping-record-person strong { color: var(--hotel-navy-900); font-size: 0.8rem; }
+.housekeeping-record-person small { margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.65rem; }
+.housekeeping-record-person span { margin-top: 5px; color: #8a96a8; font-size: 0.58rem; }
+.housekeeping-delete-button { position: absolute; top: 8px; right: 8px; display: grid; width: 28px; height: 28px; place-items: center; color: #b42335; background: #fff1f2; border: 1px solid #f3ccd2; border-radius: 7px; cursor: pointer; font-size: 0.66rem; }
+.housekeeping-delete-button:hover { color: #fff; background: #b42335; border-color: #b42335; }
 
 /* Help centre */
 .help-dialog-icon {
@@ -2546,6 +2630,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .tabs button { padding-inline: 11px; }
   .room-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   .laundry-stock-entry-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .housekeeping-entry-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .housekeeping-add-button { width: 100%; }
 }
 
 @media (max-width: 768px) {
@@ -2577,6 +2663,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-summary-heading { align-items: flex-start; flex-direction: column; }
   .laundry-stock-month-table-wrap { display: none; }
   .laundry-stock-mobile-table { display: block; }
+  .housekeeping-title-row { flex-direction: column; }
+  .housekeeping-month-picker { width: 100%; justify-content: space-between; }
+  .housekeeping-record-grid { grid-template-columns: 1fr; }
   .help-hero { align-items: stretch; flex-direction: column; padding: 23px; }
   .help-search { width: 100%; max-width: none; flex-basis: auto; }
   .help-featured { grid-template-columns: auto 1fr; }
@@ -2608,6 +2697,13 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-month-totals > span { flex: 1; text-align: center; }
   .mobile-stock-item-row { padding-inline: 7px; }
   .mobile-stock-column-headings { padding-inline: 7px; }
+  .housekeeping-entry-form { grid-template-columns: 1fr; padding: 12px; }
+  .housekeeping-summary-grid { grid-template-columns: 1fr; gap: 7px; }
+  .housekeeping-day-card > summary { gap: 9px; padding-inline: 10px; }
+  .housekeeping-day-count { min-width: 58px; font-size: 0.6rem; }
+  .housekeeping-record-card { align-items: flex-start; }
+  .housekeeping-record-person { align-items: flex-start; }
+  .housekeeping-staff-avatar { display: none; }
   .help-hero { gap: 20px; padding: 19px 16px; border-radius: 16px; }
   .help-hero-copy { align-items: flex-start; gap: 13px; }
   .help-hero-icon { width: 48px; height: 48px; flex-basis: 48px; border-radius: 14px; font-size: 1.65rem; }

@@ -197,6 +197,23 @@ const HELP_TOPICS = [
     actionLabel: 'Open Attendance Portal',
     audience: 'admin',
     keywords: 'admin attendance report logs summary roster away punch alert'
+  },
+  {
+    id: 'admin-utility-bills',
+    icon: 'fa-solid fa-file-invoice-dollar',
+    title: 'Record a monthly SAJ or TNB bill',
+    summary: 'Add and review the hotel water and electricity bill register.',
+    steps: [
+      'Open SAJ / TNB Bills under Administration in the left navigation.',
+      'Choose SAJ or TNB, then enter the billing month and amount.',
+      'Add the bill date, due date, payment status and optional reference details.',
+      'Select Save Bill. Saving the same provider and month updates that record.'
+    ],
+    tip: 'This page and its records are available only to administrators.',
+    action: 'BILLS',
+    actionLabel: 'Open SAJ / TNB Bills',
+    audience: 'admin',
+    keywords: 'admin saj tnb water electricity utility monthly bill payment'
   }
 ];
 
@@ -917,6 +934,7 @@ export default function App() {
   const [adminAlerts, setAdminAlerts] = useState([]);
   const [deposits, setDeposits] = useState([]); 
   const [verifications, setVerifications] = useState([]); 
+  const [utilityBills, setUtilityBills] = useState([]);
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -955,6 +973,9 @@ export default function App() {
   const [customerFeedback, setCustomerFeedback] = useState({ type: '', message: '' });
   const [isCustomerSaving, setIsCustomerSaving] = useState(false);
   const [helpSearch, setHelpSearch] = useState('');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [utilityBillFeedback, setUtilityBillFeedback] = useState({ type: '', message: '' });
+  const [isUtilityBillSaving, setIsUtilityBillSaving] = useState(false);
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -994,6 +1015,11 @@ export default function App() {
   const [attReportSubTab, setAttReportSubTab] = useState('LOGS'); // 'LOGS' | 'SUMMARY' | 'ROSTER'
   const [hotelLocation, setHotelLocation] = useState(DEFAULT_HOTEL_COORDS);
   const isRequestView = view === 'REQ';
+  const changeView = (nextView) => {
+    if (['ADMIN', 'ATT_REPORT', 'BILLS'].includes(nextView) && currentUser?.role !== 'admin') return;
+    setView(nextView);
+    setIsDrawerOpen(false);
+  };
   const passwordResetCode = useMemo(() => {
     if (typeof window === 'undefined') return '';
     const params = new URLSearchParams(window.location.search);
@@ -1130,6 +1156,15 @@ export default function App() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, [currentUser, view]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsDrawerOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isDrawerOpen]);
 
   // --- 2. CORE DATA LISTENERS ---
   useEffect(() => {
@@ -1331,6 +1366,21 @@ export default function App() {
     if (view === 'VERIFY') {
       const qVerify = query(collection(db, "verifications"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qVerify, (snap) => setVerifications(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'BILLS' && currentUser.role === 'admin') {
+      const qUtilityBills = query(collection(db, "utilityBills"), orderBy("billingMonth", "desc"), limit(240));
+      unsubs.push(onSnapshot(qUtilityBills, (snap) => {
+        const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        records.sort((a, b) => {
+          const monthComparison = String(b.billingMonth || '').localeCompare(String(a.billingMonth || ''));
+          return monthComparison || String(a.provider || '').localeCompare(String(b.provider || ''));
+        });
+        setUtilityBills(records);
+      }, (error) => {
+        console.error('Utility bill listener failed:', error);
+        setUtilityBillFeedback({ type: 'error', message: 'Unable to load SAJ / TNB bill records.' });
+      }));
     }
 
     if (view === 'ADMIN' && currentUser.role === 'admin') {
@@ -1958,6 +2008,62 @@ export default function App() {
 
   const openEditStock = (item) => {
     setEditStockModal({ id: item.id, name: item.name, quantity: item.quantity, category: item.category || 'General', subcategory: item.subcategory || '' });
+  };
+
+  // --- ADMIN-ONLY MONTHLY SAJ / TNB BILLS ---
+  const handleSaveUtilityBill = async (e) => {
+    e.preventDefault();
+    if (currentUser.role !== 'admin' || isUtilityBillSaving) return;
+
+    const form = e.currentTarget;
+    const provider = form.provider.value;
+    const billingMonth = form.billingMonth.value;
+    const amount = Number(form.amount.value);
+    if (!['SAJ', 'TNB'].includes(provider) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(billingMonth) || !Number.isFinite(amount) || amount < 0) {
+      setUtilityBillFeedback({ type: 'error', message: 'Please enter a valid provider, billing month and amount.' });
+      return;
+    }
+
+    setIsUtilityBillSaving(true);
+    setUtilityBillFeedback({ type: '', message: '' });
+    try {
+      const recordId = `${billingMonth}-${provider.toLowerCase()}`;
+      await setDoc(doc(db, 'utilityBills', recordId), {
+        provider,
+        billingMonth,
+        amount,
+        billDate: form.billDate.value || '',
+        dueDate: form.dueDate.value || '',
+        accountNumber: form.accountNumber.value.trim(),
+        status: form.status.value,
+        notes: form.notes.value.trim(),
+        recordedBy: currentUser.name,
+        recordedById: currentUser.dbId,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      await logSystemAction(currentUser.name, 'UTILITY_BILL_SAVE', `Saved ${provider} bill for ${monthIsoToDisplay(billingMonth)}: RM${amount.toFixed(2)}`);
+      form.reset();
+      form.billingMonth.value = getCurrentMonthString();
+      setUtilityBillFeedback({ type: 'success', message: `${provider} bill for ${monthIsoToDisplay(billingMonth)} saved successfully.` });
+    } catch (error) {
+      console.error('Utility bill save failed:', error);
+      setUtilityBillFeedback({ type: 'error', message: 'Failed to save the utility bill. Please try again.' });
+    } finally {
+      setIsUtilityBillSaving(false);
+    }
+  };
+
+  const handleDeleteUtilityBill = async (bill) => {
+    if (currentUser.role !== 'admin') return;
+    if (!window.confirm(`Delete the ${bill.provider} bill for ${monthIsoToDisplay(bill.billingMonth)}?`)) return;
+    try {
+      await deleteDoc(doc(db, 'utilityBills', bill.id));
+      await logSystemAction(currentUser.name, 'UTILITY_BILL_DELETE', `Deleted ${bill.provider} bill for ${monthIsoToDisplay(bill.billingMonth)}`);
+      setUtilityBillFeedback({ type: 'success', message: 'Utility bill record deleted.' });
+    } catch (error) {
+      console.error('Utility bill delete failed:', error);
+      setUtilityBillFeedback({ type: 'error', message: 'Failed to delete the utility bill.' });
+    }
   };
 
   // --- 5. ROOM DEPOSITS LOGIC ---
@@ -3379,50 +3485,89 @@ export default function App() {
           </div>
         </aside>
       )}
-      <header className="header">
-        <div className="header-content">
-          <div className="header-top">
-            <div className="hotel-brand">
-              <span className="brand-icon"><i className="fa-solid fa-hotel"></i></span>
-              <div>
-                <h1>Aladdin Dream Hotel</h1>
-                <span className="brand-subtitle">Hotel Management System</span>
-              </div>
-            </div>
-            <div className="header-actions">
-             <button type="button" className="user-profile" onClick={openProfilePortal} title="Open profile">
-               <i className="fa-solid fa-circle-user" style={{color: '#ddbd88'}}></i>
-               <span>{currentUser.name}</span>
-             </button>
-              <button onClick={handleLogout} className="logout-btn" title="Logout">
-                <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
-              </button>
-            </div>
+      <button
+        type="button"
+        className={`drawer-overlay ${isDrawerOpen ? 'visible' : ''}`}
+        onClick={() => setIsDrawerOpen(false)}
+        aria-label="Close navigation menu"
+        tabIndex={isDrawerOpen ? 0 : -1}
+      />
+      <aside id="app-navigation" className={`app-drawer ${isDrawerOpen ? 'open' : ''}`} aria-label="Main navigation">
+        <div className="drawer-brand hotel-brand">
+          <span className="brand-icon"><i className="fa-solid fa-hotel"></i></span>
+          <div>
+            <h1>Aladdin Dream Hotel</h1>
+            <span className="brand-subtitle">Hotel Management System</span>
           </div>
-          <div className="tabs">
-            {Object.keys(ICONS).map(v => {
-              if (v === 'ATT_REPORT' && currentUser.role !== 'admin') return null;
-              return (
-                <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)}>
-                  {v === 'HELP' ? (
-                    <span className="help-dialog-icon" aria-hidden="true"><i className="fa-solid fa-comment"></i><b>?</b></span>
-                  ) : (
-                    <i className={ICONS[v].icon}></i>
-                  )}
-                  <span>{ICONS[v].label}</span>
-                  {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
-                </button>
-              );
-            })}
-            {currentUser.role === 'admin' && (
-              <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => setView('ADMIN')}>
+          <button type="button" className="drawer-close" onClick={() => setIsDrawerOpen(false)} aria-label="Close navigation menu">
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <nav className="drawer-navigation">
+          <span className="drawer-section-label">Operations</span>
+          {Object.keys(ICONS).map(v => {
+            if (v === 'ATT_REPORT' && currentUser.role !== 'admin') return null;
+            return (
+              <button key={v} className={view === v ? 'active' : ''} onClick={() => changeView(v)} aria-current={view === v ? 'page' : undefined}>
+                {v === 'HELP' ? (
+                  <span className="help-dialog-icon" aria-hidden="true"><i className="fa-solid fa-comment"></i><b>?</b></span>
+                ) : (
+                  <i className={ICONS[v].icon}></i>
+                )}
+                <span>{ICONS[v].label}</span>
+                {v === 'REQ' && myPendingRequests > 0 && <span className="nav-badge">{myPendingRequests}</span>}
+              </button>
+            );
+          })}
+          {currentUser.role === 'admin' && (
+            <>
+              <span className="drawer-section-label admin-label">Administration</span>
+              <button className={view === 'BILLS' ? 'active' : ''} onClick={() => changeView('BILLS')} aria-current={view === 'BILLS' ? 'page' : undefined}>
+                <i className="fa-solid fa-bolt"></i> <span>SAJ / TNB Bills</span>
+              </button>
+              <button className={view === 'ADMIN' ? 'active' : ''} onClick={() => changeView('ADMIN')} aria-current={view === 'ADMIN' ? 'page' : undefined}>
                 <i className="fa-solid fa-lock"></i> <span>Admin</span>
                 {(pendingLeavesCount + pendingPasswordResetCount + unreadAdminAlerts.length) > 0 && (
                   <span className="nav-badge">{pendingLeavesCount + pendingPasswordResetCount + unreadAdminAlerts.length}</span>
                 )}
               </button>
-            )}
+            </>
+          )}
+        </nav>
+
+        <div className="drawer-account">
+          <button type="button" className="drawer-profile" onClick={openProfilePortal} title="Open profile">
+            <i className="fa-solid fa-circle-user"></i>
+            <span><strong>{currentUser.name}</strong><small>{currentUser.role}</small></span>
+            <i className="fa-solid fa-chevron-right"></i>
+          </button>
+          <button onClick={handleLogout} className="drawer-logout" title="Logout">
+            <i className="fa-solid fa-right-from-bracket"></i> <span>Logout</span>
+          </button>
+        </div>
+      </aside>
+
+      <header className="header compact-header">
+        <div className="header-content">
+          <button
+            type="button"
+            className="drawer-toggle"
+            onClick={() => setIsDrawerOpen(open => !open)}
+            aria-expanded={isDrawerOpen}
+            aria-controls="app-navigation"
+            aria-label="Open navigation menu"
+          >
+            <i className="fa-solid fa-bars"></i>
+          </button>
+          <div className="current-page-title">
+            <span>{view === 'BILLS' ? 'Administration' : 'Hotel Operations'}</span>
+            <strong>{view === 'BILLS' ? 'SAJ / TNB Bills' : view === 'ADMIN' ? 'Admin' : (ICONS[view]?.label || 'Dashboard')}</strong>
           </div>
+          <button type="button" className="header-profile" onClick={openProfilePortal} title="Open profile">
+            <i className="fa-solid fa-circle-user"></i>
+            <span>{currentUser.name}</span>
+          </button>
         </div>
       </header>
 
@@ -5003,6 +5148,132 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* --- VIEW: ADMIN-ONLY SAJ / TNB MONTHLY BILLS --- */}
+      {view === 'BILLS' && currentUser.role === 'admin' && (() => {
+        const currentYear = String(new Date().getFullYear());
+        const yearBills = utilityBills.filter(bill => String(bill.billingMonth || '').startsWith(currentYear));
+        const providerTotal = (provider) => yearBills
+          .filter(bill => bill.provider === provider)
+          .reduce((total, bill) => total + (Number(bill.amount) || 0), 0);
+        const formatCurrency = (amount) => Number(amount || 0).toLocaleString('en-MY', {
+          style: 'currency', currency: 'MYR', minimumFractionDigits: 2
+        });
+
+        return (
+          <div className="dashboard utility-bills-page">
+            <section className="utility-bills-hero">
+              <div>
+                <span className="utility-eyebrow"><i className="fa-solid fa-shield-halved"></i> Admin only</span>
+                <h2>SAJ / TNB Monthly Bills</h2>
+                <p>Record water and electricity bills by billing month. Saving the same provider and month updates the existing record.</p>
+              </div>
+              <div className="utility-hero-icon"><i className="fa-solid fa-file-invoice-dollar"></i></div>
+            </section>
+
+            <div className="utility-summary-grid">
+              <article><i className="fa-solid fa-droplet saj"></i><span><small>{currentYear} SAJ</small><strong>{formatCurrency(providerTotal('SAJ'))}</strong></span></article>
+              <article><i className="fa-solid fa-bolt tnb"></i><span><small>{currentYear} TNB</small><strong>{formatCurrency(providerTotal('TNB'))}</strong></span></article>
+              <article><i className="fa-solid fa-receipt total"></i><span><small>{currentYear} Total</small><strong>{formatCurrency(providerTotal('SAJ') + providerTotal('TNB'))}</strong></span></article>
+              <article><i className="fa-solid fa-folder-open records"></i><span><small>All Records</small><strong>{utilityBills.length}</strong></span></article>
+            </div>
+
+            <section className="floor-section utility-entry-section">
+              <div className="utility-section-heading">
+                <div>
+                  <span>Monthly entry</span>
+                  <h2 className="floor-title"><i className="fa-solid fa-plus-circle"></i> Add or Update Bill</h2>
+                </div>
+                <small><i className="fa-solid fa-lock"></i> Visible to administrators only</small>
+              </div>
+              <form className="utility-bill-form" onSubmit={handleSaveUtilityBill}>
+                <label>
+                  <span>Provider</span>
+                  <select name="provider" defaultValue="SAJ" required>
+                    <option value="SAJ">SAJ · Water</option>
+                    <option value="TNB">TNB · Electricity</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Billing Month</span>
+                  <input name="billingMonth" type="month" defaultValue={getCurrentMonthString()} required />
+                </label>
+                <label>
+                  <span>Amount (RM)</span>
+                  <input name="amount" type="number" min="0" step="0.01" inputMode="decimal" placeholder="0.00" required />
+                </label>
+                <label>
+                  <span>Bill Date</span>
+                  <input name="billDate" type="date" />
+                </label>
+                <label>
+                  <span>Due Date</span>
+                  <input name="dueDate" type="date" />
+                </label>
+                <label>
+                  <span>Account / Reference</span>
+                  <input name="accountNumber" placeholder="Optional" />
+                </label>
+                <label>
+                  <span>Payment Status</span>
+                  <select name="status" defaultValue="unpaid">
+                    <option value="unpaid">Unpaid</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </label>
+                <label className="utility-notes-field">
+                  <span>Notes</span>
+                  <input name="notes" placeholder="Optional remarks" />
+                </label>
+                <button type="submit" className="btn blue utility-save-button" disabled={isUtilityBillSaving}>
+                  <i className={`fa-solid ${isUtilityBillSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                  {isUtilityBillSaving ? 'Saving...' : 'Save Bill'}
+                </button>
+              </form>
+              {utilityBillFeedback.message && (
+                <p className={`utility-bill-feedback ${utilityBillFeedback.type}`} role={utilityBillFeedback.type === 'error' ? 'alert' : 'status'}>
+                  <i className={`fa-solid ${utilityBillFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                  {utilityBillFeedback.message}
+                </p>
+              )}
+            </section>
+
+            <section className="floor-section utility-history-section">
+              <div className="utility-section-heading">
+                <div>
+                  <span>Bill register</span>
+                  <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> Monthly History</h2>
+                </div>
+                <small>{utilityBills.length} record{utilityBills.length === 1 ? '' : 's'}</small>
+              </div>
+              <div className="admin-table-container scroll-pane scroll-pane-tall">
+                <table className="utility-bills-table">
+                  <thead>
+                    <tr><th>Month</th><th>Provider</th><th>Amount</th><th>Bill / Due Date</th><th>Account / Ref.</th><th>Status</th><th>Notes</th><th>Recorded By</th><th>Action</th></tr>
+                  </thead>
+                  <tbody>
+                    {utilityBills.length === 0 ? (
+                      <tr><td colSpan="9" className="utility-empty-cell"><i className="fa-solid fa-file-circle-plus"></i><strong>No bill records yet</strong><span>Add the first SAJ or TNB monthly bill above.</span></td></tr>
+                    ) : utilityBills.map(bill => (
+                      <tr key={bill.id}>
+                        <td><strong>{monthIsoToDisplay(bill.billingMonth) || bill.billingMonth}</strong></td>
+                        <td><span className={`utility-provider ${String(bill.provider).toLowerCase()}`}><i className={`fa-solid ${bill.provider === 'SAJ' ? 'fa-droplet' : 'fa-bolt'}`}></i>{bill.provider}</span></td>
+                        <td className="utility-amount">{formatCurrency(bill.amount)}</td>
+                        <td><span className="utility-date-pair"><small>Bill {bill.billDate ? calendarIsoToDisplay(bill.billDate) : '-'}</small><small>Due {bill.dueDate ? calendarIsoToDisplay(bill.dueDate) : '-'}</small></span></td>
+                        <td>{bill.accountNumber || '-'}</td>
+                        <td><span className={`utility-status ${bill.status === 'paid' ? 'paid' : 'unpaid'}`}>{bill.status === 'paid' ? 'Paid' : 'Unpaid'}</span></td>
+                        <td>{bill.notes || '-'}</td>
+                        <td><span className="utility-recorder"><strong>{bill.recordedBy || '-'}</strong><small>{formatTime(bill.updatedAt)}</small></span></td>
+                        <td><button type="button" className="btn red utility-delete-button" onClick={() => handleDeleteUtilityBill(bill)} title="Delete bill"><i className="fa-solid fa-trash"></i></button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        );
+      })()}
 
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (

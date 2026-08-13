@@ -2833,6 +2833,37 @@ body {
 .header-profile { display: flex; align-items: center; gap: 8px; padding: 8px 11px; color: var(--hotel-navy-800); background: #fff; border: 1px solid var(--hotel-line); border-radius: 11px; cursor: pointer; box-shadow: var(--hotel-shadow-sm); font-size: 0.78rem; font-weight: 800; }
 .header-profile i { color: var(--hotel-gold-500); font-size: 1.05rem; }
 
+/* Admin manual backup */
+.admin-backup-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 22px;
+  overflow: hidden;
+  padding: 21px 23px;
+  color: #fff;
+  background: linear-gradient(120deg, var(--hotel-navy-800), var(--hotel-navy-950));
+  border: 1px solid rgba(230, 201, 152, 0.20);
+  border-radius: var(--hotel-radius-md);
+  box-shadow: var(--hotel-shadow-md);
+}
+.admin-backup-panel::after { position: absolute; inset: auto -60px -105px auto; width: 220px; height: 220px; content: ""; background: radial-gradient(circle, rgba(230, 201, 152, 0.14), transparent 68%); border-radius: 50%; pointer-events: none; }
+.admin-backup-icon { display: grid; width: 55px; height: 55px; place-items: center; color: var(--hotel-gold-300); background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(230, 201, 152, 0.18); border-radius: 15px; font-size: 1.25rem; }
+.admin-backup-copy { position: relative; z-index: 1; min-width: 0; }
+.admin-backup-copy > span { color: var(--hotel-gold-300); font-size: 0.58rem; font-weight: 900; letter-spacing: 0.11em; text-transform: uppercase; }
+.admin-backup-copy h2 { margin: 4px 0; font-size: 1.1rem; letter-spacing: -0.02em; }
+.admin-backup-copy > p { margin: 0; color: rgba(239, 244, 250, 0.75); font-size: 0.76rem; line-height: 1.45; }
+.admin-backup-copy > small { display: block; margin-top: 7px; color: rgba(230, 201, 152, 0.80); font-size: 0.64rem; line-height: 1.4; }
+.admin-backup-copy > small i { margin-right: 5px; }
+.admin-backup-button { position: relative; z-index: 1; display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 9px; padding: 10px 15px; color: var(--hotel-navy-950); background: linear-gradient(135deg, var(--hotel-gold-300), var(--hotel-gold-500)); border: 1px solid rgba(255, 255, 255, 0.34); border-radius: 11px; cursor: pointer; box-shadow: 0 9px 20px rgba(0, 0, 0, 0.18); font-size: 0.76rem; font-weight: 900; white-space: nowrap; }
+.admin-backup-button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 23px rgba(0, 0, 0, 0.23); }
+.admin-backup-button:disabled { cursor: wait; opacity: 0.72; }
+.admin-backup-feedback { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0 !important; padding: 8px 10px; border-radius: 8px; font-size: 0.68rem !important; font-weight: 750; }
+.admin-backup-feedback.success { color: #bbf7d0 !important; background: rgba(22, 101, 52, 0.26); border: 1px solid rgba(187, 247, 208, 0.20); }
+.admin-backup-feedback.error { color: #fecaca !important; background: rgba(185, 28, 28, 0.25); border: 1px solid rgba(254, 202, 202, 0.20); }
+
 /* Admin monthly utility bills */
 .utility-bills-page { display: grid; gap: 20px; }
 .utility-bills-hero { position: relative; display: flex; min-height: 180px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; padding: 30px 34px; color: #fff; background: linear-gradient(125deg, var(--hotel-navy-800), var(--hotel-navy-950)); border: 1px solid rgba(230, 201, 152, 0.19); border-radius: 20px; box-shadow: var(--hotel-shadow-lg); }
@@ -2914,6 +2945,8 @@ body {
   .current-page-title strong { margin: 0; font-size: 1rem; }
   .header-profile span { display: none; }
   .header-profile { width: 40px; height: 40px; justify-content: center; padding: 0; }
+  .admin-backup-panel { grid-template-columns: auto minmax(0, 1fr); }
+  .admin-backup-button { grid-column: 1 / -1; width: 100%; }
   .utility-bills-hero { min-height: 160px; padding: 24px; }
   .utility-bills-hero h2 { font-size: 1.45rem; }
   .utility-hero-icon { width: 68px; height: 68px; flex-basis: 68px; border-radius: 19px; font-size: 1.55rem; }
@@ -2924,6 +2957,9 @@ body {
 
 @media (max-width: 480px) {
   .app-container { padding: 10px 8px 24px; }
+  .admin-backup-panel { grid-template-columns: 1fr; gap: 12px; padding: 17px; }
+  .admin-backup-icon { width: 44px; height: 44px; }
+  .admin-backup-button { grid-column: auto; }
   .utility-bills-page { gap: 13px; }
   .utility-bills-hero { min-height: 0; padding: 20px 17px; border-radius: 16px; }
   .utility-bills-hero p { font-size: 0.75rem; }

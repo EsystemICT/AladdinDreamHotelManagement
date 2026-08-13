@@ -214,6 +214,23 @@ const HELP_TOPICS = [
     actionLabel: 'Open SAJ / TNB Bills',
     audience: 'admin',
     keywords: 'admin saj tnb water electricity utility monthly bill payment'
+  },
+  {
+    id: 'admin-manual-backup',
+    icon: 'fa-solid fa-cloud-arrow-down',
+    title: 'Download a manual data backup',
+    summary: 'Save a private JSON copy of the current hotel Firestore records.',
+    steps: [
+      'Open Admin from the left navigation.',
+      'At the top of the page, select Download Full Backup.',
+      'Wait until the browser downloads the dated JSON file.',
+      'Move the file to a secure Google Drive, OneDrive or external drive folder.'
+    ],
+    tip: 'Download a new backup every week and keep the latest four to eight files. Never share a backup publicly.',
+    action: 'ADMIN',
+    actionLabel: 'Open Admin Backup',
+    audience: 'admin',
+    keywords: 'admin manual data backup download json firestore copy save'
   }
 ];
 
@@ -227,6 +244,13 @@ const LAUNDRY_ITEMS = [
 
 const LAUNDRY_STOCK_ITEMS = [
   "Bed Sheet", "Duvet Cover", "Pillow Case", "Towel", "Pillow", "Blanket", "Sejadah"
+];
+
+const BACKUP_COLLECTIONS = [
+  'rooms', 'users', 'tickets', 'customerDetails', 'requests', 'attendance',
+  'leaves', 'inventory', 'claimDays', 'laundry', 'stock', 'laundryStockMovements',
+  'housekeepingDaily', 'deposits', 'verifications', 'utilityBills', 'auditLogs',
+  'adminAlerts', 'settings'
 ];
 
 // HELPERS
@@ -302,6 +326,24 @@ const displayDateToIso = (value) => {
   const [, day, month, year] = match;
   const isoValue = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   return isValidDateOfBirth(isoValue) ? isoValue : '';
+};
+
+const serializeBackupValue = (value) => {
+  if (value === null || value === undefined) return value ?? null;
+  if (typeof value?.toDate === 'function') {
+    return { __firestoreType: 'timestamp', value: value.toDate().toISOString() };
+  }
+  if (typeof value?.latitude === 'number' && typeof value?.longitude === 'number') {
+    return { __firestoreType: 'geopoint', latitude: value.latitude, longitude: value.longitude };
+  }
+  if (typeof value?.path === 'string' && value?.firestore) {
+    return { __firestoreType: 'reference', path: value.path };
+  }
+  if (Array.isArray(value)) return value.map(serializeBackupValue);
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, nestedValue]) => [key, serializeBackupValue(nestedValue)]));
+  }
+  return value;
 };
 
 const isValidCalendarDate = (value) => {
@@ -976,6 +1018,8 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [utilityBillFeedback, setUtilityBillFeedback] = useState({ type: '', message: '' });
   const [isUtilityBillSaving, setIsUtilityBillSaving] = useState(false);
+  const [isBackupDownloading, setIsBackupDownloading] = useState(false);
+  const [backupFeedback, setBackupFeedback] = useState({ type: '', message: '' });
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -1890,6 +1934,78 @@ export default function App() {
     } catch (error) {
         console.error('Admin password reset email failed:', error);
         alert(getAuthSetupMessage(error, 'Failed to send the password reset email.'));
+    }
+  };
+
+  const handleDownloadFullBackup = async () => {
+    if (currentUser.role !== 'admin' || isBackupDownloading) return;
+    setIsBackupDownloading(true);
+    setBackupFeedback({ type: '', message: '' });
+
+    try {
+      const collectionEntries = await Promise.all(BACKUP_COLLECTIONS.map(async (collectionName) => {
+        try {
+          const snapshot = await getDocs(collection(db, collectionName));
+          const documents = snapshot.docs.map(documentSnapshot => {
+            const documentData = { ...documentSnapshot.data() };
+            // Firebase Authentication credentials are not part of Firestore.
+            // Never copy any unmigrated legacy plaintext password into a file.
+            if (collectionName === 'users') delete documentData.password;
+            return {
+              id: documentSnapshot.id,
+              data: serializeBackupValue(documentData)
+            };
+          });
+          return [collectionName, documents];
+        } catch (error) {
+          throw new Error(`Unable to read ${collectionName}: ${error.message}`);
+        }
+      }));
+
+      const collections = Object.fromEntries(collectionEntries);
+      const totalDocuments = Object.values(collections).reduce((total, documents) => total + documents.length, 0);
+      const createdAt = new Date();
+      const backup = {
+        format: 'aladdin-dream-hotel-firestore-backup',
+        version: 1,
+        createdAt: createdAt.toISOString(),
+        projectId: db.app.options.projectId,
+        createdBy: {
+          id: currentUser.dbId,
+          userId: currentUser.userid,
+          name: currentUser.name,
+          role: currentUser.role
+        },
+        notes: [
+          'Firebase Authentication accounts and passwords are not included.',
+          'Legacy plaintext password fields are intentionally excluded from users.'
+        ],
+        documentCount: totalDocuments,
+        collections
+      };
+
+      const localDate = getLocalIsoDate(createdAt);
+      const localTime = `${String(createdAt.getHours()).padStart(2, '0')}-${String(createdAt.getMinutes()).padStart(2, '0')}`;
+      const filename = `aladdin-hotel-backup-${localDate}-${localTime}.json`;
+      const objectUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
+      const downloadLink = document.createElement('a');
+      downloadLink.href = objectUrl;
+      downloadLink.download = filename;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+      await logSystemAction(currentUser.name, 'FULL_BACKUP_DOWNLOAD', `Downloaded ${filename} containing ${totalDocuments} Firestore documents`);
+      setBackupFeedback({
+        type: 'success',
+        message: `${filename} downloaded successfully (${totalDocuments} records). Store it in a secure location.`
+      });
+    } catch (error) {
+      console.error('Full backup download failed:', error);
+      setBackupFeedback({ type: 'error', message: `Backup failed. ${error.message}` });
+    } finally {
+      setIsBackupDownloading(false);
     }
   };
 
@@ -5278,6 +5394,27 @@ export default function App() {
       {/* --- VIEW: ADMIN --- */}
       {view === 'ADMIN' && (
         <div className="dashboard">
+
+            {/* MANUAL FIRESTORE DATA BACKUP */}
+            <section className="admin-backup-panel">
+              <div className="admin-backup-icon"><i className="fa-solid fa-database"></i></div>
+              <div className="admin-backup-copy">
+                <span>Data protection · Admin only</span>
+                <h2>Manual Full Data Backup</h2>
+                <p>Download the current Firestore hotel records as one JSON file. This is a read-only operation and does not change live data.</p>
+                <small><i className="fa-solid fa-triangle-exclamation"></i> Authentication accounts and passwords are not included. Keep the file private because it contains hotel, staff and customer information.</small>
+                {backupFeedback.message && (
+                  <p className={`admin-backup-feedback ${backupFeedback.type}`} role={backupFeedback.type === 'error' ? 'alert' : 'status'}>
+                    <i className={`fa-solid ${backupFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                    {backupFeedback.message}
+                  </p>
+                )}
+              </div>
+              <button type="button" className="admin-backup-button" onClick={handleDownloadFullBackup} disabled={isBackupDownloading}>
+                <i className={`fa-solid ${isBackupDownloading ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`}></i>
+                <span>{isBackupDownloading ? 'Preparing Backup...' : 'Download Full Backup'}</span>
+              </button>
+            </section>
 
             {/* HOTEL GPS LOCATION CONFIG */}
             <div className="floor-section">

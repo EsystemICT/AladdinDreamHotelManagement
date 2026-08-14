@@ -17,7 +17,7 @@ const ICONS = {
   VERIFY: { icon: "fa-solid fa-file-invoice-dollar", label: "Verification" },
   REQ: { icon: "fa-solid fa-paper-plane", label: "Request Staff" },
   SHIFT: { icon: "fa-solid fa-clock", label: "My Shift" },
-  MC: { icon: "fa-solid fa-notes-medical", label: "Request MC" },
+  MC: { icon: "fa-solid fa-notes-medical", label: "Apply Leave/MC" },
   ATT_REPORT: { icon: "fa-solid fa-clipboard-user", label: "Attendance Portal" },
   HELP: { icon: "fa-solid fa-comment", label: "Help" }
 };
@@ -138,15 +138,15 @@ const HELP_TOPICS = [
   {
     id: 'request-mc',
     icon: 'fa-solid fa-notes-medical',
-    title: 'Submit an MC request',
-    summary: 'Send your medical certificate details for review.',
+    title: 'Apply for Leave/MC',
+    summary: 'Send your leave or medical certificate details for review.',
     steps: [
-      'Open Request MC and enter the MC dates.',
+      'Open Apply Leave/MC and enter the relevant dates.',
       'Add the relevant reason or remarks.',
       'Submit the request and return to the page to check its status.'
     ],
     action: 'MC',
-    actionLabel: 'Go to Request MC',
+    actionLabel: 'Go to Apply Leave/MC',
     audience: 'all',
     keywords: 'mc medical certificate sick leave request status'
   },
@@ -2757,7 +2757,7 @@ export default function App() {
       endDate >= (leave.startDate || leave.endDate || '')
     ));
     if (overlapsPendingRequest) {
-      alert('You already have a pending MC request for this date range.');
+      alert('You already have a pending Leave/MC application for this date range.');
       return;
     }
 
@@ -2781,10 +2781,10 @@ export default function App() {
         `Requested MC from ${startDate} to ${endDate}${clinicName ? ` (${clinicName})` : ''}`
       );
       form.reset();
-      alert('MC request submitted successfully.');
+      alert('Leave/MC application submitted successfully.');
     } catch (error) {
-      console.error('MC request failed:', error);
-      alert('Unable to submit the MC request. Please try again.');
+      console.error('Leave/MC application failed:', error);
+      alert('Unable to submit the Leave/MC application. Please try again.');
     } finally {
       setIsMcSubmitting(false);
     }
@@ -2792,18 +2792,18 @@ export default function App() {
 
   const handleWithdrawMcRequest = async (mcRequest) => {
     if (mcRequest.userId !== currentUser.userid || mcRequest.status !== 'pending') return;
-    if (!confirm('Withdraw this pending MC request?')) return;
+    if (!confirm('Withdraw this pending Leave/MC application?')) return;
 
     try {
       await deleteDoc(doc(db, 'leaves', mcRequest.id));
       await logSystemAction(
         currentUser.name,
         'MC_WITHDRAW',
-        `Withdrew MC request from ${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'}`
+        `Withdrew Leave/MC application from ${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'}`
       );
     } catch (error) {
-      console.error('MC withdrawal failed:', error);
-      alert('Unable to withdraw this MC request.');
+      console.error('Leave/MC withdrawal failed:', error);
+      alert('Unable to withdraw this Leave/MC application.');
     }
   };
 
@@ -2819,11 +2819,11 @@ export default function App() {
       await logSystemAction(
         currentUser.name,
         status === 'approved' ? 'MC_APPROVED' : 'MC_REJECTED',
-        `${status === 'approved' ? 'Approved' : 'Rejected'} MC request for ${mcRequest.userName} (${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'})`
+        `${status === 'approved' ? 'Approved' : 'Rejected'} Leave/MC application for ${mcRequest.userName} (${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'})`
       );
     } catch (error) {
-      console.error('MC review failed:', error);
-      alert(`Unable to mark this MC request as ${status}.`);
+      console.error('Leave/MC review failed:', error);
+      alert(`Unable to mark this Leave/MC application as ${status}.`);
     }
   };
 
@@ -4893,14 +4893,14 @@ export default function App() {
         </div>
       )}
 
-      {/* --- VIEW: REQUEST MEDICAL CERTIFICATE --- */}
+      {/* --- VIEW: APPLY LEAVE / MEDICAL CERTIFICATE --- */}
       {view === 'MC' && (
         <div className="dashboard mc-page">
           <div className="floor-section mc-request-panel">
             <div className="floor-title">
-              <span><i className="fa-solid fa-notes-medical"></i> Request Medical Certificate (MC)</span>
+              <span><i className="fa-solid fa-notes-medical"></i> Apply Leave/MC</span>
             </div>
-            <p className="mc-intro">Submit your MC dates and details for Admin review.</p>
+            <p className="mc-intro">Submit your Leave/MC dates and details for Admin review.</p>
 
             <form className="mc-request-form" onSubmit={handleSubmitMcRequest}>
               <div className="mc-form-grid">
@@ -4918,24 +4918,24 @@ export default function App() {
                 </label>
                 <label className="mc-field-wide">
                   <span>Reason / Remarks</span>
-                  <textarea name="remarks" rows="4" maxLength="500" placeholder="Briefly describe your MC request..." required></textarea>
+                  <textarea name="remarks" rows="4" maxLength="500" placeholder="Briefly describe your Leave/MC application..." required></textarea>
                 </label>
               </div>
               <button type="submit" className="btn blue mc-submit-btn" disabled={isMcSubmitting}>
                 {isMcSubmitting
                   ? <><i className="fa-solid fa-spinner fa-spin"></i> Submitting...</>
-                  : <><i className="fa-solid fa-paper-plane"></i> Submit MC Request</>}
+                  : <><i className="fa-solid fa-paper-plane"></i> Submit Leave/MC Application</>}
               </button>
             </form>
           </div>
 
           <div className="floor-section">
-            <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> My MC Requests</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> My Leave/MC Applications</h2>
             <div className="mc-request-list">
               {leaves.filter(leave => leave.userId === currentUser.userid && leave.type === 'MC').length === 0 ? (
                 <div className="mc-empty-state">
                   <i className="fa-regular fa-folder-open"></i>
-                  <p>No MC requests submitted yet.</p>
+                  <p>No Leave/MC applications submitted yet.</p>
                 </div>
               ) : (
                 leaves
@@ -5629,10 +5629,10 @@ export default function App() {
             <h2 className="floor-title"><i className="fa-solid fa-notes-medical"></i> Medical Certificate Requests</h2>
             <div className="admin-table-container scroll-pane">
                <table>
-                   <thead><tr><th>Staff</th><th>MC Dates</th><th>Clinic</th><th>Remarks</th><th>Submitted</th><th>Status</th></tr></thead>
+                   <thead><tr><th>Staff</th><th>Leave / MC Dates</th><th>Clinic</th><th>Remarks</th><th>Submitted</th><th>Status</th></tr></thead>
                    <tbody>
                        {leaves.filter(l => l.type === 'MC').length === 0 ? (
-                         <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No MC requests submitted.</td></tr>
+                         <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No Leave/MC applications submitted.</td></tr>
                        ) : leaves.filter(l => l.type === 'MC').map(l => (
                            <tr key={l.id}>
                                <td>{l.userName}</td>

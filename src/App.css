@@ -2422,7 +2422,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-staff-trigger:focus { outline: 2px solid rgba(39, 120, 115, 0.2); border-color: #277873; }
 .housekeeping-staff-trigger:disabled { cursor: wait; opacity: 0.72; }
 .housekeeping-cell-spinner { position: absolute; top: 12px; right: 9px; color: #277873; font-size: 0.7rem; pointer-events: none; }
-.housekeeping-multiple-badge { position: absolute; top: -7px; right: -5px; display: grid; min-width: 18px; height: 18px; padding: 0 4px; place-items: center; color: #fff; background: #b45309; border: 2px solid #fff; border-radius: 999px; font-size: 0.56rem; font-weight: 900; }
 .housekeeping-calendar-empty { padding: 42px 20px; color: #8a96a8; text-align: center; }
 .housekeeping-calendar-empty i { margin-right: 7px; }
 .housekeeping-staff-modal { position: relative; max-width: 520px; }

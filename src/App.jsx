@@ -4532,9 +4532,6 @@ export default function App() {
                                   <i className="fa-solid fa-user-plus" aria-hidden="true"></i>
                                 </button>
                                 {isPending && <i className="fa-solid fa-spinner fa-spin housekeeping-cell-spinner" aria-hidden="true"></i>}
-                                {assignedNames.length > 1 && (
-                                  <span className="housekeeping-multiple-badge" title={assignedNames.join(', ')}>+{assignedNames.length - 1}</span>
-                                )}
                               </div>
                             </td>
                           );

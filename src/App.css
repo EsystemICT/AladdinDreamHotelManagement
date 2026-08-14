@@ -2392,27 +2392,71 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-calendar-table tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-calendar-table tr > *:last-child { border-right: 0; }
 .housekeeping-calendar-cell { position: relative; }
-.housekeeping-calendar-cell select {
+.housekeeping-staff-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   width: 100%;
   min-height: 36px;
   margin: 0;
-  padding: 7px 25px 7px 8px;
+  padding: 7px 8px;
   box-sizing: border-box;
   color: #728094;
   background-color: #fff;
   border: 1px solid #d9e0e7;
   border-radius: 8px;
+  cursor: pointer;
   font-size: 0.7rem;
   font-weight: 700;
-  text-overflow: ellipsis;
+  text-align: left;
 }
-.housekeeping-calendar-table td.assigned select { color: #087054; background-color: #edf9f5; border-color: #9dd8c4; }
-.housekeeping-calendar-cell select:focus { outline: 2px solid rgba(39, 120, 115, 0.2); border-color: #277873; }
-.housekeeping-calendar-cell select:disabled { cursor: wait; opacity: 0.72; }
+.housekeeping-staff-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.housekeeping-staff-trigger > i { flex: 0 0 auto; font-size: 0.62rem; }
+.housekeeping-calendar-table td.assigned .housekeeping-staff-trigger { color: #087054; background-color: #edf9f5; border-color: #9dd8c4; }
+.housekeeping-staff-trigger:focus { outline: 2px solid rgba(39, 120, 115, 0.2); border-color: #277873; }
+.housekeeping-staff-trigger:disabled { cursor: wait; opacity: 0.72; }
 .housekeeping-cell-spinner { position: absolute; top: 12px; right: 9px; color: #277873; font-size: 0.7rem; pointer-events: none; }
 .housekeeping-multiple-badge { position: absolute; top: -7px; right: -5px; display: grid; min-width: 18px; height: 18px; padding: 0 4px; place-items: center; color: #fff; background: #b45309; border: 2px solid #fff; border-radius: 999px; font-size: 0.56rem; font-weight: 900; }
 .housekeeping-calendar-empty { padding: 42px 20px; color: #8a96a8; text-align: center; }
 .housekeeping-calendar-empty i { margin-right: 7px; }
+.housekeeping-staff-modal { position: relative; max-width: 520px; }
+.housekeeping-staff-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-right: 34px; }
+.housekeeping-staff-modal-heading p { margin: 0 0 4px; color: #277873; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.13em; }
+.housekeeping-staff-modal-heading h2 { margin: 0 0 2px; }
+.housekeeping-staff-modal-heading span { color: var(--hotel-slate-500); font-size: 0.76rem; font-weight: 700; }
+.housekeeping-staff-modal .profile-close-btn { top: 21px; right: 21px; }
+.housekeeping-staff-modal-help { margin: 16px 0 12px; color: var(--hotel-slate-500); font-size: 0.78rem; line-height: 1.5; }
+.housekeeping-staff-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.housekeeping-staff-options > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  color: var(--hotel-slate-600);
+  background: #fff;
+  border: 1px solid var(--hotel-line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+.housekeeping-staff-options > label:hover { border-color: #9dd8c4; }
+.housekeeping-staff-options > label.selected { color: #087054; background: #edf9f5; border-color: #79c8ad; box-shadow: 0 0 0 2px rgba(39, 120, 115, 0.08); }
+.housekeeping-staff-options input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.housekeeping-staff-options label > span { display: grid; min-width: 0; flex: 1; }
+.housekeeping-staff-options strong { overflow: hidden; color: inherit; font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
+.housekeeping-staff-options small { margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.62rem; }
+.housekeeping-staff-options label > i { color: #c9d1db; font-size: 0.9rem; }
+.housekeeping-staff-options label.selected > i { color: #15906a; }
+.housekeeping-team-count { margin-top: 12px; padding: 9px 11px; color: #087054; background: #ecfdf5; border-radius: 9px; font-size: 0.72rem; font-weight: 800; }
+.housekeeping-team-count i { margin-right: 6px; }
+.housekeeping-staff-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
 
 /* Help centre */
 .help-dialog-icon {
@@ -2734,6 +2778,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .housekeeping-calendar-table thead th,
   .housekeeping-calendar-table tbody td { width: 116px; min-width: 116px; }
   .housekeeping-calendar-table .housekeeping-room-column { width: 76px; min-width: 76px; max-width: 76px; }
+  .housekeeping-staff-options { grid-template-columns: 1fr; }
   .help-hero { gap: 20px; padding: 19px 16px; border-radius: 16px; }
   .help-hero-copy { align-items: flex-start; gap: 13px; }
   .help-hero-icon { width: 48px; height: 48px; flex-basis: 48px; border-radius: 14px; font-size: 1.65rem; }

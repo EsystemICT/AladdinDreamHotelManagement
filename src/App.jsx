@@ -107,14 +107,14 @@ const HELP_TOPICS = [
     id: 'daily-housekeeping',
     icon: 'fa-solid fa-broom',
     title: 'Record daily room housekeeping',
-    summary: 'Record which staff member handled housekeeping for each room and date.',
+    summary: 'Record which staff members handled housekeeping for each room and date.',
     steps: [
       'Open Housekeeping from the navigation menu.',
       'Choose the month you want to schedule.',
       'Find the room on the left and the date across the top.',
-      'Choose the staff member inside that cell. The assignment saves automatically.'
+      'Open the room and date cell, choose one or more staff members, then save the assignment.'
     ],
-    tip: 'Choose another name to change an assignment. Administrators can choose Unassigned to clear it.',
+    tip: 'Tick every staff member who worked together. Administrators can clear all selections to mark the cell as unassigned.',
     action: 'HOUSEKEEPING',
     actionLabel: 'Go to Housekeeping',
     audience: 'all',
@@ -1037,6 +1037,7 @@ export default function App() {
   const [housekeepingMonth, setHousekeepingMonth] = useState(getCurrentMonthString);
   const [housekeepingFeedback, setHousekeepingFeedback] = useState({ type: '', message: '' });
   const [housekeepingPendingAssignments, setHousekeepingPendingAssignments] = useState({});
+  const [housekeepingStaffModal, setHousekeepingStaffModal] = useState(null);
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -2387,56 +2388,66 @@ export default function App() {
   const handleHousekeepingMonthChange = (nextMonth) => {
     setHousekeepingMonth(nextMonth);
     setHousekeepingFeedback({ type: '', message: '' });
+    setHousekeepingStaffModal(null);
   };
 
-  const handleHousekeepingAssignmentChange = async (serviceDate, room, staffDocId, existingRecord) => {
+  const resolveHousekeepingStaffDocId = (record) => (
+    record?.staffDocId || users.find(staff => staff.userid === record?.staffId)?.dbId || ''
+  );
+
+  const openHousekeepingStaffModal = (serviceDate, room, existingRecords) => {
+    const selectedStaffDocIds = [...new Set(existingRecords.map(resolveHousekeepingStaffDocId).filter(Boolean))];
+    setHousekeepingStaffModal({ serviceDate, room, existingRecords, selectedStaffDocIds });
+  };
+
+  const handleHousekeepingAssignmentsChange = async (serviceDate, room, staffDocIds, existingRecords) => {
     const cellKey = `${room.id}|${serviceDate}`;
-    if (Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey)) return;
+    if (Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey)) return false;
 
-    const staff = staffDocId
-      ? users.find(user => user.dbId === staffDocId && isUserActive(user))
-      : null;
-    if (staffDocId && !staff) {
-      setHousekeepingFeedback({ type: 'error', message: 'That staff account is no longer active. Please choose another staff member.' });
-      return;
+    const nextStaffDocIds = [...new Set(staffDocIds)];
+    const selectedStaff = nextStaffDocIds.map(staffDocId => (
+      users.find(user => user.dbId === staffDocId && isUserActive(user))
+    ));
+    if (selectedStaff.some(staff => !staff)) {
+      setHousekeepingFeedback({ type: 'error', message: 'One of the selected staff accounts is no longer active. Please review the selection.' });
+      return false;
     }
-    if (!staff && existingRecord && currentUser.role !== 'admin') return;
-    if (staff?.dbId === existingRecord?.staffDocId) return;
+    if (nextStaffDocIds.length === 0 && existingRecords.length > 0 && currentUser.role !== 'admin') {
+      setHousekeepingFeedback({ type: 'error', message: 'Only an administrator can clear every housekeeping assignment from a cell.' });
+      return false;
+    }
 
-    setHousekeepingPendingAssignments(previous => ({ ...previous, [cellKey]: staffDocId }));
+    const existingByStaffDocId = existingRecords.reduce((recordMap, record) => {
+      const staffDocId = resolveHousekeepingStaffDocId(record);
+      if (!recordMap.has(staffDocId)) recordMap.set(staffDocId, []);
+      recordMap.get(staffDocId).push(record);
+      return recordMap;
+    }, new Map());
+    const currentStaffDocIds = [...existingByStaffDocId.entries()]
+      .flatMap(([staffDocId, records]) => records.map(() => staffDocId))
+      .filter(Boolean)
+      .sort();
+    const sortedNextStaffDocIds = [...nextStaffDocIds].sort();
+    if (JSON.stringify(currentStaffDocIds) === JSON.stringify(sortedNextStaffDocIds)) return true;
+
+    setHousekeepingPendingAssignments(previous => ({ ...previous, [cellKey]: nextStaffDocIds }));
     setHousekeepingFeedback({ type: '', message: '' });
     try {
-      if (!staff && existingRecord) {
-        await deleteDoc(doc(db, 'housekeepingDaily', existingRecord.id));
-        await logSystemAction(
-          currentUser.name,
-          'HOUSEKEEPING_DAILY_DELETE',
-          `Cleared housekeeping assignment for Room ${room.id} on ${serviceDate}`
-        );
-        setHousekeepingFeedback({
-          type: 'success',
-          message: `Room ${room.id} is now unassigned for ${calendarIsoToDisplay(serviceDate)}.`
+      const batch = writeBatch(db);
+      let operationCount = 0;
+
+      existingByStaffDocId.forEach((records, staffDocId) => {
+        const recordsToDelete = nextStaffDocIds.includes(staffDocId) ? records.slice(1) : records;
+        recordsToDelete.forEach(record => {
+          batch.delete(doc(db, 'housekeepingDaily', record.id));
+          operationCount += 1;
         });
-      } else if (existingRecord) {
-        await updateDoc(doc(db, 'housekeepingDaily', existingRecord.id), {
-          staffDocId: staff.dbId,
-          staffId: staff.userid || '',
-          staffName: staff.name || staff.userid || 'Staff',
-          recordedBy: currentUser.name,
-          recordedById: currentUser.userid,
-          updatedAt: serverTimestamp()
-        });
-        await logSystemAction(
-          currentUser.name,
-          'HOUSEKEEPING_DAILY_UPDATE',
-          `Changed housekeeping Room ${room.id} to ${staff.name} on ${serviceDate}`
-        );
-        setHousekeepingFeedback({
-          type: 'success',
-          message: `Room ${room.id} was assigned to ${staff.name} for ${calendarIsoToDisplay(serviceDate)}.`
-        });
-      } else {
-        await addDoc(collection(db, 'housekeepingDaily'), {
+      });
+
+      selectedStaff.forEach(staff => {
+        if ((existingByStaffDocId.get(staff.dbId) || []).length > 0) return;
+        const newRecordRef = doc(collection(db, 'housekeepingDaily'));
+        batch.set(newRecordRef, {
           serviceDate,
           month: serviceDate.slice(0, 7),
           roomId: String(room.id),
@@ -2448,19 +2459,29 @@ export default function App() {
           recordedById: currentUser.userid,
           createdAt: serverTimestamp()
         });
-        await logSystemAction(
-          currentUser.name,
-          'HOUSEKEEPING_DAILY_ADD',
-          `Assigned ${staff.name} to housekeeping Room ${room.id} on ${serviceDate}`
-        );
-        setHousekeepingFeedback({
-          type: 'success',
-          message: `Room ${room.id} was assigned to ${staff.name} for ${calendarIsoToDisplay(serviceDate)}.`
-        });
-      }
+        operationCount += 1;
+      });
+
+      if (operationCount > 0) await batch.commit();
+      const staffNames = selectedStaff.map(staff => staff.name || staff.userid || 'Staff');
+      await logSystemAction(
+        currentUser.name,
+        'HOUSEKEEPING_DAILY_MULTI_UPDATE',
+        staffNames.length > 0
+          ? `Assigned ${staffNames.join(', ')} to housekeeping Room ${room.id} on ${serviceDate}`
+          : `Cleared all housekeeping assignments for Room ${room.id} on ${serviceDate}`
+      );
+      setHousekeepingFeedback({
+        type: 'success',
+        message: staffNames.length > 0
+          ? `Room ${room.id} was assigned to ${staffNames.join(', ')} for ${calendarIsoToDisplay(serviceDate)}.`
+          : `Room ${room.id} is now unassigned for ${calendarIsoToDisplay(serviceDate)}.`
+      });
+      return true;
     } catch (error) {
       console.error('Housekeeping calendar assignment save failed:', error);
       setHousekeepingFeedback({ type: 'error', message: 'Unable to save this housekeeping assignment. Please try again.' });
+      return false;
     } finally {
       setHousekeepingPendingAssignments(previous => {
         const next = { ...previous };
@@ -4423,7 +4444,7 @@ export default function App() {
               <div>
                 <p className="housekeeping-eyebrow">ROOM OPERATIONS</p>
                 <h2 className="floor-title"><i className="fa-solid fa-calendar-days"></i> Housekeeping Calendar</h2>
-                <p className="housekeeping-intro">Choose a staff member directly in the room and date grid. Changes save automatically.</p>
+                <p className="housekeeping-intro">Open a room and date cell, tick one or more staff members, then save.</p>
               </div>
               <label className="housekeeping-month-picker">
                 <span>View month</span>
@@ -4488,35 +4509,31 @@ export default function App() {
                         {housekeepingCalendarDays.map(day => {
                           const cellKey = `${room.id}|${day.dateKey}`;
                           const cellRecords = housekeepingCellRecordMap[cellKey] || [];
-                          const existingRecord = cellRecords[0];
-                          const assignedStaffDocId = existingRecord?.staffDocId || users.find(staff => staff.userid === existingRecord?.staffId)?.dbId || '';
                           const isPending = Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey);
-                          const selectedStaffDocId = isPending ? housekeepingPendingAssignments[cellKey] : assignedStaffDocId;
-                          const isHistoricStaff = Boolean(existingRecord && assignedStaffDocId && !housekeepingStaff.some(staff => staff.dbId === assignedStaffDocId));
+                          const pendingStaffDocIds = housekeepingPendingAssignments[cellKey] || [];
+                          const assignedNames = isPending
+                            ? pendingStaffDocIds.map(staffDocId => users.find(staff => staff.dbId === staffDocId)?.name).filter(Boolean)
+                            : [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
                           return (
                             <td
                               key={day.dateKey}
-                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${existingRecord ? 'assigned' : ''}`}
+                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''}`}
                             >
                               <div className="housekeeping-calendar-cell">
-                                <select
-                                  value={selectedStaffDocId}
-                                  onChange={event => handleHousekeepingAssignmentChange(day.dateKey, room, event.target.value, existingRecord)}
+                                <button
+                                  type="button"
+                                  className="housekeeping-staff-trigger"
+                                  onClick={() => openHousekeepingStaffModal(day.dateKey, room, cellRecords)}
                                   disabled={isPending || housekeepingStaff.length === 0}
-                                  aria-label={`Housekeeping staff for Room ${room.id} on ${calendarIsoToDisplay(day.dateKey)}`}
-                                  title={cellRecords.length > 1 ? cellRecords.map(record => record.staffName).join(', ') : undefined}
+                                  aria-label={`Choose housekeeping staff for Room ${room.id} on ${calendarIsoToDisplay(day.dateKey)}`}
+                                  title={assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned'}
                                 >
-                                  <option value="" disabled={Boolean(existingRecord) && currentUser.role !== 'admin'}>Unassigned</option>
-                                  {isHistoricStaff && (
-                                    <option value={assignedStaffDocId}>{existingRecord.staffName || existingRecord.staffId} (inactive)</option>
-                                  )}
-                                  {housekeepingStaff.map(staff => (
-                                    <option key={staff.dbId} value={staff.dbId}>{staff.name}</option>
-                                  ))}
-                                </select>
+                                  <span>{assignedNames.length > 0 ? assignedNames.join(' / ') : 'Unassigned'}</span>
+                                  <i className="fa-solid fa-user-plus" aria-hidden="true"></i>
+                                </button>
                                 {isPending && <i className="fa-solid fa-spinner fa-spin housekeeping-cell-spinner" aria-hidden="true"></i>}
-                                {cellRecords.length > 1 && (
-                                  <span className="housekeeping-multiple-badge" title={cellRecords.map(record => record.staffName).join(', ')}>+{cellRecords.length - 1}</span>
+                                {assignedNames.length > 1 && (
+                                  <span className="housekeeping-multiple-badge" title={assignedNames.join(', ')}>+{assignedNames.length - 1}</span>
                                 )}
                               </div>
                             </td>
@@ -5669,6 +5686,84 @@ export default function App() {
       )}
 
       {/* --- MODALS --- */}
+      {housekeepingStaffModal && (
+        <div className="modal-overlay" onClick={() => {
+          const modalCellKey = `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`;
+          if (!Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, modalCellKey)) setHousekeepingStaffModal(null);
+        }}>
+          <form
+            className="modal-content housekeeping-staff-modal"
+            onClick={event => event.stopPropagation()}
+            onSubmit={async event => {
+              event.preventDefault();
+              const modal = housekeepingStaffModal;
+              const saved = await handleHousekeepingAssignmentsChange(
+                modal.serviceDate,
+                modal.room,
+                modal.selectedStaffDocIds,
+                modal.existingRecords
+              );
+              if (saved) setHousekeepingStaffModal(null);
+            }}
+          >
+            <div className="housekeeping-staff-modal-heading">
+              <div>
+                <p>HOUSEKEEPING TEAM</p>
+                <h2>Room {housekeepingStaffModal.room.id}</h2>
+                <span>{calendarIsoToDisplay(housekeepingStaffModal.serviceDate)}</span>
+              </div>
+              <button type="button" className="profile-close-btn" onClick={() => setHousekeepingStaffModal(null)} aria-label="Close staff selector">
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <p className="housekeeping-staff-modal-help">Select every staff member who worked on this room. You can choose more than one.</p>
+            <div className="housekeeping-staff-options">
+              {housekeepingStaff.map(staff => {
+                const isSelected = housekeepingStaffModal.selectedStaffDocIds.includes(staff.dbId);
+                return (
+                  <label key={staff.dbId} className={isSelected ? 'selected' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => setHousekeepingStaffModal(previous => ({
+                        ...previous,
+                        selectedStaffDocIds: isSelected
+                          ? previous.selectedStaffDocIds.filter(staffDocId => staffDocId !== staff.dbId)
+                          : [...previous.selectedStaffDocIds, staff.dbId]
+                      }))}
+                    />
+                    <span>
+                      <strong>{staff.name || staff.userid}</strong>
+                      <small>Staff ID: {staff.userid || '-'}</small>
+                    </span>
+                    <i className={`fa-solid ${isSelected ? 'fa-circle-check' : 'fa-circle'}`} aria-hidden="true"></i>
+                  </label>
+                );
+              })}
+            </div>
+            {housekeepingStaffModal.selectedStaffDocIds.length > 1 && (
+              <div className="housekeeping-team-count"><i className="fa-solid fa-people-group"></i> {housekeepingStaffModal.selectedStaffDocIds.length} staff members selected</div>
+            )}
+            <div className="modal-actions housekeeping-staff-actions">
+              <button type="button" className="btn gray" onClick={() => setHousekeepingStaffModal(null)}>Cancel</button>
+              <button
+                type="submit"
+                className="btn blue"
+                disabled={Object.prototype.hasOwnProperty.call(
+                  housekeepingPendingAssignments,
+                  `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`
+                )}
+              >
+                {Object.prototype.hasOwnProperty.call(
+                  housekeepingPendingAssignments,
+                  `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`
+                ) ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : 'Save Team'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {editStockModal && (
         <div className="modal-overlay" onClick={() => setEditStockModal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>

@@ -1038,6 +1038,9 @@ export default function App() {
   const [housekeepingFeedback, setHousekeepingFeedback] = useState({ type: '', message: '' });
   const [housekeepingPendingAssignments, setHousekeepingPendingAssignments] = useState({});
   const [housekeepingStaffModal, setHousekeepingStaffModal] = useState(null);
+  const [housekeepingAutoSaveStatus, setHousekeepingAutoSaveStatus] = useState('idle');
+  const [housekeepingActiveCell, setHousekeepingActiveCell] = useState(null);
+  const housekeepingAutoSaveTimerRef = useRef(null);
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -1069,6 +1072,10 @@ export default function App() {
     if (typeof window === 'undefined') return '';
     const params = new URLSearchParams(window.location.search);
     return params.get('mode') === 'resetPassword' ? (params.get('oobCode') || '') : '';
+  }, []);
+
+  useEffect(() => () => {
+    if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
   }, []);
 
   useEffect(() => {
@@ -2386,9 +2393,13 @@ export default function App() {
   };
 
   const handleHousekeepingMonthChange = (nextMonth) => {
+    if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
+    housekeepingAutoSaveTimerRef.current = null;
     setHousekeepingMonth(nextMonth);
     setHousekeepingFeedback({ type: '', message: '' });
     setHousekeepingStaffModal(null);
+    setHousekeepingAutoSaveStatus('idle');
+    setHousekeepingActiveCell(null);
   };
 
   const resolveHousekeepingStaffDocId = (record) => (
@@ -2396,11 +2407,15 @@ export default function App() {
   );
 
   const openHousekeepingStaffModal = (serviceDate, room, existingRecords) => {
+    if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
+    housekeepingAutoSaveTimerRef.current = null;
     const selectedStaffDocIds = [...new Set(existingRecords.map(resolveHousekeepingStaffDocId).filter(Boolean))];
-    setHousekeepingStaffModal({ serviceDate, room, existingRecords, selectedStaffDocIds });
+    setHousekeepingAutoSaveStatus('idle');
+    setHousekeepingActiveCell({ roomId: String(room.id), serviceDate });
+    setHousekeepingStaffModal({ serviceDate, room, selectedStaffDocIds });
   };
 
-  const handleHousekeepingAssignmentsChange = async (serviceDate, room, staffDocIds, existingRecords) => {
+  const handleHousekeepingAssignmentsChange = async (serviceDate, room, staffDocIds) => {
     const cellKey = `${room.id}|${serviceDate}`;
     if (Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey)) return false;
 
@@ -2412,27 +2427,33 @@ export default function App() {
       setHousekeepingFeedback({ type: 'error', message: 'One of the selected staff accounts is no longer active. Please review the selection.' });
       return false;
     }
-    if (nextStaffDocIds.length === 0 && existingRecords.length > 0 && currentUser.role !== 'admin') {
-      setHousekeepingFeedback({ type: 'error', message: 'Only an administrator can clear every housekeeping assignment from a cell.' });
-      return false;
-    }
-
-    const existingByStaffDocId = existingRecords.reduce((recordMap, record) => {
-      const staffDocId = resolveHousekeepingStaffDocId(record);
-      if (!recordMap.has(staffDocId)) recordMap.set(staffDocId, []);
-      recordMap.get(staffDocId).push(record);
-      return recordMap;
-    }, new Map());
-    const currentStaffDocIds = [...existingByStaffDocId.entries()]
-      .flatMap(([staffDocId, records]) => records.map(() => staffDocId))
-      .filter(Boolean)
-      .sort();
-    const sortedNextStaffDocIds = [...nextStaffDocIds].sort();
-    if (JSON.stringify(currentStaffDocIds) === JSON.stringify(sortedNextStaffDocIds)) return true;
-
     setHousekeepingPendingAssignments(previous => ({ ...previous, [cellKey]: nextStaffDocIds }));
     setHousekeepingFeedback({ type: '', message: '' });
     try {
+      const existingSnapshot = await getDocs(query(
+        collection(db, 'housekeepingDaily'),
+        where('serviceDate', '==', serviceDate),
+        where('roomId', '==', String(room.id))
+      ));
+      const existingRecords = existingSnapshot.docs.map(record => ({ id: record.id, ...record.data() }));
+      if (nextStaffDocIds.length === 0 && existingRecords.length > 0 && currentUser.role !== 'admin') {
+        setHousekeepingFeedback({ type: 'error', message: 'Only an administrator can clear every housekeeping assignment from a cell.' });
+        return false;
+      }
+
+      const existingByStaffDocId = existingRecords.reduce((recordMap, record) => {
+        const staffDocId = resolveHousekeepingStaffDocId(record);
+        if (!recordMap.has(staffDocId)) recordMap.set(staffDocId, []);
+        recordMap.get(staffDocId).push(record);
+        return recordMap;
+      }, new Map());
+      const currentStaffDocIds = [...existingByStaffDocId.entries()]
+        .flatMap(([staffDocId, records]) => records.map(() => staffDocId))
+        .filter(Boolean)
+        .sort();
+      const sortedNextStaffDocIds = [...nextStaffDocIds].sort();
+      if (JSON.stringify(currentStaffDocIds) === JSON.stringify(sortedNextStaffDocIds)) return true;
+
       const batch = writeBatch(db);
       let operationCount = 0;
 
@@ -2489,6 +2510,39 @@ export default function App() {
         return next;
       });
     }
+  };
+
+  const queueHousekeepingAutoSave = (modal) => {
+    if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
+    setHousekeepingAutoSaveStatus('waiting');
+    const timerId = setTimeout(async () => {
+      housekeepingAutoSaveTimerRef.current = null;
+      setHousekeepingAutoSaveStatus('saving');
+      const saved = await handleHousekeepingAssignmentsChange(
+        modal.serviceDate,
+        modal.room,
+        modal.selectedStaffDocIds
+      );
+      setHousekeepingAutoSaveStatus(saved ? 'saved' : 'error');
+    }, 600);
+    housekeepingAutoSaveTimerRef.current = { timerId, modal };
+  };
+
+  const closeHousekeepingStaffModal = async () => {
+    if (housekeepingAutoSaveStatus === 'saving') return;
+    const pendingSave = housekeepingAutoSaveTimerRef.current;
+    if (pendingSave) {
+      clearTimeout(pendingSave.timerId);
+      housekeepingAutoSaveTimerRef.current = null;
+      setHousekeepingAutoSaveStatus('saving');
+      await handleHousekeepingAssignmentsChange(
+        pendingSave.modal.serviceDate,
+        pendingSave.modal.room,
+        pendingSave.modal.selectedStaffDocIds
+      );
+    }
+    setHousekeepingStaffModal(null);
+    setHousekeepingAutoSaveStatus('idle');
   };
 
   const handleAddCustomerDetail = async (event) => {
@@ -4491,7 +4545,7 @@ export default function App() {
                       {housekeepingCalendarDays.map(day => (
                         <th
                           key={day.dateKey}
-                          className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''}`}
+                          className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${housekeepingActiveCell?.serviceDate === day.dateKey ? 'active-column-header' : ''}`}
                         >
                           <span>{day.weekday}</span>
                           <strong>{day.day}</strong>
@@ -4501,8 +4555,8 @@ export default function App() {
                   </thead>
                   <tbody>
                     {housekeepingRooms.map(room => (
-                      <tr key={room.id}>
-                        <th className="housekeeping-room-column" scope="row">
+                      <tr key={room.id} className={housekeepingActiveCell?.roomId === String(room.id) ? 'active-housekeeping-row' : ''}>
+                        <th className={`housekeeping-room-column ${housekeepingActiveCell?.roomId === String(room.id) ? 'active-row-header' : ''}`} scope="row">
                           <strong>{room.id}</strong>
                           {room.type && <small>{room.type}</small>}
                         </th>
@@ -4514,10 +4568,13 @@ export default function App() {
                           const assignedNames = isPending
                             ? pendingStaffDocIds.map(staffDocId => users.find(staff => staff.dbId === staffDocId)?.name).filter(Boolean)
                             : [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
+                          const isActiveRow = housekeepingActiveCell?.roomId === String(room.id);
+                          const isActiveColumn = housekeepingActiveCell?.serviceDate === day.dateKey;
+                          const isActiveCell = isActiveRow && isActiveColumn;
                           return (
                             <td
                               key={day.dateKey}
-                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''}`}
+                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''} ${isActiveRow ? 'active-row-cell' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${isActiveCell ? 'active-grid-cell' : ''}`}
                             >
                               <div className="housekeeping-calendar-cell">
                                 <button
@@ -5684,24 +5741,10 @@ export default function App() {
 
       {/* --- MODALS --- */}
       {housekeepingStaffModal && (
-        <div className="modal-overlay" onClick={() => {
-          const modalCellKey = `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`;
-          if (!Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, modalCellKey)) setHousekeepingStaffModal(null);
-        }}>
-          <form
+        <div className="modal-overlay" onClick={closeHousekeepingStaffModal}>
+          <div
             className="modal-content housekeeping-staff-modal"
             onClick={event => event.stopPropagation()}
-            onSubmit={async event => {
-              event.preventDefault();
-              const modal = housekeepingStaffModal;
-              const saved = await handleHousekeepingAssignmentsChange(
-                modal.serviceDate,
-                modal.room,
-                modal.selectedStaffDocIds,
-                modal.existingRecords
-              );
-              if (saved) setHousekeepingStaffModal(null);
-            }}
           >
             <div className="housekeeping-staff-modal-heading">
               <div>
@@ -5709,11 +5752,17 @@ export default function App() {
                 <h2>Room {housekeepingStaffModal.room.id}</h2>
                 <span>{calendarIsoToDisplay(housekeepingStaffModal.serviceDate)}</span>
               </div>
-              <button type="button" className="profile-close-btn" onClick={() => setHousekeepingStaffModal(null)} aria-label="Close staff selector">
+              <button
+                type="button"
+                className="profile-close-btn"
+                onClick={closeHousekeepingStaffModal}
+                disabled={housekeepingAutoSaveStatus === 'saving'}
+                aria-label="Close staff selector"
+              >
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
-            <p className="housekeeping-staff-modal-help">Select every staff member who worked on this room. You can choose more than one.</p>
+            <p className="housekeeping-staff-modal-help">Select every staff member who worked on this room. Changes save automatically.</p>
             <div className="housekeeping-staff-options">
               {housekeepingStaff.map(staff => {
                 const isSelected = housekeepingStaffModal.selectedStaffDocIds.includes(staff.dbId);
@@ -5722,12 +5771,17 @@ export default function App() {
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => setHousekeepingStaffModal(previous => ({
-                        ...previous,
-                        selectedStaffDocIds: isSelected
-                          ? previous.selectedStaffDocIds.filter(staffDocId => staffDocId !== staff.dbId)
-                          : [...previous.selectedStaffDocIds, staff.dbId]
-                      }))}
+                      disabled={housekeepingAutoSaveStatus === 'saving'}
+                      onChange={() => {
+                        const nextModal = {
+                          ...housekeepingStaffModal,
+                          selectedStaffDocIds: isSelected
+                            ? housekeepingStaffModal.selectedStaffDocIds.filter(staffDocId => staffDocId !== staff.dbId)
+                            : [...housekeepingStaffModal.selectedStaffDocIds, staff.dbId]
+                        };
+                        setHousekeepingStaffModal(nextModal);
+                        queueHousekeepingAutoSave(nextModal);
+                      }}
                     />
                     <span>
                       <strong>{staff.name || staff.userid}</strong>
@@ -5741,23 +5795,14 @@ export default function App() {
             {housekeepingStaffModal.selectedStaffDocIds.length > 1 && (
               <div className="housekeeping-team-count"><i className="fa-solid fa-people-group"></i> {housekeepingStaffModal.selectedStaffDocIds.length} staff members selected</div>
             )}
-            <div className="modal-actions housekeeping-staff-actions">
-              <button type="button" className="btn gray" onClick={() => setHousekeepingStaffModal(null)}>Cancel</button>
-              <button
-                type="submit"
-                className="btn blue"
-                disabled={Object.prototype.hasOwnProperty.call(
-                  housekeepingPendingAssignments,
-                  `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`
-                )}
-              >
-                {Object.prototype.hasOwnProperty.call(
-                  housekeepingPendingAssignments,
-                  `${housekeepingStaffModal.room.id}|${housekeepingStaffModal.serviceDate}`
-                ) ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : 'Save Team'}
-              </button>
+            <div className={`housekeeping-auto-save-status ${housekeepingAutoSaveStatus}`} role="status" aria-live="polite">
+              {housekeepingAutoSaveStatus === 'idle' && <><i className="fa-solid fa-bolt"></i> Select staff to save automatically</>}
+              {housekeepingAutoSaveStatus === 'waiting' && <><i className="fa-solid fa-clock"></i> Changes pending...</>}
+              {housekeepingAutoSaveStatus === 'saving' && <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</>}
+              {housekeepingAutoSaveStatus === 'saved' && <><i className="fa-solid fa-circle-check"></i> Saved automatically</>}
+              {housekeepingAutoSaveStatus === 'error' && <><i className="fa-solid fa-circle-exclamation"></i> Unable to save. Please try again.</>}
             </div>
-          </form>
+          </div>
         </div>
       )}
 

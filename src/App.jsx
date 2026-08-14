@@ -450,6 +450,7 @@ const DateOfBirthField = ({ defaultValue = '', idPrefix }) => {
           ref={pickerRef}
           className="profile-native-date-picker"
           type="date"
+          lang="en-GB"
           value={isoValue}
           max={getLocalIsoDate()}
           onChange={handleCalendarChange}
@@ -516,6 +517,7 @@ const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
           ref={pickerRef}
           className="profile-native-date-picker"
           type="date"
+          lang="en-GB"
           value={isoValue}
           onChange={(event) => {
             setIsoValue(event.target.value);
@@ -572,6 +574,7 @@ const MonthYearField = ({ value, onChange }) => {
         ref={pickerRef}
         className="profile-native-date-picker"
         type="month"
+        lang="en-GB"
         value={value}
         onChange={event => {
           if (!event.target.value) return;
@@ -3924,7 +3927,7 @@ export default function App() {
                 <span>Call Time</span>
                 <div className="customer-input-wrap">
                   <i className="fa-solid fa-phone-volume"></i>
-                  <input type="time" value={customerCallTime} onChange={event => setCustomerCallTime(event.target.value)} required />
+                  <input type="time" lang="en-GB" value={customerCallTime} onChange={event => setCustomerCallTime(event.target.value)} required />
                 </div>
               </label>
               <label className="customer-remark-field">
@@ -4549,6 +4552,7 @@ export default function App() {
               <input 
                   name="checkInDate" 
                   type="date" 
+                  lang="en-GB"
                   required 
                   style={{flex:'1', minWidth:'150px', cursor:'pointer', margin:0}} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -4605,6 +4609,7 @@ export default function App() {
               <input 
                   name="paymentDate" 
                   type="date" 
+                  lang="en-GB"
                   required 
                   style={{flex:'1', minWidth:'130px', cursor:'pointer', margin:0}} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -4612,6 +4617,7 @@ export default function App() {
               <input 
                   name="paymentTime" 
                   type="time" 
+                  lang="en-GB"
                   required 
                   style={{flex:'1', minWidth:'110px', cursor:'pointer', margin:0}} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -4953,6 +4959,7 @@ export default function App() {
                 <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>Month</label>
                 <input 
                   type="month" 
+                  lang="en-GB"
                   value={attFilterMonth} 
                   onChange={e => setAttFilterMonth(e.target.value)} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -4964,6 +4971,7 @@ export default function App() {
                 <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>From Date</label>
                 <input 
                   type="date" 
+                  lang="en-GB"
                   value={attFilterStartDate} 
                   onChange={e => setAttFilterStartDate(e.target.value)} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -4975,6 +4983,7 @@ export default function App() {
                 <label style={{fontSize: '0.75rem', color: '#666', fontWeight: 'bold', display: 'block', marginBottom: '2px'}}>To Date</label>
                 <input 
                   type="date" 
+                  lang="en-GB"
                   value={attFilterEndDate} 
                   onChange={e => setAttFilterEndDate(e.target.value)} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -5288,7 +5297,7 @@ export default function App() {
                 </label>
                 <label>
                   <span>Billing Month</span>
-                  <input name="billingMonth" type="month" defaultValue={getCurrentMonthString()} required />
+                  <input name="billingMonth" type="month" lang="en-GB" defaultValue={getCurrentMonthString()} required />
                 </label>
                 <label>
                   <span>Amount (RM)</span>
@@ -5296,11 +5305,11 @@ export default function App() {
                 </label>
                 <label>
                   <span>Bill Date</span>
-                  <input name="billDate" type="date" />
+                  <input name="billDate" type="date" lang="en-GB" />
                 </label>
                 <label>
                   <span>Due Date</span>
-                  <input name="dueDate" type="date" />
+                  <input name="dueDate" type="date" lang="en-GB" />
                 </label>
                 <label>
                   <span>Account / Reference</span>
@@ -5609,6 +5618,7 @@ export default function App() {
             <div className="filter-bar" style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px', border:'1px solid #eee'}}>
                 <input 
                   type="month" 
+                  lang="en-GB"
                   value={auditFilterMonth} 
                   onChange={e => setAuditFilterMonth(e.target.value)} 
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
@@ -5954,7 +5964,7 @@ export default function App() {
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Guest Name</label><input value={claimForm.guestName} onChange={e => setClaimForm({...claimForm, guestName: e.target.value})} placeholder="Full Name" /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>IC Number</label><input value={claimForm.icNumber} onChange={e => setClaimForm({...claimForm, icNumber: e.target.value})} placeholder="IC/Passport No" /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Contact Number</label><input value={claimForm.contactNumber} onChange={e => setClaimForm({...claimForm, contactNumber: e.target.value})} placeholder="Phone Number" /></div>
-              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label><input type="date" value={claimForm.bookingDate} onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ cursor: 'pointer' }} required /></div>
+              <div><label style={{fontSize:'0.85rem', color:'#666'}}>Booking Date</label><input type="date" lang="en-GB" value={claimForm.bookingDate} onChange={e => setClaimForm({...claimForm, bookingDate: e.target.value})} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ cursor: 'pointer' }} required /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Room Type</label><input value={claimForm.roomType} onChange={e => setClaimForm({...claimForm, roomType: e.target.value})} placeholder="e.g., Deluxe, Suite" /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Payment (RM)</label><input type="number" value={claimForm.payment} onChange={e => setClaimForm({...claimForm, payment: e.target.value})} placeholder="550" /></div>
               <div><label style={{fontSize:'0.85rem', color:'#666'}}>Balance Claim (Days)</label><input type="number" value={claimForm.balanceClaim} onChange={e => setClaimForm({...claimForm, balanceClaim: parseInt(e.target.value) || 0})} placeholder="0" /></div>

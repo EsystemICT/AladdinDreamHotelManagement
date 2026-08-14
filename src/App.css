@@ -2825,6 +2825,7 @@ body {
   max-width: none;
   margin: 0 0 0 var(--app-drawer-width);
   padding: 24px 28px 42px;
+  transition: width 0.22s ease, margin-left 0.22s ease;
 }
 
 .app-drawer {
@@ -2840,6 +2841,7 @@ body {
     linear-gradient(165deg, var(--hotel-navy-800), var(--hotel-navy-950) 72%);
   border-right: 1px solid rgba(230, 201, 152, 0.18);
   box-shadow: 12px 0 36px rgba(11, 23, 42, 0.16);
+  transition: transform 0.22s ease;
 }
 
 .drawer-brand {
@@ -2851,6 +2853,8 @@ body {
 .drawer-brand h1 { margin: 0; color: #fff; font-size: 1rem; line-height: 1.2; }
 .drawer-brand .brand-subtitle { margin-top: 4px; color: var(--hotel-gold-300); font-size: 0.55rem; letter-spacing: 0.08em; }
 .drawer-close { display: none; margin-left: auto; color: #fff; background: transparent; border: 0; cursor: pointer; font-size: 1.1rem; }
+.drawer-collapse { display: grid; width: 34px; height: 34px; margin-left: auto; flex: 0 0 34px; place-items: center; color: rgba(255, 255, 255, 0.72); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 9px; cursor: pointer; }
+.drawer-collapse:hover { color: #fff; background: rgba(255, 255, 255, 0.12); border-color: rgba(230, 201, 152, 0.28); }
 
 .drawer-navigation {
   display: flex;
@@ -2910,7 +2914,7 @@ body {
 .drawer-logout:hover { color: #fff; background: rgba(220, 38, 38, 0.20); }
 
 .drawer-overlay { display: none; }
-.compact-header { left: var(--app-drawer-width); height: var(--app-header-height); padding: 0; border-bottom-width: 1px; }
+.compact-header { left: var(--app-drawer-width); height: var(--app-header-height); padding: 0; border-bottom-width: 1px; transition: left 0.22s ease; }
 .compact-header .header-content { display: flex; width: 100%; max-width: none; height: 100%; flex-direction: row; align-items: center; gap: 13px; padding: 10px 28px; }
 .drawer-toggle { display: none; width: 40px; height: 40px; place-items: center; color: var(--hotel-navy-800); background: #fff; border: 1px solid var(--hotel-line); border-radius: 11px; cursor: pointer; box-shadow: var(--hotel-shadow-sm); }
 .current-page-title { display: flex; min-width: 0; flex: 1; flex-direction: column; }
@@ -3009,6 +3013,13 @@ body {
 .utility-empty-cell strong { color: var(--hotel-navy-900); }
 .utility-empty-cell span { margin-top: 4px; font-size: 0.73rem; font-weight: 400; }
 
+@media (min-width: 769px) {
+  .app-container.drawer-collapsed { width: 100%; margin-left: 0; }
+  .app-container.drawer-collapsed .app-drawer { transform: translateX(-105%); }
+  .app-container.drawer-collapsed .compact-header { left: 0; }
+  .app-container.drawer-collapsed .drawer-toggle { display: grid; }
+}
+
 @media (max-width: 1180px) {
   .utility-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .utility-bill-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -3022,6 +3033,7 @@ body {
   .app-drawer { width: min(86vw, 300px); transform: translateX(-105%); transition: transform 0.22s ease; }
   .app-drawer.open { transform: translateX(0); }
   .drawer-close { display: block; }
+  .drawer-collapse { display: none; }
   .drawer-overlay { position: fixed; inset: 0; z-index: 440; display: block; visibility: hidden; padding: 0; opacity: 0; background: rgba(4, 15, 30, 0.56); border: 0; pointer-events: none; transition: opacity 0.2s, visibility 0.2s; backdrop-filter: blur(2px); }
   .drawer-overlay.visible { visibility: visible; opacity: 1; pointer-events: auto; }
   .compact-header { left: 0; height: var(--app-header-height); }

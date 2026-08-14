@@ -1019,6 +1019,9 @@ export default function App() {
   const [isCustomerSaving, setIsCustomerSaving] = useState(false);
   const [helpSearch, setHelpSearch] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(() => (
+    typeof window !== 'undefined' && window.localStorage.getItem('hotelDrawerCollapsed') === 'true'
+  ));
   const [utilityBillFeedback, setUtilityBillFeedback] = useState({ type: '', message: '' });
   const [isUtilityBillSaving, setIsUtilityBillSaving] = useState(false);
   const [isBackupDownloading, setIsBackupDownloading] = useState(false);
@@ -1077,6 +1080,10 @@ export default function App() {
   useEffect(() => () => {
     if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('hotelDrawerCollapsed', String(isDrawerCollapsed));
+  }, [isDrawerCollapsed]);
 
   useEffect(() => {
     if (!passwordResetCode) return;
@@ -3655,7 +3662,7 @@ export default function App() {
 
   // --- RENDER APP ---
   return (
-    <div className="app-container">
+    <div className={`app-container ${isDrawerCollapsed ? 'drawer-collapsed' : ''}`}>
       {currentUser.role === 'admin' && activeAdminAlert && (
         <aside className="admin-away-alert" role="alert" aria-live="assertive">
           <div className="admin-away-alert-icon"><i className="fa-solid fa-location-dot"></i></div>
@@ -3698,6 +3705,9 @@ export default function App() {
           </div>
           <button type="button" className="drawer-close" onClick={() => setIsDrawerOpen(false)} aria-label="Close navigation menu">
             <i className="fa-solid fa-xmark"></i>
+          </button>
+          <button type="button" className="drawer-collapse" onClick={() => setIsDrawerCollapsed(true)} aria-label="Hide navigation drawer" title="Hide navigation drawer">
+            <i className="fa-solid fa-angles-left"></i>
           </button>
         </div>
 
@@ -3750,10 +3760,13 @@ export default function App() {
           <button
             type="button"
             className="drawer-toggle"
-            onClick={() => setIsDrawerOpen(open => !open)}
+            onClick={() => {
+              if (window.matchMedia('(max-width: 768px)').matches) setIsDrawerOpen(open => !open);
+              else setIsDrawerCollapsed(false);
+            }}
             aria-expanded={isDrawerOpen}
             aria-controls="app-navigation"
-            aria-label="Open navigation menu"
+            aria-label="Show navigation menu"
           >
             <i className="fa-solid fa-bars"></i>
           </button>

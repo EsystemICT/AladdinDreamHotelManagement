@@ -15,6 +15,8 @@ The application intentionally uses two Firebase projects: operational hotel reco
 
 Existing Firestore-only accounts are migrated automatically on their next valid login or password-reset request. Once migrated, their plaintext `password` field is removed from Firestore. New staff accounts are created in Firebase Authentication immediately and require a valid recovery email.
 
+Profile email changes are saved immediately. The app keeps the Firebase sign-in address in `authEmail`; if Firebase requires verification, the requested address is held in `pendingAuthEmail` and is promoted automatically after verification or the next successful login. If Email/Password is temporarily disabled, legacy users can still complete their profile and the sign-in address is synchronized when the provider becomes available.
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

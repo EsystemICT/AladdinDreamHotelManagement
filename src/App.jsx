@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
-import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyPasswordResetCode } from 'firebase/auth';
+import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
 import './App.css';
 
 // ICONS & TABS
@@ -640,8 +640,42 @@ const isInvalidAuthCredential = (error) => [
   'auth/wrong-password'
 ].includes(error?.code);
 
+const isAuthProviderUnavailable = (error) => [
+  'auth/operation-not-allowed',
+  'auth/configuration-not-found'
+].includes(error?.code);
+
+const normalizeEmail = (email) => email?.trim().toLowerCase() || '';
+
+const getAuthenticationEmail = (user) => normalizeEmail(user?.authEmail || user?.email);
+
+const syncFirebaseEmail = async (firebaseUser, email) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (normalizeEmail(firebaseUser?.email) === normalizedEmail) return 'synced';
+
+  try {
+    await updateEmail(firebaseUser, normalizedEmail);
+    return 'synced';
+  } catch (error) {
+    // updateEmail is blocked when Email Enumeration Protection is enabled.
+    // Firebase's supported replacement verifies the new address before applying it.
+    if (error?.code !== 'auth/operation-not-allowed') throw error;
+
+    try {
+      const continueUrl = typeof window === 'undefined'
+        ? undefined
+        : `${window.location.origin}${window.location.pathname}`;
+      await verifyBeforeUpdateEmail(firebaseUser, normalizedEmail, continueUrl ? { url: continueUrl } : undefined);
+      return 'verification-sent';
+    } catch (verificationError) {
+      if (isAuthProviderUnavailable(verificationError)) return 'deferred';
+      throw verificationError;
+    }
+  }
+};
+
 const getAuthSetupMessage = (error, fallback) => {
-  if (['auth/operation-not-allowed', 'auth/configuration-not-found'].includes(error?.code)) {
+  if (isAuthProviderUnavailable(error)) {
     return 'Email/password sign-in is not enabled in Firebase Authentication. Please contact the system administrator.';
   }
   if (error?.code === 'auth/invalid-email') return 'The email address saved for this account is not valid.';
@@ -1143,6 +1177,20 @@ export default function App() {
         if (latestUser.authUid && auth.currentUser?.uid !== latestUser.authUid) {
           throw new Error('AUTH_SESSION_EXPIRED');
         }
+        if (latestUser.authUid && auth.currentUser && latestUser.pendingAuthEmail) {
+          await reload(auth.currentUser).catch(() => {});
+          if (normalizeEmail(auth.currentUser.email) === normalizeEmail(latestUser.pendingAuthEmail)) {
+            latestUser.email = normalizeEmail(latestUser.pendingAuthEmail);
+            latestUser.authEmail = normalizeEmail(latestUser.pendingAuthEmail);
+            delete latestUser.pendingAuthEmail;
+            await updateDoc(doc(db, 'users', savedUser.dbId), {
+              email: latestUser.email,
+              authEmail: latestUser.authEmail,
+              pendingAuthEmail: deleteField(),
+              profileUpdatedAt: serverTimestamp()
+            });
+          }
+        }
         if (latestUser.role !== 'admin' && isMobileOrTabletDevice()) {
           if (!latestUser.approvedDeviceId) {
             const error = new Error('DEVICE_BINDING_RESET');
@@ -1555,37 +1603,68 @@ export default function App() {
         return;
       }
       let firebaseUser = null;
-      if (EMAIL_PATTERN.test(userData.email?.trim() || '')) {
-        const email = userData.email.trim().toLowerCase();
-        try {
-          const credential = await signInWithEmailAndPassword(auth, email, loginPass);
-          firebaseUser = credential.user;
-        } catch (error) {
-          if (!isInvalidAuthCredential(error) || userData.password !== loginPass) throw error;
+      const authenticationEmails = [userData.pendingAuthEmail, userData.authEmail, userData.email]
+        .map(normalizeEmail)
+        .filter((email, index, emails) => EMAIL_PATTERN.test(email) && emails.indexOf(email) === index);
 
+      if (authenticationEmails.length > 0) {
+        let lastAuthError = null;
+        for (const email of authenticationEmails) {
           try {
-            const credential = await createUserWithEmailAndPassword(auth, email, loginPass);
-            firebaseUser = credential.user;
+            firebaseUser = (await signInWithEmailAndPassword(auth, email, loginPass)).user;
+            break;
+          } catch (error) {
+            lastAuthError = error;
+            if (isAuthProviderUnavailable(error)) break;
+            if (!isInvalidAuthCredential(error)) throw error;
+          }
+        }
+
+        if (!firebaseUser && userData.password === loginPass && !isAuthProviderUnavailable(lastAuthError)) {
+          try {
+            const migrationEmail = normalizeEmail(userData.email) || authenticationEmails[0];
+            firebaseUser = (await createUserWithEmailAndPassword(auth, migrationEmail, loginPass)).user;
           } catch (migrationError) {
             if (migrationError.code === 'auth/email-already-in-use') {
               const incorrectPasswordError = new Error('INCORRECT_PASSWORD');
               incorrectPasswordError.code = 'INCORRECT_PASSWORD';
               throw incorrectPasswordError;
             }
-            throw migrationError;
+            if (!isAuthProviderUnavailable(migrationError)) throw migrationError;
           }
         }
 
-        if (userData.authUid && userData.authUid !== firebaseUser.uid) {
-          await signOut(auth).catch(() => {});
-          throw new Error('AUTH_ACCOUNT_MISMATCH');
-        }
+        if (!firebaseUser && userData.password !== loginPass) throw lastAuthError || new Error('INCORRECT_PASSWORD');
 
-        await updateDoc(doc(db, 'users', docId), {
-          authUid: firebaseUser.uid,
-          authMigratedAt: serverTimestamp(),
-          password: deleteField()
-        });
+        if (firebaseUser) {
+          if (userData.authUid && userData.authUid !== firebaseUser.uid) {
+            await signOut(auth).catch(() => {});
+            throw new Error('AUTH_ACCOUNT_MISMATCH');
+          }
+
+          let signedInEmail = normalizeEmail(firebaseUser.email);
+          let pendingEmailWasVerified = signedInEmail === normalizeEmail(userData.pendingAuthEmail);
+          if (userData.pendingAuthEmail && !pendingEmailWasVerified) {
+            const emailSyncStatus = await syncFirebaseEmail(firebaseUser, userData.pendingAuthEmail);
+            if (emailSyncStatus === 'synced') {
+              signedInEmail = normalizeEmail(userData.pendingAuthEmail);
+              pendingEmailWasVerified = true;
+            }
+          }
+          await updateDoc(doc(db, 'users', docId), {
+            ...(pendingEmailWasVerified ? { email: signedInEmail } : {}),
+            authEmail: signedInEmail,
+            pendingAuthEmail: pendingEmailWasVerified ? deleteField() : (userData.pendingAuthEmail || deleteField()),
+            authUid: firebaseUser.uid,
+            authMigratedAt: serverTimestamp(),
+            password: deleteField()
+          });
+          userData.authEmail = signedInEmail;
+          if (pendingEmailWasVerified) {
+            userData.email = signedInEmail;
+            delete userData.pendingAuthEmail;
+          }
+        }
       } else if (userData.password !== loginPass) {
         setLoginError('Incorrect Password');
         return;
@@ -1681,7 +1760,7 @@ export default function App() {
         return;
       }
 
-      const email = userData.email?.trim().toLowerCase();
+      const email = getAuthenticationEmail(userData);
       if (!EMAIL_PATTERN.test(email || '')) {
         setResetFeedback({ type: 'error', message: 'No valid email is saved for this account. Please contact an administrator.' });
         return;
@@ -1692,6 +1771,7 @@ export default function App() {
         if (provisionedAccount.created) {
           await updateDoc(doc(db, 'users', userDocument.id), {
             authUid: provisionedAccount.uid,
+            authEmail: email,
             authMigratedAt: serverTimestamp(),
             password: deleteField(),
             passwordResetStatus: deleteField(),
@@ -1808,32 +1888,63 @@ export default function App() {
 
     try {
       let firebaseUser = auth.currentUser;
+      let authSyncStatus = 'synced';
+      let authenticationEmail = getAuthenticationEmail(currentUser);
       if (!firebaseUser) {
         const latestSnapshot = await getDoc(doc(db, 'users', currentUser.dbId));
         const legacyPassword = latestSnapshot.data()?.password;
         if (!legacyPassword) throw new Error('AUTH_SESSION_EXPIRED');
-        firebaseUser = (await createUserWithEmailAndPassword(auth, email, legacyPassword)).user;
-      } else if (firebaseUser.email?.toLowerCase() !== email) {
-        await updateEmail(firebaseUser, email);
+        try {
+          firebaseUser = (await createUserWithEmailAndPassword(auth, email, legacyPassword)).user;
+          authenticationEmail = email;
+        } catch (error) {
+          if (!isAuthProviderUnavailable(error)) throw error;
+          authSyncStatus = 'deferred';
+        }
+      } else if (normalizeEmail(firebaseUser.email) !== email) {
+        authSyncStatus = await syncFirebaseEmail(firebaseUser, email);
+        authenticationEmail = authSyncStatus === 'synced' ? email : normalizeEmail(firebaseUser.email);
+      } else {
+        authenticationEmail = email;
       }
 
-      await updateDoc(doc(db, 'users', currentUser.dbId), {
+      const profileUpdates = {
         name,
         email,
         dateOfBirth,
         phone,
-        authUid: firebaseUser.uid,
-        authMigratedAt: serverTimestamp(),
-        password: deleteField(),
+        ...(authenticationEmail ? { authEmail: authenticationEmail } : {}),
+        pendingAuthEmail: authSyncStatus === 'synced' ? deleteField() : email,
         profileUpdatedAt: serverTimestamp()
-      });
+      };
+      if (firebaseUser) {
+        profileUpdates.authUid = firebaseUser.uid;
+        profileUpdates.authMigratedAt = serverTimestamp();
+        profileUpdates.password = deleteField();
+      }
+      await updateDoc(doc(db, 'users', currentUser.dbId), profileUpdates);
 
-      const updatedUser = { ...currentUser, name, email, dateOfBirth, phone, authUid: firebaseUser.uid };
+      const updatedUser = {
+        ...currentUser,
+        name,
+        email,
+        dateOfBirth,
+        phone,
+        ...(firebaseUser ? { authUid: firebaseUser.uid } : {}),
+        ...(authenticationEmail ? { authEmail: authenticationEmail } : {})
+      };
+      if (authSyncStatus === 'synced') delete updatedUser.pendingAuthEmail;
+      else updatedUser.pendingAuthEmail = email;
       delete updatedUser.password;
       setCurrentUser(updatedUser);
       localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
       await logSystemAction(name, 'PROFILE_UPDATE', 'Updated personal profile information');
-      setProfileFeedback({ type: 'success', message: 'Your profile has been updated successfully.' });
+      const successMessage = authSyncStatus === 'verification-sent'
+        ? `Profile saved. Check ${email} and verify the new address to finish updating your sign-in email.`
+        : authSyncStatus === 'deferred'
+          ? 'Profile saved. The sign-in email will sync automatically when Firebase Email/Password authentication is enabled.'
+          : 'Your profile and sign-in email have been updated successfully.';
+      setProfileFeedback({ type: 'success', message: successMessage });
     } catch (error) {
       console.error('Profile update failed:', error);
       const message = error.message === 'AUTH_SESSION_EXPIRED' || error.code === 'auth/email-already-in-use'
@@ -1865,7 +1976,7 @@ export default function App() {
     setProfileFeedback({ type: '', message: '' });
 
     try {
-      const email = currentUser.email?.trim().toLowerCase();
+      const email = normalizeEmail(auth.currentUser?.email) || getAuthenticationEmail(currentUser);
       if (!EMAIL_PATTERN.test(email || '')) throw new Error('EMAIL_REQUIRED');
 
       let firebaseUser = auth.currentUser;
@@ -1887,12 +1998,15 @@ export default function App() {
       await updatePassword(firebaseUser, newPass);
       await updateDoc(doc(db, "users", currentUser.dbId), {
         authUid: firebaseUser.uid,
+        authEmail: normalizeEmail(firebaseUser.email),
+        pendingAuthEmail: normalizeEmail(firebaseUser.email) === normalizeEmail(currentUser.pendingAuthEmail) ? deleteField() : (currentUser.pendingAuthEmail || deleteField()),
         authMigratedAt: serverTimestamp(),
         password: deleteField(),
         passwordResetStatus: deleteField(),
         passwordResetRequestedAt: deleteField()
       });
-      const updatedUser = { ...currentUser, authUid: firebaseUser.uid };
+      const updatedUser = { ...currentUser, authUid: firebaseUser.uid, authEmail: normalizeEmail(firebaseUser.email) };
+      if (normalizeEmail(firebaseUser.email) === normalizeEmail(currentUser.pendingAuthEmail)) delete updatedUser.pendingAuthEmail;
       delete updatedUser.password;
       setCurrentUser(updatedUser);
       localStorage.setItem('hotelUser', JSON.stringify(updatedUser));
@@ -1916,7 +2030,7 @@ export default function App() {
   };
 
   const handleAdminSendPasswordReset = async (staff) => {
-    const email = staff.email?.trim().toLowerCase();
+    const email = getAuthenticationEmail(staff);
     if (!EMAIL_PATTERN.test(email || '')) {
       alert(`${staff.name} does not have a valid email address in their profile.`);
       return;
@@ -1929,6 +2043,7 @@ export default function App() {
           if (provisionedAccount.created) {
             await updateDoc(doc(db, 'users', staff.dbId), {
               authUid: provisionedAccount.uid,
+              authEmail: email,
               authMigratedAt: serverTimestamp(),
               password: deleteField()
             });
@@ -3044,6 +3159,7 @@ export default function App() {
           userid: userId,
           name: f.name.value.trim(),
           email,
+          authEmail: email,
           authUid: authCredential.user.uid,
           role: f.role.value,
           active: true,

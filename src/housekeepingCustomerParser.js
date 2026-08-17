@@ -102,3 +102,50 @@ export const parseHousekeepingCustomerText = (rawText, rooms, fallbackMonth) => 
 
   return { roomId, serviceDate, customerInfo, error };
 };
+
+export const parseHousekeepingArrangementText = (rawText, rooms, fallbackMonth) => {
+  const text = String(rawText || '').trim();
+  if (!text) return { serviceDate: '', entries: [], unknownRooms: [], error: '' };
+
+  const knownRoomIds = rooms.map(room => String(room.id));
+  const serviceDate = normalizeDate(findDateText(text), fallbackMonth);
+  const entryMap = new Map();
+  const unknownRooms = [];
+
+  text.split(/\r?\n/).forEach(line => {
+    const match = line.match(/^\s*\d+\s*[.)]\s*([a-z]?\d{1,4}[a-z]?)\s*[-\u2013\u2014]\s*(.*)$/i);
+    if (!match) return;
+    const typedRoomId = match[1];
+    const roomId = knownRoomIds.find(knownRoomId => knownRoomId.toLowerCase() === typedRoomId.toLowerCase());
+    if (!roomId) {
+      unknownRooms.push(typedRoomId);
+      return;
+    }
+
+    const remark = cleanValue(match[2]);
+    const existingEntry = entryMap.get(roomId);
+    if (existingEntry) {
+      if (remark && !existingEntry.customerInfo[1]) existingEntry.customerInfo[1] = remark;
+      return;
+    }
+    entryMap.set(roomId, { roomId, customerInfo: [remark, ''] });
+  });
+
+  const entries = [...entryMap.values()];
+  if (entries.length > 0) {
+    return {
+      serviceDate,
+      entries,
+      unknownRooms: [...new Set(unknownRooms)],
+      error: serviceDate ? '' : 'Arrangement date was not recognised. Use DD/MM/YYYY in the heading.'
+    };
+  }
+
+  const singleEntry = parseHousekeepingCustomerText(text, rooms, fallbackMonth);
+  return {
+    serviceDate: singleEntry.serviceDate,
+    entries: singleEntry.error ? [] : [{ roomId: singleEntry.roomId, customerInfo: singleEntry.customerInfo }],
+    unknownRooms: [],
+    error: singleEntry.error
+  };
+};

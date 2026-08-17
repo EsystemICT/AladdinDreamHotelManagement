@@ -2315,6 +2315,20 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-intro { margin: 0; color: var(--hotel-slate-500); font-size: 0.82rem; }
 .housekeeping-month-picker { display: flex; align-items: center; gap: 9px; color: var(--hotel-slate-500); font-size: 0.73rem; }
 .housekeeping-month-picker > span { font-weight: 800; white-space: nowrap; }
+.housekeeping-smart-entry { margin-top: 17px; padding: 14px; background: linear-gradient(135deg, #f4f9f8, #f8fafc); border: 1px solid #cfe2df; border-radius: 12px; }
+.housekeeping-smart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.housekeeping-smart-heading span { color: #1f6e69; font-size: 0.67rem; font-weight: 900; letter-spacing: 0.1em; }
+.housekeeping-smart-heading span i { margin-right: 6px; color: #9a6a1c; }
+.housekeeping-smart-heading p { margin: 4px 0 0; color: var(--hotel-slate-500); font-size: 0.75rem; }
+.housekeeping-smart-heading small { max-width: 330px; color: #7c6750; font-size: 0.64rem; line-height: 1.4; text-align: right; }
+.housekeeping-smart-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+.housekeeping-smart-controls textarea { width: 100%; min-height: 54px; margin: 0; padding: 9px 11px; box-sizing: border-box; resize: vertical; }
+.housekeeping-smart-button { min-width: 134px; justify-content: center; margin: 0; }
+.housekeeping-smart-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 15px; margin-top: 10px; padding: 9px 11px; border-radius: 9px; font-size: 0.7rem; }
+.housekeeping-smart-preview.ready { color: #087054; background: #ecfdf5; border: 1px solid #b7e8d3; }
+.housekeeping-smart-preview.error { color: #a1273a; background: #fff1f2; border: 1px solid #f0c0c8; }
+.housekeeping-smart-preview > i { flex: 0 0 auto; }
+.housekeeping-smart-preview strong { color: inherit; }
 .housekeeping-feedback { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 9px; font-size: 0.76rem; font-weight: 700; }
 .housekeeping-feedback.success { color: #087054; background: #ecfdf5; border: 1px solid #b7e8d3; }
 .housekeeping-feedback.error { color: #a1273a; background: #fff1f2; border: 1px solid #f0c0c8; }
@@ -2345,7 +2359,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .housekeeping-calendar-table th,
 .housekeeping-calendar-table td {
-  height: 58px;
+  height: 96px;
   padding: 6px;
   box-sizing: border-box;
   border-right: 1px solid #e6eaee;
@@ -2355,8 +2369,8 @@ tbody tr:last-child td { border-bottom: 0; }
   position: sticky;
   top: 0;
   z-index: 3;
-  width: 128px;
-  min-width: 128px;
+  width: 154px;
+  min-width: 154px;
   height: 60px;
   color: #dce6ee;
   background: var(--hotel-navy-800);
@@ -2385,7 +2399,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-calendar-table tbody .housekeeping-room-column small { display: block; }
 .housekeeping-calendar-table tbody .housekeeping-room-column strong { font-size: 0.9rem; }
 .housekeeping-calendar-table tbody .housekeeping-room-column small { max-width: 78px; margin: 2px auto 0; overflow: hidden; color: var(--hotel-slate-500); font-size: 0.56rem; text-overflow: ellipsis; white-space: nowrap; }
-.housekeeping-calendar-table tbody td { width: 128px; min-width: 128px; background: #fff; }
+.housekeeping-calendar-table tbody td { width: 154px; min-width: 154px; background: #fff; }
 .housekeeping-calendar-table tbody td.weekend { background: #fafbfc; }
 .housekeeping-calendar-table tbody td.today { box-shadow: inset 2px 0 0 rgba(39, 120, 115, 0.35), inset -2px 0 0 rgba(39, 120, 115, 0.35); }
 .housekeeping-calendar-table thead th.active-column-header { color: #fff7df; background: #9a6a1c; box-shadow: inset 0 -4px 0 #f3cf87; }
@@ -2426,17 +2440,35 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .housekeeping-staff-trigger > i { flex: 0 0 auto; font-size: 0.62rem; }
 .housekeeping-calendar-table td.assigned .housekeeping-staff-trigger { color: #087054; background-color: #edf9f5; border-color: #9dd8c4; }
+.housekeeping-calendar-table td.has-customer-info { background-image: linear-gradient(180deg, transparent 0, transparent 43px, rgba(215, 237, 233, 0.28) 43px); }
 .housekeeping-staff-trigger:focus { outline: 2px solid rgba(39, 120, 115, 0.2); border-color: #277873; }
 .housekeeping-staff-trigger:disabled { cursor: wait; opacity: 0.72; }
+.housekeeping-customer-lines { display: grid; gap: 3px; margin-top: 5px; }
+.housekeeping-customer-lines > span { display: block; min-width: 0; overflow: hidden; padding: 2px 5px; color: #245e5a; background: rgba(230, 246, 242, 0.92); border-left: 2px solid #65a9a2; border-radius: 3px; font-size: 0.59rem; font-weight: 750; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.housekeeping-customer-lines > span.empty { color: #a1aab6; background: #f6f7f9; border-left-color: #d6dce3; font-weight: 650; }
 .housekeeping-cell-spinner { position: absolute; top: 12px; right: 9px; color: #277873; font-size: 0.7rem; pointer-events: none; }
 .housekeeping-calendar-empty { padding: 42px 20px; color: #8a96a8; text-align: center; }
 .housekeeping-calendar-empty i { margin-right: 7px; }
-.housekeeping-staff-modal { position: relative; max-width: 520px; }
+.housekeeping-staff-modal { position: relative; max-width: 620px; }
 .housekeeping-staff-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-right: 34px; }
 .housekeeping-staff-modal-heading p { margin: 0 0 4px; color: #277873; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.13em; }
 .housekeeping-staff-modal-heading h2 { margin: 0 0 2px; }
 .housekeeping-staff-modal-heading span { color: var(--hotel-slate-500); font-size: 0.76rem; font-weight: 700; }
 .housekeeping-staff-modal .profile-close-btn { top: 21px; right: 21px; }
+.housekeeping-customer-editor { margin-top: 16px; padding: 13px; background: #f7faf9; border: 1px solid #d4e6e2; border-radius: 11px; }
+.housekeeping-customer-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.housekeeping-customer-editor-heading span { color: #277873; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.11em; }
+.housekeeping-customer-editor-heading p { margin: 3px 0 0; color: var(--hotel-slate-500); font-size: 0.7rem; }
+.housekeeping-customer-editor-heading > i { color: #9a6a1c; }
+.housekeeping-customer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 11px; }
+.housekeeping-customer-fields label { min-width: 0; }
+.housekeeping-customer-fields label > span { display: block; margin-bottom: 5px; color: var(--hotel-slate-600); font-size: 0.68rem; font-weight: 850; }
+.housekeeping-customer-fields input { width: 100%; min-height: 39px; margin: 0; padding: 8px 9px; box-sizing: border-box; font-size: 0.75rem; }
+.housekeeping-customer-save-status { display: flex; align-items: center; gap: 6px; margin-top: 9px; color: var(--hotel-slate-500); font-size: 0.67rem; font-weight: 750; }
+.housekeeping-customer-save-status.waiting,
+.housekeeping-customer-save-status.saving { color: #8b5b0b; }
+.housekeeping-customer-save-status.saved { color: #087054; }
+.housekeeping-customer-save-status.error { color: #a1273a; }
 .housekeeping-staff-modal-help { margin: 16px 0 12px; color: var(--hotel-slate-500); font-size: 0.78rem; line-height: 1.5; }
 .housekeeping-staff-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .housekeeping-staff-options > label {
@@ -2752,6 +2784,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-mobile-table { display: block; }
   .housekeeping-title-row { flex-direction: column; }
   .housekeeping-month-picker { width: 100%; justify-content: space-between; }
+  .housekeeping-smart-heading { flex-direction: column; gap: 6px; }
+  .housekeeping-smart-heading small { max-width: none; text-align: left; }
+  .housekeeping-smart-controls { grid-template-columns: 1fr; }
+  .housekeeping-smart-button { width: 100%; }
   .housekeeping-calendar-wrap { max-height: 64vh; }
   .help-hero { align-items: stretch; flex-direction: column; padding: 23px; }
   .help-search { width: 100%; max-width: none; flex-basis: auto; }
@@ -2787,8 +2823,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .housekeeping-summary-grid { grid-template-columns: 1fr; gap: 7px; }
   .housekeeping-list-heading { align-items: flex-start; flex-direction: column; }
   .housekeeping-calendar-table thead th,
-  .housekeeping-calendar-table tbody td { width: 116px; min-width: 116px; }
+  .housekeeping-calendar-table tbody td { width: 140px; min-width: 140px; }
   .housekeeping-calendar-table .housekeeping-room-column { width: 76px; min-width: 76px; max-width: 76px; }
+  .housekeeping-customer-fields { grid-template-columns: 1fr; }
   .housekeeping-staff-options { grid-template-columns: 1fr; }
   .help-hero { gap: 20px; padding: 19px 16px; border-radius: 16px; }
   .help-hero-copy { align-items: flex-start; gap: 13px; }

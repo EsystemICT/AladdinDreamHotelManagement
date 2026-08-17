@@ -3,6 +3,7 @@ import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
 import './App.css';
+import { parseHousekeepingCustomerText } from './housekeepingCustomerParser';
 
 // ICONS & TABS
 const ICONS = { 
@@ -112,13 +113,14 @@ const HELP_TOPICS = [
       'Open Housekeeping from the navigation menu.',
       'Choose the month you want to schedule.',
       'Find the room on the left and the date across the top.',
-      'Open the room and date cell, choose one or more staff members, then save the assignment.'
+      'Open a room and date cell to enter up to two customer details and choose one or more staff members. Changes save automatically.',
+      'For faster customer entry, paste a Room / Date / Customer line into Smart Customer Key In and confirm the recognised preview.'
     ],
-    tip: 'Tick every staff member who worked together. Administrators can clear all selections to mark the cell as unassigned.',
+    tip: 'The smart text bar recognises English, Chinese and Malay room/date labels. Tick every staff member who worked together.',
     action: 'HOUSEKEEPING',
     actionLabel: 'Go to Housekeeping',
     audience: 'all',
-    keywords: 'daily housekeeping room cleaner staff record assignment clean'
+    keywords: 'daily housekeeping room cleaner staff record assignment clean customer guest smart key in remark'
   },
   {
     id: 'request-staff',
@@ -249,7 +251,7 @@ const LAUNDRY_STOCK_ITEMS = [
 const BACKUP_COLLECTIONS = [
   'rooms', 'users', 'tickets', 'customerDetails', 'requests', 'attendance',
   'leaves', 'inventory', 'claimDays', 'laundry', 'stock', 'laundryStockMovements',
-  'housekeepingDaily', 'deposits', 'verifications', 'utilityBills', 'auditLogs',
+  'housekeepingDaily', 'housekeepingCustomerInfo', 'deposits', 'verifications', 'utilityBills', 'auditLogs',
   'adminAlerts', 'settings'
 ];
 
@@ -1007,6 +1009,7 @@ export default function App() {
   const [laundry, setLaundry] = useState([]);
   const [laundryStockMovements, setLaundryStockMovements] = useState([]);
   const [housekeepingRecords, setHousekeepingRecords] = useState([]);
+  const [housekeepingCustomerRecords, setHousekeepingCustomerRecords] = useState([]);
   const [stockItems, setStockItems] = useState([]);
   const [laundryItemDetails, setLaundryItemDetails] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
@@ -1076,8 +1079,12 @@ export default function App() {
   const [housekeepingPendingAssignments, setHousekeepingPendingAssignments] = useState({});
   const [housekeepingStaffModal, setHousekeepingStaffModal] = useState(null);
   const [housekeepingAutoSaveStatus, setHousekeepingAutoSaveStatus] = useState('idle');
+  const [housekeepingCustomerAutoSaveStatus, setHousekeepingCustomerAutoSaveStatus] = useState('idle');
+  const [housekeepingSmartText, setHousekeepingSmartText] = useState('');
+  const [isHousekeepingSmartSaving, setIsHousekeepingSmartSaving] = useState(false);
   const [housekeepingActiveCell, setHousekeepingActiveCell] = useState(null);
   const housekeepingAutoSaveTimerRef = useRef(null);
+  const housekeepingCustomerAutoSaveTimerRef = useRef(null);
 
   // Claim Days UI
   const [claimModal, setClaimModal] = useState(false);
@@ -1113,6 +1120,7 @@ export default function App() {
 
   useEffect(() => () => {
     if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
+    if (housekeepingCustomerAutoSaveTimerRef.current) clearTimeout(housekeepingCustomerAutoSaveTimerRef.current.timerId);
   }, []);
 
   useEffect(() => {
@@ -1462,6 +1470,17 @@ export default function App() {
           return String(a.roomId || '').localeCompare(String(b.roomId || ''), undefined, { numeric: true });
         });
         setHousekeepingRecords(records);
+      }));
+      const qHousekeepingCustomers = query(
+        collection(db, "housekeepingCustomerInfo"),
+        where("month", "==", housekeepingMonth),
+        limit(1000)
+      );
+      unsubs.push(onSnapshot(qHousekeepingCustomers, (snap) => {
+        setHousekeepingCustomerRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (error) => {
+        console.error('Housekeeping customer information listener failed:', error);
+        setHousekeepingFeedback({ type: 'error', message: 'Unable to load housekeeping customer information.' });
       }));
     }
 
@@ -2517,10 +2536,13 @@ export default function App() {
   const handleHousekeepingMonthChange = (nextMonth) => {
     if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
     housekeepingAutoSaveTimerRef.current = null;
+    if (housekeepingCustomerAutoSaveTimerRef.current) clearTimeout(housekeepingCustomerAutoSaveTimerRef.current.timerId);
+    housekeepingCustomerAutoSaveTimerRef.current = null;
     setHousekeepingMonth(nextMonth);
     setHousekeepingFeedback({ type: '', message: '' });
     setHousekeepingStaffModal(null);
     setHousekeepingAutoSaveStatus('idle');
+    setHousekeepingCustomerAutoSaveStatus('idle');
     setHousekeepingActiveCell(null);
   };
 
@@ -2531,10 +2553,20 @@ export default function App() {
   const openHousekeepingStaffModal = (serviceDate, room, existingRecords) => {
     if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
     housekeepingAutoSaveTimerRef.current = null;
+    if (housekeepingCustomerAutoSaveTimerRef.current) clearTimeout(housekeepingCustomerAutoSaveTimerRef.current.timerId);
+    housekeepingCustomerAutoSaveTimerRef.current = null;
     const selectedStaffDocIds = [...new Set(existingRecords.map(resolveHousekeepingStaffDocId).filter(Boolean))];
+    const customerRecord = housekeepingCustomerInfoMap[`${room.id}|${serviceDate}`];
     setHousekeepingAutoSaveStatus('idle');
+    setHousekeepingCustomerAutoSaveStatus('idle');
     setHousekeepingActiveCell({ roomId: String(room.id), serviceDate });
-    setHousekeepingStaffModal({ serviceDate, room, selectedStaffDocIds });
+    setHousekeepingStaffModal({
+      serviceDate,
+      room,
+      selectedStaffDocIds,
+      customerInfo: [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''],
+      customerRecordId: customerRecord?.id || ''
+    });
   };
 
   const handleHousekeepingAssignmentsChange = async (serviceDate, room, staffDocIds) => {
@@ -2634,6 +2666,82 @@ export default function App() {
     }
   };
 
+  const handleHousekeepingCustomerInfoSave = async (modal, source = 'manual') => {
+    const customerInfo1 = String(modal.customerInfo?.[0] || '').trim().slice(0, 200);
+    const customerInfo2 = String(modal.customerInfo?.[1] || '').trim().slice(0, 200);
+    const roomId = String(modal.room.id);
+    const recordId = modal.customerRecordId || `${modal.serviceDate}_${encodeURIComponent(roomId)}`;
+
+    try {
+      await setDoc(doc(db, 'housekeepingCustomerInfo', recordId), {
+        serviceDate: modal.serviceDate,
+        month: modal.serviceDate.slice(0, 7),
+        roomId,
+        roomType: modal.room.type || '',
+        customerInfo1,
+        customerInfo2,
+        keyedInBy: currentUser.name,
+        keyedInById: currentUser.userid,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      setHousekeepingStaffModal(currentModal => (
+        currentModal?.serviceDate === modal.serviceDate && String(currentModal.room.id) === roomId
+          ? { ...currentModal, customerRecordId: recordId }
+          : currentModal
+      ));
+      await logSystemAction(
+        currentUser.name,
+        source === 'smart' ? 'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN' : 'HOUSEKEEPING_CUSTOMER_UPDATE',
+        `Updated customer information for Room ${roomId} on ${modal.serviceDate}`
+      );
+      return true;
+    } catch (error) {
+      console.error('Housekeeping customer information save failed:', error);
+      setHousekeepingFeedback({ type: 'error', message: 'Unable to save customer information. Please try again.' });
+      return false;
+    }
+  };
+
+  const queueHousekeepingCustomerAutoSave = (modal) => {
+    if (housekeepingCustomerAutoSaveTimerRef.current) clearTimeout(housekeepingCustomerAutoSaveTimerRef.current.timerId);
+    setHousekeepingCustomerAutoSaveStatus('waiting');
+    const timerId = setTimeout(async () => {
+      housekeepingCustomerAutoSaveTimerRef.current = null;
+      setHousekeepingCustomerAutoSaveStatus('saving');
+      const saved = await handleHousekeepingCustomerInfoSave(modal);
+      setHousekeepingCustomerAutoSaveStatus(saved ? 'saved' : 'error');
+    }, 700);
+    housekeepingCustomerAutoSaveTimerRef.current = { timerId, modal };
+  };
+
+  const handleHousekeepingSmartKeyIn = async () => {
+    if (housekeepingSmartResult.error || isHousekeepingSmartSaving) return;
+    const room = housekeepingRooms.find(candidate => String(candidate.id).toLowerCase() === housekeepingSmartResult.roomId.toLowerCase());
+    if (!room) return;
+
+    setIsHousekeepingSmartSaving(true);
+    setHousekeepingFeedback({ type: '', message: '' });
+    const existingCustomerRecord = housekeepingCustomerInfoMap[`${room.id}|${housekeepingSmartResult.serviceDate}`];
+    const saved = await handleHousekeepingCustomerInfoSave({
+      serviceDate: housekeepingSmartResult.serviceDate,
+      room,
+      customerInfo: housekeepingSmartResult.customerInfo,
+      customerRecordId: existingCustomerRecord?.id || ''
+    }, 'smart');
+
+    if (saved) {
+      const targetMonth = housekeepingSmartResult.serviceDate.slice(0, 7);
+      setHousekeepingMonth(targetMonth);
+      setHousekeepingActiveCell({ roomId: String(room.id), serviceDate: housekeepingSmartResult.serviceDate });
+      setHousekeepingSmartText('');
+      setHousekeepingFeedback({
+        type: 'success',
+        message: `Customer information was keyed into Room ${room.id} for ${calendarIsoToDisplay(housekeepingSmartResult.serviceDate)}.`
+      });
+    }
+    setIsHousekeepingSmartSaving(false);
+  };
+
   const queueHousekeepingAutoSave = (modal) => {
     if (housekeepingAutoSaveTimerRef.current) clearTimeout(housekeepingAutoSaveTimerRef.current.timerId);
     setHousekeepingAutoSaveStatus('waiting');
@@ -2651,20 +2759,28 @@ export default function App() {
   };
 
   const closeHousekeepingStaffModal = async () => {
-    if (housekeepingAutoSaveStatus === 'saving') return;
-    const pendingSave = housekeepingAutoSaveTimerRef.current;
-    if (pendingSave) {
-      clearTimeout(pendingSave.timerId);
+    if (housekeepingAutoSaveStatus === 'saving' || housekeepingCustomerAutoSaveStatus === 'saving') return;
+    const pendingStaffSave = housekeepingAutoSaveTimerRef.current;
+    const pendingCustomerSave = housekeepingCustomerAutoSaveTimerRef.current;
+    if (pendingStaffSave) {
+      clearTimeout(pendingStaffSave.timerId);
       housekeepingAutoSaveTimerRef.current = null;
       setHousekeepingAutoSaveStatus('saving');
       await handleHousekeepingAssignmentsChange(
-        pendingSave.modal.serviceDate,
-        pendingSave.modal.room,
-        pendingSave.modal.selectedStaffDocIds
+        pendingStaffSave.modal.serviceDate,
+        pendingStaffSave.modal.room,
+        pendingStaffSave.modal.selectedStaffDocIds
       );
+    }
+    if (pendingCustomerSave) {
+      clearTimeout(pendingCustomerSave.timerId);
+      housekeepingCustomerAutoSaveTimerRef.current = null;
+      setHousekeepingCustomerAutoSaveStatus('saving');
+      await handleHousekeepingCustomerInfoSave(pendingCustomerSave.modal);
     }
     setHousekeepingStaffModal(null);
     setHousekeepingAutoSaveStatus('idle');
+    setHousekeepingCustomerAutoSaveStatus('idle');
   };
 
   const handleAddCustomerDetail = async (event) => {
@@ -3513,6 +3629,12 @@ export default function App() {
     const bCreated = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
     return aCreated - bCreated;
   }));
+  const housekeepingCustomerInfoMap = housekeepingCustomerRecords.reduce((cellMap, record) => {
+    if (!record.serviceDate || record.roomId === undefined || record.roomId === null) return cellMap;
+    cellMap[`${record.roomId}|${record.serviceDate}`] = record;
+    return cellMap;
+  }, {});
+  const housekeepingSmartResult = parseHousekeepingCustomerText(housekeepingSmartText, housekeepingRooms, housekeepingMonth);
   const housekeepingUniqueRooms = new Set(housekeepingRecords.map(record => String(record.roomId))).size;
   const housekeepingUniqueStaff = new Set(housekeepingRecords.map(record => record.staffDocId || record.staffId)).size;
   const housekeepingAssignedCells = Object.keys(housekeepingCellRecordMap).length;
@@ -4635,6 +4757,56 @@ export default function App() {
               </label>
             </div>
 
+            <div className="housekeeping-smart-entry">
+              <div className="housekeeping-smart-heading">
+                <div>
+                  <span><i className="fa-solid fa-wand-magic-sparkles"></i> SMART CUSTOMER KEY IN</span>
+                  <p>Paste one booking line. Room, date and two customer information fields are recognised automatically.</p>
+                </div>
+                <small>Example: Room 203 | 18/08/2026 | Alice Tan | Late checkout</small>
+              </div>
+              <div className="housekeeping-smart-controls">
+                <textarea
+                  value={housekeepingSmartText}
+                  onChange={event => setHousekeepingSmartText(event.target.value)}
+                  onKeyDown={event => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                      event.preventDefault();
+                      handleHousekeepingSmartKeyIn();
+                    }
+                  }}
+                  rows="2"
+                  maxLength="600"
+                  placeholder="Paste: Room / Date / Customer info 1 / Customer info 2"
+                  aria-label="Customer information text to recognise and key in"
+                ></textarea>
+                <button
+                  type="button"
+                  className="btn blue housekeeping-smart-button"
+                  onClick={handleHousekeepingSmartKeyIn}
+                  disabled={!housekeepingSmartText.trim() || Boolean(housekeepingSmartResult.error) || isHousekeepingSmartSaving}
+                >
+                  <i className={`fa-solid ${isHousekeepingSmartSaving ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`}></i>
+                  {isHousekeepingSmartSaving ? 'Keying In...' : 'Auto Key In'}
+                </button>
+              </div>
+              {housekeepingSmartText.trim() && (
+                <div className={`housekeeping-smart-preview ${housekeepingSmartResult.error ? 'error' : 'ready'}`} role="status">
+                  {housekeepingSmartResult.error ? (
+                    <><i className="fa-solid fa-circle-exclamation"></i><span>{housekeepingSmartResult.error}</span></>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-circle-check"></i>
+                      <span><strong>Room:</strong> {housekeepingSmartResult.roomId}</span>
+                      <span><strong>Date:</strong> {calendarIsoToDisplay(housekeepingSmartResult.serviceDate)}</span>
+                      <span><strong>Info 1:</strong> {housekeepingSmartResult.customerInfo[0] || '-'}</span>
+                      <span><strong>Info 2:</strong> {housekeepingSmartResult.customerInfo[1] || '-'}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
             {housekeepingStaff.length === 0 && (
               <div className="housekeeping-feedback error" role="alert">
                 <i className="fa-solid fa-circle-exclamation"></i> No active staff accounts are available. Ask an administrator to activate or add a staff account.
@@ -4692,6 +4864,8 @@ export default function App() {
                         {housekeepingCalendarDays.map(day => {
                           const cellKey = `${room.id}|${day.dateKey}`;
                           const cellRecords = housekeepingCellRecordMap[cellKey] || [];
+                          const customerRecord = housekeepingCustomerInfoMap[cellKey];
+                          const customerInfo = [customerRecord?.customerInfo1, customerRecord?.customerInfo2].filter(Boolean);
                           const isPending = Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey);
                           const pendingStaffDocIds = housekeepingPendingAssignments[cellKey] || [];
                           const assignedNames = isPending
@@ -4703,20 +4877,24 @@ export default function App() {
                           return (
                             <td
                               key={day.dateKey}
-                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''} ${isActiveRow ? 'active-row-cell' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${isActiveCell ? 'active-grid-cell' : ''}`}
+                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''} ${customerInfo.length > 0 ? 'has-customer-info' : ''} ${isActiveRow ? 'active-row-cell' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${isActiveCell ? 'active-grid-cell' : ''}`}
                             >
                               <div className="housekeeping-calendar-cell">
                                 <button
                                   type="button"
                                   className="housekeeping-staff-trigger"
                                   onClick={() => openHousekeepingStaffModal(day.dateKey, room, cellRecords)}
-                                  disabled={isPending || housekeepingStaff.length === 0}
-                                  aria-label={`Choose housekeeping staff for Room ${room.id} on ${calendarIsoToDisplay(day.dateKey)}`}
-                                  title={assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned'}
+                                  disabled={isPending}
+                                  aria-label={`Edit housekeeping details for Room ${room.id} on ${calendarIsoToDisplay(day.dateKey)}`}
+                                  title={[assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned', ...customerInfo].join(' | ')}
                                 >
                                   <span>{assignedNames.length > 0 ? assignedNames.join(' / ') : 'Unassigned'}</span>
-                                  <i className="fa-solid fa-user-plus" aria-hidden="true"></i>
+                                  <i className="fa-solid fa-pen" aria-hidden="true"></i>
                                 </button>
+                                <div className="housekeeping-customer-lines" aria-label={customerInfo.length > 0 ? `Customer information: ${customerInfo.join(', ')}` : 'No customer information'}>
+                                  <span className={customerRecord?.customerInfo1 ? '' : 'empty'}>{customerRecord?.customerInfo1 || 'Customer info 1'}</span>
+                                  <span className={customerRecord?.customerInfo2 ? '' : 'empty'}>{customerRecord?.customerInfo2 || 'Customer info 2'}</span>
+                                </div>
                                 {isPending && <i className="fa-solid fa-spinner fa-spin housekeeping-cell-spinner" aria-hidden="true"></i>}
                               </div>
                             </td>
@@ -5885,12 +6063,49 @@ export default function App() {
                 type="button"
                 className="profile-close-btn"
                 onClick={closeHousekeepingStaffModal}
-                disabled={housekeepingAutoSaveStatus === 'saving'}
+                disabled={housekeepingAutoSaveStatus === 'saving' || housekeepingCustomerAutoSaveStatus === 'saving'}
                 aria-label="Close staff selector"
               >
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
+            <section className="housekeeping-customer-editor">
+              <div className="housekeeping-customer-editor-heading">
+                <div>
+                  <span>CUSTOMER INFORMATION</span>
+                  <p>Two remark-style fields for this room and date.</p>
+                </div>
+                <i className="fa-solid fa-address-card" aria-hidden="true"></i>
+              </div>
+              <div className="housekeeping-customer-fields">
+                {[0, 1].map(index => (
+                  <label key={index}>
+                    <span>Customer Info {index + 1}</span>
+                    <input
+                      type="text"
+                      value={housekeepingStaffModal.customerInfo[index]}
+                      maxLength="200"
+                      placeholder={index === 0 ? 'Name, booking or customer note' : 'Second customer detail or remark'}
+                      disabled={housekeepingCustomerAutoSaveStatus === 'saving'}
+                      onChange={event => {
+                        const nextCustomerInfo = [...housekeepingStaffModal.customerInfo];
+                        nextCustomerInfo[index] = event.target.value;
+                        const nextModal = { ...housekeepingStaffModal, customerInfo: nextCustomerInfo };
+                        setHousekeepingStaffModal(nextModal);
+                        queueHousekeepingCustomerAutoSave(nextModal);
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className={`housekeeping-customer-save-status ${housekeepingCustomerAutoSaveStatus}`} role="status" aria-live="polite">
+                {housekeepingCustomerAutoSaveStatus === 'idle' && <><i className="fa-solid fa-bolt"></i> Customer fields save automatically</>}
+                {housekeepingCustomerAutoSaveStatus === 'waiting' && <><i className="fa-solid fa-clock"></i> Customer changes pending...</>}
+                {housekeepingCustomerAutoSaveStatus === 'saving' && <><i className="fa-solid fa-spinner fa-spin"></i> Saving customer information...</>}
+                {housekeepingCustomerAutoSaveStatus === 'saved' && <><i className="fa-solid fa-circle-check"></i> Customer information saved</>}
+                {housekeepingCustomerAutoSaveStatus === 'error' && <><i className="fa-solid fa-circle-exclamation"></i> Unable to save customer information</>}
+              </div>
+            </section>
             <p className="housekeeping-staff-modal-help">Select every staff member who worked on this room. Changes save automatically.</p>
             <div className="housekeeping-staff-options">
               {housekeepingStaff.map(staff => {

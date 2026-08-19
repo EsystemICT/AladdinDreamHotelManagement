@@ -23,6 +23,8 @@ const ICONS = {
   HELP: { icon: "fa-solid fa-comment", label: "Help" }
 };
 
+const LEAVE_TYPES = ['Annual leave', 'Unpaid leave', 'PH CLAIM', 'MC'];
+
 const HELP_TOPICS = [
   {
     id: 'change-password',
@@ -3025,13 +3027,19 @@ export default function App() {
     if (isMcSubmitting) return;
 
     const form = event.currentTarget;
+    const leaveType = form.leaveType.value;
     const startDate = form.startDate.value;
     const endDate = form.endDate.value;
     const clinicName = form.clinicName.value.trim();
     const remarks = form.remarks.value.trim();
 
+    if (!LEAVE_TYPES.includes(leaveType)) {
+      alert('Please select a valid leave type.');
+      return;
+    }
+
     if (!startDate || !endDate || endDate < startDate) {
-      alert('Please select a valid MC date range.');
+      alert('Please select a valid leave date range.');
       return;
     }
 
@@ -3052,7 +3060,7 @@ export default function App() {
         userId: currentUser.userid,
         userDocId: currentUser.dbId,
         userName: currentUser.name,
-        type: 'MC',
+        type: leaveType,
         startDate,
         endDate,
         clinicName,
@@ -3062,8 +3070,8 @@ export default function App() {
       });
       await logSystemAction(
         currentUser.name,
-        'MC_REQUEST',
-        `Requested MC from ${startDate} to ${endDate}${clinicName ? ` (${clinicName})` : ''}`
+        'LEAVE_REQUEST',
+        `Requested ${leaveType} from ${startDate} to ${endDate}${clinicName ? ` (${clinicName})` : ''}`
       );
       form.reset();
       alert('Leave/MC application submitted successfully.');
@@ -3103,8 +3111,8 @@ export default function App() {
       });
       await logSystemAction(
         currentUser.name,
-        status === 'approved' ? 'MC_APPROVED' : 'MC_REJECTED',
-        `${status === 'approved' ? 'Approved' : 'Rejected'} Leave/MC application for ${mcRequest.userName} (${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'})`
+        status === 'approved' ? 'LEAVE_APPROVED' : 'LEAVE_REJECTED',
+        `${status === 'approved' ? 'Approved' : 'Rejected'} ${mcRequest.type || 'MC'} application for ${mcRequest.userName} (${mcRequest.startDate || '-'} to ${mcRequest.endDate || '-'})`
       );
     } catch (error) {
       console.error('Leave/MC review failed:', error);
@@ -5280,13 +5288,20 @@ export default function App() {
 
             <form className="mc-request-form" onSubmit={handleSubmitMcRequest}>
               <div className="mc-form-grid">
+                <label className="mc-field-wide">
+                  <span>Leave Type</span>
+                  <select name="leaveType" defaultValue="" required>
+                    <option value="" disabled>Select leave type</option>
+                    {LEAVE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </label>
                 <label>
                   <span>Start Date (DD/MM/YYYY)</span>
-                  <CalendarDateField name="startDate" idPrefix="mc-start-date" ariaLabel="MC start date in day month year format" />
+                  <CalendarDateField name="startDate" idPrefix="mc-start-date" ariaLabel="Leave start date in day month year format" />
                 </label>
                 <label>
                   <span>End Date (DD/MM/YYYY)</span>
-                  <CalendarDateField name="endDate" idPrefix="mc-end-date" ariaLabel="MC end date in day month year format" />
+                  <CalendarDateField name="endDate" idPrefix="mc-end-date" ariaLabel="Leave end date in day month year format" />
                 </label>
                 <label className="mc-field-wide">
                   <span>Clinic / Hospital Name <small>(Optional)</small></span>
@@ -5308,14 +5323,14 @@ export default function App() {
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> My Leave/MC Applications</h2>
             <div className="mc-request-list">
-              {leaves.filter(leave => leave.userId === currentUser.userid && leave.type === 'MC').length === 0 ? (
+              {leaves.filter(leave => leave.userId === currentUser.userid).length === 0 ? (
                 <div className="mc-empty-state">
                   <i className="fa-regular fa-folder-open"></i>
                   <p>No Leave/MC applications submitted yet.</p>
                 </div>
               ) : (
                 leaves
-                  .filter(leave => leave.userId === currentUser.userid && leave.type === 'MC')
+                  .filter(leave => leave.userId === currentUser.userid)
                   .map(leave => (
                     <article key={leave.id} className={`mc-request-card mc-${leave.status || 'pending'}`}>
                       <div className="mc-request-card-top">
@@ -5325,6 +5340,7 @@ export default function App() {
                         </div>
                         <span className={`req-status status-${leave.status || 'pending'}`}>{leave.status || 'pending'}</span>
                       </div>
+                      <p><strong>Leave Type:</strong> {leave.type || 'MC'}</p>
                       {leave.clinicName && <p><i className="fa-solid fa-house-medical"></i> {leave.clinicName}</p>}
                       <p className="mc-remarks">{leave.remarks}</p>
                       {leave.reviewedBy && <small className="mc-reviewed-by">Reviewed by {leave.reviewedBy}</small>}
@@ -6002,16 +6018,17 @@ export default function App() {
             </div>
 
           <div className="floor-section" style={{marginTop: '20px'}}>
-            <h2 className="floor-title"><i className="fa-solid fa-notes-medical"></i> Medical Certificate Requests</h2>
+            <h2 className="floor-title"><i className="fa-solid fa-notes-medical"></i> Leave / MC Requests</h2>
             <div className="admin-table-container scroll-pane">
                <table>
-                   <thead><tr><th>Staff</th><th>Leave / MC Dates</th><th>Clinic</th><th>Remarks</th><th>Submitted</th><th>Status</th></tr></thead>
+                   <thead><tr><th>Staff</th><th>Leave Type</th><th>Leave / MC Dates</th><th>Clinic</th><th>Remarks</th><th>Submitted</th><th>Status</th></tr></thead>
                    <tbody>
-                       {leaves.filter(l => l.type === 'MC').length === 0 ? (
-                         <tr><td colSpan="6" style={{textAlign:'center', color:'#999'}}>No Leave/MC applications submitted.</td></tr>
-                       ) : leaves.filter(l => l.type === 'MC').map(l => (
+                       {leaves.length === 0 ? (
+                         <tr><td colSpan="7" style={{textAlign:'center', color:'#999'}}>No Leave/MC applications submitted.</td></tr>
+                       ) : leaves.map(l => (
                            <tr key={l.id}>
                                <td>{l.userName}</td>
+                               <td><strong>{l.type || 'MC'}</strong></td>
                                <td><strong>{formatDate(l.startDate)}</strong>{l.endDate && l.endDate !== l.startDate ? <> – <strong>{formatDate(l.endDate)}</strong></> : ''}</td>
                                <td>{l.clinicName || '-'}</td>
                                <td>{l.remarks}</td>
@@ -6019,8 +6036,8 @@ export default function App() {
                                <td>
                                    {l.status === 'pending' ? (
                                        <div style={{display:'flex', gap:'5px'}}>
-                                           <button onClick={() => handleReviewMcRequest(l, 'approved')} className="btn green" style={{padding:'6px 9px'}} title="Approve MC"><i className="fa-solid fa-check"></i></button>
-                                           <button onClick={() => handleReviewMcRequest(l, 'rejected')} className="btn red" style={{padding:'6px 9px'}} title="Reject MC"><i className="fa-solid fa-xmark"></i></button>
+                                           <button onClick={() => handleReviewMcRequest(l, 'approved')} className="btn green" style={{padding:'6px 9px'}} title="Approve request"><i className="fa-solid fa-check"></i></button>
+                                           <button onClick={() => handleReviewMcRequest(l, 'rejected')} className="btn red" style={{padding:'6px 9px'}} title="Reject request"><i className="fa-solid fa-xmark"></i></button>
                                        </div>
                                    ) : (
                                        <span style={{fontWeight:'bold', color: l.status==='approved'?'green':'red'}}>{l.status.toUpperCase()}</span>

@@ -443,6 +443,7 @@ body {
 .mc-form-grid label { display: flex; flex-direction: column; gap: 6px; color: #334155; font-size: 0.84rem; font-weight: 800; }
 .mc-form-grid label span small { color: #94a3b8; font-weight: 600; }
 .mc-form-grid input,
+.mc-form-grid select,
 .mc-form-grid textarea { width: 100%; margin: 0; box-sizing: border-box; }
 .mc-field-wide { grid-column: 1 / -1; }
 .mc-submit-btn { align-self: flex-start; justify-content: center; min-width: 190px; }

@@ -5,6 +5,7 @@ import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, Email
 import './App.css';
 import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
 import { getUpcomingBirthdays } from './birthdayAlerts';
+import { getAnnualLeaveBalanceId, getAnnualLeaveDaysByYear, getAnnualLeaveSummary } from './annualLeave';
 
 // ICONS & TABS
 const ICONS = { 
@@ -253,7 +254,7 @@ const LAUNDRY_STOCK_ITEMS = [
 
 const BACKUP_COLLECTIONS = [
   'rooms', 'users', 'tickets', 'customerDetails', 'requests', 'attendance',
-  'leaves', 'inventory', 'claimDays', 'laundry', 'stock', 'laundryStockMovements',
+  'leaves', 'annualLeaveBalances', 'inventory', 'claimDays', 'laundry', 'stock', 'laundryStockMovements',
   'housekeepingDaily', 'housekeepingCustomerInfo', 'deposits', 'verifications', 'utilityBills', 'auditLogs',
   'adminAlerts', 'settings'
 ];
@@ -1007,6 +1008,7 @@ export default function App() {
   const [users, setUsers] = useState([]); 
   const [attendance, setAttendance] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const [annualLeaveBalances, setAnnualLeaveBalances] = useState([]);
   const [inventory, setInventory] = useState([]);
   const [claimDays, setClaimDays] = useState([]);
   const [laundry, setLaundry] = useState([]);
@@ -1048,6 +1050,10 @@ export default function App() {
   const [isResetLinkSubmitting, setIsResetLinkSubmitting] = useState(false);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState('');
   const [isMcSubmitting, setIsMcSubmitting] = useState(false);
+  const [annualLeaveYear, setAnnualLeaveYear] = useState(() => new Date().getFullYear());
+  const [annualLeaveDrafts, setAnnualLeaveDrafts] = useState({});
+  const [savingAnnualLeaveStaffId, setSavingAnnualLeaveStaffId] = useState('');
+  const [annualLeaveFeedback, setAnnualLeaveFeedback] = useState({ type: '', message: '' });
 
   // Forms UI
   const [lastClock, setLastClock] = useState(null);
@@ -1137,6 +1143,10 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem('hotelDrawerCollapsed', String(isDrawerCollapsed));
   }, [isDrawerCollapsed]);
+
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'admin') setAnnualLeaveYear(new Date().getFullYear());
+  }, [currentUser]);
 
   useEffect(() => {
     if (!passwordResetCode) return;
@@ -1326,7 +1336,7 @@ export default function App() {
 
     let unsubAdminLeaves = () => {};
     if (currentUser.role === 'admin') {
-      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(100));
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
       unsubAdminLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     }
     
@@ -1336,6 +1346,35 @@ export default function App() {
       unsubAdminLeaves();
     };
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return undefined;
+    const shouldLoadAdminBalances = currentUser.role === 'admin' && view === 'ADMIN';
+    const shouldLoadOwnBalance = currentUser.role !== 'admin' && view === 'MC';
+    if (!shouldLoadAdminBalances && !shouldLoadOwnBalance) return undefined;
+
+    if (shouldLoadAdminBalances) {
+      const balancesQuery = query(
+        collection(db, 'annualLeaveBalances'),
+        where('year', '==', annualLeaveYear),
+        limit(500)
+      );
+      return onSnapshot(balancesQuery, snapshot => {
+        setAnnualLeaveBalances(snapshot.docs.map(balanceDoc => ({ id: balanceDoc.id, ...balanceDoc.data() })));
+      }, error => {
+        console.error('Annual leave balances listener failed:', error);
+        setAnnualLeaveFeedback({ type: 'error', message: 'Unable to load annual leave balances.' });
+      });
+    }
+
+    const balanceRef = doc(db, 'annualLeaveBalances', getAnnualLeaveBalanceId(annualLeaveYear, currentUser.dbId));
+    return onSnapshot(balanceRef, snapshot => {
+      setAnnualLeaveBalances(snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() }] : []);
+    }, error => {
+      console.error('Own annual leave balance listener failed:', error);
+      setAnnualLeaveFeedback({ type: 'error', message: 'Unable to load your annual leave balance.' });
+    });
+  }, [currentUser, view, annualLeaveYear]);
 
   // Only read messages that belong to the signed-in user. Sent history is
   // subscribed to only while the Request Staff page is actually open.
@@ -1420,7 +1459,7 @@ export default function App() {
     }
 
     if (['SHIFT', 'MC'].includes(view) && currentUser.role !== 'admin') {
-      const qLeaves = query(collection(db, "leaves"), where("userId", "==", currentUser.userid), limit(100));
+      const qLeaves = query(collection(db, "leaves"), where("userId", "==", currentUser.userid), limit(500));
       unsubs.push(onSnapshot(qLeaves, (snap) => {
         const staffLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
           const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
@@ -3096,6 +3135,49 @@ export default function App() {
     }
   };
 
+  const handleSaveAnnualLeaveBalance = async (staff) => {
+    if (currentUser.role !== 'admin' || savingAnnualLeaveStaffId) return;
+    const existingBalance = annualLeaveBalances.find(balance => balance.userDocId === staff.dbId);
+    const draftValue = annualLeaveDrafts[staff.dbId] ?? existingBalance?.entitlement ?? 0;
+    const entitlement = Number(draftValue);
+    if (!Number.isFinite(entitlement) || entitlement < 0 || entitlement > 365 || !Number.isInteger(entitlement)) {
+      setAnnualLeaveFeedback({ type: 'error', message: 'Annual leave entitlement must be a whole number from 0 to 365 days.' });
+      return;
+    }
+
+    setSavingAnnualLeaveStaffId(staff.dbId);
+    setAnnualLeaveFeedback({ type: '', message: '' });
+    try {
+      const balanceId = getAnnualLeaveBalanceId(annualLeaveYear, staff.dbId);
+      await setDoc(doc(db, 'annualLeaveBalances', balanceId), {
+        year: annualLeaveYear,
+        userDocId: staff.dbId,
+        userId: staff.userid,
+        userName: staff.name,
+        entitlement,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.name,
+        updatedById: currentUser.userid
+      }, { merge: true });
+      await logSystemAction(
+        currentUser.name,
+        'ANNUAL_LEAVE_BALANCE_UPDATE',
+        `Set ${staff.name} (${staff.userid}) annual leave entitlement to ${entitlement} days for ${annualLeaveYear}`
+      );
+      setAnnualLeaveDrafts(previous => {
+        const next = { ...previous };
+        delete next[staff.dbId];
+        return next;
+      });
+      setAnnualLeaveFeedback({ type: 'success', message: `${staff.name}'s ${annualLeaveYear} annual leave entitlement was saved.` });
+    } catch (error) {
+      console.error('Annual leave balance update failed:', error);
+      setAnnualLeaveFeedback({ type: 'error', message: 'Unable to save the annual leave entitlement. Please try again.' });
+    } finally {
+      setSavingAnnualLeaveStaffId('');
+    }
+  };
+
   const handleSubmitMcRequest = async (event) => {
     event.preventDefault();
     if (isMcSubmitting) return;
@@ -3130,6 +3212,29 @@ export default function App() {
 
     setIsMcSubmitting(true);
     try {
+      if (leaveType === 'Annual leave') {
+        const requestedDaysByYear = getAnnualLeaveDaysByYear({ startDate, endDate });
+        const requestedYears = Object.keys(requestedDaysByYear).map(Number);
+        if (requestedYears.length !== 1) {
+          alert('An Annual leave application must stay within one calendar year. Submit separate applications for each year.');
+          return;
+        }
+
+        const requestYear = requestedYears[0];
+        const [balanceSnapshot, leaveSnapshots] = await Promise.all([
+          getDoc(doc(db, 'annualLeaveBalances', getAnnualLeaveBalanceId(requestYear, currentUser.dbId))),
+          getDocs(query(collection(db, 'leaves'), where('userId', '==', currentUser.userid), limit(500)))
+        ]);
+        const entitlement = balanceSnapshot.data()?.entitlement || 0;
+        const ownLeaves = leaveSnapshots.docs.map(leaveDoc => ({ id: leaveDoc.id, ...leaveDoc.data() }));
+        const summary = getAnnualLeaveSummary(ownLeaves, currentUser.userid, requestYear, entitlement);
+        const requestedDays = requestedDaysByYear[requestYear];
+        if (requestedDays > summary.availableAfterPending) {
+          alert(`Insufficient Annual leave balance for ${requestYear}. Available after pending requests: ${Math.max(0, summary.availableAfterPending)} day(s).`);
+          return;
+        }
+      }
+
       await addDoc(collection(db, 'leaves'), {
         userId: currentUser.userid,
         userDocId: currentUser.dbId,
@@ -3178,6 +3283,28 @@ export default function App() {
     if (currentUser.role !== 'admin' || !['approved', 'rejected'].includes(status)) return;
 
     try {
+      if (status === 'approved' && mcRequest.type === 'Annual leave') {
+        const requestedDaysByYear = getAnnualLeaveDaysByYear(mcRequest);
+        const staffDocId = mcRequest.userDocId || users.find(user => user.userid === mcRequest.userId)?.dbId;
+        if (!staffDocId) {
+          alert('Cannot approve this request because the staff profile could not be matched.');
+          return;
+        }
+        const leaveSnapshots = await getDocs(query(collection(db, 'leaves'), where('userId', '==', mcRequest.userId), limit(500)));
+        const staffLeaves = leaveSnapshots.docs.map(leaveDoc => ({ id: leaveDoc.id, ...leaveDoc.data() }));
+
+        for (const [yearText, requestedDays] of Object.entries(requestedDaysByYear)) {
+          const year = Number(yearText);
+          const balanceSnapshot = await getDoc(doc(db, 'annualLeaveBalances', getAnnualLeaveBalanceId(year, staffDocId)));
+          const entitlement = balanceSnapshot.data()?.entitlement || 0;
+          const summary = getAnnualLeaveSummary(staffLeaves, mcRequest.userId, year, entitlement, mcRequest.id);
+          if (requestedDays > summary.remainingDays) {
+            alert(`Cannot approve this request. ${mcRequest.userName} has ${Math.max(0, summary.remainingDays)} Annual leave day(s) remaining for ${year}.`);
+            return;
+          }
+        }
+      }
+
       await updateDoc(doc(db, 'leaves', mcRequest.id), {
         status,
         reviewedAt: serverTimestamp(),
@@ -3658,6 +3785,13 @@ export default function App() {
   const unreadAdminAlerts = adminAlerts.filter(adminAlert => !adminAlert.acknowledged);
   const activeAdminAlert = unreadAdminAlerts[0] || null;
   const upcomingBirthdays = currentUser?.role === 'admin' ? getUpcomingBirthdays(users, currentTime, 7) : [];
+  const annualLeaveBalanceByStaffDocId = new Map(annualLeaveBalances.map(balance => [balance.userDocId, balance]));
+  const getStaffAnnualLeaveSummary = (staff) => {
+    const balance = annualLeaveBalanceByStaffDocId.get(staff?.dbId);
+    return getAnnualLeaveSummary(leaves, staff?.userid, annualLeaveYear, balance?.entitlement || 0);
+  };
+  const myAnnualLeaveSummary = getStaffAnnualLeaveSummary(currentUser);
+  const annualLeaveYearOptions = Array.from({ length: 5 }, (_, index) => new Date().getFullYear() - 2 + index);
 
   const processedTickets = [...tickets].filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase())).sort((a, b) => {
       const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
@@ -5448,6 +5582,29 @@ export default function App() {
       {/* --- VIEW: APPLY LEAVE / MEDICAL CERTIFICATE --- */}
       {view === 'MC' && (
         <div className="dashboard mc-page">
+          <div className="floor-section annual-leave-self-panel">
+            <div className="annual-leave-self-heading">
+              <div>
+                <span>MY ANNUAL LEAVE</span>
+                <h2>{annualLeaveYear} Balance</h2>
+              </div>
+              <i className="fa-solid fa-umbrella-beach"></i>
+            </div>
+            <div className="annual-leave-summary-grid">
+              <div><span>Entitlement</span><strong>{myAnnualLeaveSummary.entitlement}</strong><small>days</small></div>
+              <div><span>Approved Used</span><strong>{myAnnualLeaveSummary.approvedDays}</strong><small>days</small></div>
+              <div><span>Pending</span><strong>{myAnnualLeaveSummary.pendingDays}</strong><small>days</small></div>
+              <div className={myAnnualLeaveSummary.remainingDays < 0 ? 'negative' : 'remaining'}><span>Remaining</span><strong>{myAnnualLeaveSummary.remainingDays}</strong><small>days</small></div>
+            </div>
+            {myAnnualLeaveSummary.entitlement === 0 && (
+              <p className="annual-leave-not-configured"><i className="fa-solid fa-circle-info"></i> Your Annual leave entitlement has not been set for {annualLeaveYear}. Please contact an administrator.</p>
+            )}
+            {myAnnualLeaveSummary.pendingDays > 0 && (
+              <p className="annual-leave-pending-note">Available after pending applications: <strong>{Math.max(0, myAnnualLeaveSummary.availableAfterPending)} days</strong></p>
+            )}
+            {annualLeaveFeedback.message && <p className={`annual-leave-feedback ${annualLeaveFeedback.type}`}>{annualLeaveFeedback.message}</p>}
+          </div>
+
           <div className="floor-section mc-request-panel">
             <div className="floor-title">
               <span><i className="fa-solid fa-notes-medical"></i> Apply Leave/MC</span>
@@ -6184,6 +6341,73 @@ export default function App() {
                 </table>
               </div>
             </div>
+
+          <div className="floor-section annual-leave-admin-panel" style={{marginTop: '20px'}}>
+            <div className="annual-leave-admin-title">
+              <div>
+                <span>LEAVE ENTITLEMENTS</span>
+                <h2><i className="fa-solid fa-calendar-check"></i> Annual Leave Balances</h2>
+                <p>Set each staff member's yearly entitlement. Approved Annual leave is deducted automatically.</p>
+              </div>
+              <label>
+                <span>Year</span>
+                <select value={annualLeaveYear} onChange={event => {
+                  setAnnualLeaveYear(Number(event.target.value));
+                  setAnnualLeaveDrafts({});
+                  setAnnualLeaveFeedback({ type: '', message: '' });
+                }}>
+                  {annualLeaveYearOptions.map(year => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
+            </div>
+            {annualLeaveFeedback.message && (
+              <div className={`annual-leave-feedback ${annualLeaveFeedback.type}`} role={annualLeaveFeedback.type === 'error' ? 'alert' : 'status'}>
+                <i className={`fa-solid ${annualLeaveFeedback.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-check'}`}></i>
+                {annualLeaveFeedback.message}
+              </div>
+            )}
+            <div className="admin-table-container scroll-pane">
+              <table className="annual-leave-admin-table">
+                <thead><tr><th>Staff</th><th>Year</th><th>Entitlement</th><th>Approved Used</th><th>Pending</th><th>Remaining</th><th>Manage</th></tr></thead>
+                <tbody>
+                  {users.filter(user => user.role === 'staff').length === 0 ? (
+                    <tr><td colSpan="7" className="annual-leave-empty">No staff accounts available.</td></tr>
+                  ) : users.filter(user => user.role === 'staff').map(staff => {
+                    const balance = annualLeaveBalanceByStaffDocId.get(staff.dbId);
+                    const summary = getStaffAnnualLeaveSummary(staff);
+                    const inputValue = annualLeaveDrafts[staff.dbId] ?? balance?.entitlement ?? 0;
+                    return (
+                      <tr key={staff.dbId}>
+                        <td><strong>{staff.name}</strong><small>{staff.userid}{isUserActive(staff) ? '' : ' · Inactive'}</small></td>
+                        <td>{annualLeaveYear}</td>
+                        <td><strong>{summary.entitlement}</strong> days</td>
+                        <td>{summary.approvedDays} days</td>
+                        <td>{summary.pendingDays} days</td>
+                        <td><strong className={summary.remainingDays < 0 ? 'annual-leave-negative' : 'annual-leave-remaining'}>{summary.remainingDays} days</strong></td>
+                        <td>
+                          <div className="annual-leave-manage-control">
+                            <input
+                              type="number"
+                              min="0"
+                              max="365"
+                              step="1"
+                              value={inputValue}
+                              onChange={event => setAnnualLeaveDrafts(previous => ({ ...previous, [staff.dbId]: event.target.value }))}
+                              aria-label={`${staff.name} annual leave entitlement for ${annualLeaveYear}`}
+                            />
+                            <button type="button" className="btn blue" onClick={() => handleSaveAnnualLeaveBalance(staff)} disabled={savingAnnualLeaveStaffId === staff.dbId}>
+                              {savingAnnualLeaveStaffId === staff.dbId ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-floppy-disk"></i>}
+                              Save
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           <div className="floor-section" style={{marginTop: '20px'}}>
             <h2 className="floor-title"><i className="fa-solid fa-notes-medical"></i> Leave / MC Requests</h2>

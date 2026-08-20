@@ -465,11 +465,56 @@ body {
 .mc-empty-state i { font-size: 1.7rem; }
 .mc-empty-state p { margin: 8px 0 0; }
 
+/* ANNUAL LEAVE BALANCES */
+.annual-leave-self-panel {
+  overflow: hidden;
+  color: #fff;
+  background: linear-gradient(135deg, #12365f, #0f2747);
+  border: 1px solid rgba(230, 201, 152, 0.32);
+}
+.annual-leave-self-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.annual-leave-self-heading span { color: #e6c998; font-size: 0.67rem; font-weight: 900; letter-spacing: 0.13em; }
+.annual-leave-self-heading h2 { margin: 4px 0 0; color: #fff; }
+.annual-leave-self-heading > i { color: #e6c998; font-size: 2rem; }
+.annual-leave-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
+.annual-leave-summary-grid > div { padding: 13px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 11px; }
+.annual-leave-summary-grid span { display: block; color: #cbd8e7; font-size: 0.7rem; font-weight: 700; }
+.annual-leave-summary-grid strong { display: inline-block; margin: 5px 5px 0 0; color: #fff; font-size: 1.65rem; }
+.annual-leave-summary-grid small { color: #cbd8e7; }
+.annual-leave-summary-grid .remaining { background: rgba(16, 185, 129, 0.18); border-color: rgba(110, 231, 183, 0.3); }
+.annual-leave-summary-grid .negative { background: rgba(239, 68, 68, 0.18); border-color: rgba(252, 165, 165, 0.3); }
+.annual-leave-not-configured { margin: 14px 0 0; padding: 10px 12px; color: #fde68a; background: rgba(245, 158, 11, 0.13); border-radius: 9px; font-size: 0.8rem; }
+.annual-leave-not-configured i { margin-right: 6px; }
+.annual-leave-pending-note { margin: 12px 0 0; color: #dbe7f4; font-size: 0.8rem; }
+.annual-leave-admin-panel { overflow: hidden; }
+.annual-leave-admin-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.annual-leave-admin-title > div > span { color: var(--hotel-gold-600); font-size: 0.66rem; font-weight: 900; letter-spacing: 0.13em; }
+.annual-leave-admin-title h2 { margin: 5px 0 3px; color: var(--hotel-navy-900); }
+.annual-leave-admin-title h2 i { margin-right: 7px; color: var(--hotel-gold-600); }
+.annual-leave-admin-title p { margin: 0; color: var(--hotel-slate-500); font-size: 0.82rem; }
+.annual-leave-admin-title > label { display: grid; gap: 5px; min-width: 110px; color: var(--hotel-slate-500); font-size: 0.7rem; font-weight: 800; }
+.annual-leave-admin-title select { width: 100%; margin: 0; }
+.annual-leave-admin-table { min-width: 940px; }
+.annual-leave-admin-table td:first-child small { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.7rem; }
+.annual-leave-manage-control { display: flex; align-items: center; gap: 7px; }
+.annual-leave-manage-control input { width: 72px; min-height: 38px; margin: 0; padding: 7px 8px; }
+.annual-leave-manage-control .btn { min-height: 38px; padding: 7px 10px; font-size: 0.78rem; }
+.annual-leave-remaining { color: #047857; }
+.annual-leave-negative { color: #b91c1c; }
+.annual-leave-empty { padding: 25px; color: var(--hotel-slate-500); text-align: center; }
+.annual-leave-feedback { display: flex; align-items: center; gap: 7px; margin: 14px 0 0; padding: 9px 11px; border-radius: 8px; font-size: 0.8rem; font-weight: 700; }
+.annual-leave-feedback.success { color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; }
+.annual-leave-feedback.error { color: #b91c1c; background: #fff1f2; border: 1px solid #fecaca; }
+.annual-leave-self-panel .annual-leave-feedback.error { color: #fecaca; background: rgba(185, 28, 28, 0.22); border-color: rgba(254, 202, 202, 0.28); }
+
 @media (max-width: 600px) {
   .mc-form-grid { grid-template-columns: 1fr; }
   .mc-field-wide { grid-column: auto; }
   .mc-submit-btn { align-self: stretch; width: 100%; }
   .mc-request-card-top { align-items: flex-start; }
+  .annual-leave-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .annual-leave-admin-title { align-items: stretch; flex-direction: column; }
+  .annual-leave-admin-title > label { width: 120px; }
 }
 
 /* UTILS */

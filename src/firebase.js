@@ -2,7 +2,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { getFunctions } from "firebase/functions";
 
 // Existing hotel records remain in the original Firestore project.
 const firestoreConfig = {
@@ -30,7 +29,6 @@ const authApp = initializeApp(authConfig, 'hotel-auth');
 
 export const db = getFirestore(firestoreApp);
 export const auth = getAuth(authApp);
-export const authFunctions = getFunctions(authApp, 'asia-southeast1');
 
 // Creating an Auth user signs that Auth instance in as the new account. Admins
 // therefore provision staff through a separate instance so their own session is

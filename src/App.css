@@ -506,8 +506,6 @@ tr:hover { background: #fafafa; }
 .password-reset-row { background: #fffbeb; }
 .password-reset-row:hover { background: #fef3c7; }
 .password-reset-btn { display: inline-flex; margin-right: 8px; padding: 7px 10px; background: #7c3aed; font-size: 0.8rem; white-space: nowrap; }
-.staff-password-btn { display: inline-flex; margin-right: 8px; padding: 7px 10px; background: #1d4ed8; font-size: 0.8rem; white-space: nowrap; }
-.staff-password-modal-btn { width: 100%; justify-content: center; margin: 20px 0 0; }
 .password-reset-alert {
   display: flex;
   align-items: center;
@@ -2213,19 +2211,6 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 600px) {
   .customer-edit-modal form { grid-template-columns: 1fr; }
 }
-
-/* Admin staff password */
-.staff-password-modal { position: relative; width: min(470px, calc(100vw - 30px)); box-sizing: border-box; }
-.staff-password-modal .profile-close-btn { top: 20px; right: 20px; }
-.staff-password-modal-heading { display: flex; align-items: center; gap: 13px; padding-right: 36px; }
-.staff-password-modal-icon { display: grid; flex: 0 0 46px; width: 46px; height: 46px; place-items: center; color: #fff; background: #1d4ed8; border-radius: 13px; }
-.staff-password-modal-heading p { margin: 0 0 2px; color: #1d4ed8; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.12em; }
-.staff-password-modal-heading h2 { margin: 0 0 2px; }
-.staff-password-modal-heading > div > span { color: var(--hotel-slate-500); font-size: 0.82rem; font-weight: 700; }
-.staff-password-modal-help { margin: 18px 0; color: var(--hotel-slate-500); font-size: 0.85rem; line-height: 1.5; }
-.staff-password-modal form { display: grid; gap: 15px; }
-.staff-password-modal form > label { display: grid; gap: 7px; color: var(--hotel-slate-700); font-size: 0.82rem; font-weight: 800; }
-.staff-password-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 3px; }
 
 /* Monthly laundry stock ledger */
 .laundry-stock-ledger { position: relative; overflow: hidden; }

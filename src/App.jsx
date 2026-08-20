@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { auth, authFunctions, db, staffProvisioningAuth } from './firebase';
+import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
-import { httpsCallable } from 'firebase/functions';
 import './App.css';
 import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
 import { getUpcomingBirthdays } from './birthdayAlerts';
@@ -1030,9 +1029,6 @@ export default function App() {
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
-  const [staffPasswordModal, setStaffPasswordModal] = useState(null);
-  const [staffPasswordFeedback, setStaffPasswordFeedback] = useState({ type: '', message: '' });
-  const [isStaffPasswordSaving, setIsStaffPasswordSaving] = useState(false);
   const [rejectModal, setRejectModal] = useState({ show: false, reqId: null });
   const [rejectReason, setRejectReason] = useState('');
   
@@ -2098,65 +2094,6 @@ export default function App() {
     } catch (error) {
         console.error('Admin password reset email failed:', error);
         alert(getAuthSetupMessage(error, 'Failed to send the password reset email.'));
-    }
-  };
-
-  const openStaffPasswordModal = (staff) => {
-    setStaffModal(null);
-    setStaffPasswordFeedback({ type: '', message: '' });
-    setStaffPasswordModal(staff);
-  };
-
-  const closeStaffPasswordModal = () => {
-    if (isStaffPasswordSaving) return;
-    setStaffPasswordModal(null);
-    setStaffPasswordFeedback({ type: '', message: '' });
-  };
-
-  const handleAdminSetStaffPassword = async (event) => {
-    event.preventDefault();
-    if (currentUser.role !== 'admin' || !staffPasswordModal || isStaffPasswordSaving) return;
-
-    const form = event.currentTarget;
-    const newPassword = form.newPassword.value;
-    const confirmPassword = form.confirmPassword.value;
-    if (newPassword.length < 6) {
-      setStaffPasswordFeedback({ type: 'error', message: 'The password must contain at least 6 characters.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setStaffPasswordFeedback({ type: 'error', message: 'The passwords do not match.' });
-      return;
-    }
-    if (!confirm(`Set a new password for ${staffPasswordModal.name} (${staffPasswordModal.userid})? Their existing sessions will be signed out.`)) return;
-
-    setIsStaffPasswordSaving(true);
-    setStaffPasswordFeedback({ type: '', message: '' });
-    try {
-      const setStaffPassword = httpsCallable(authFunctions, 'setStaffPassword');
-      await setStaffPassword({ staffDocId: staffPasswordModal.dbId, password: newPassword });
-      form.reset();
-      setStaffPasswordFeedback({
-        type: 'success',
-        message: `Password set successfully for ${staffPasswordModal.name}. Their existing sessions have been signed out.`
-      });
-    } catch (error) {
-      console.error('Admin staff password update failed:', error);
-      const messageByCode = {
-        'functions/unauthenticated': 'Your administrator session has expired. Sign in again and retry.',
-        'functions/permission-denied': 'Only an active administrator can set a staff password.',
-        'functions/not-found': 'This staff account could not be found.',
-        'functions/invalid-argument': error.message || 'Enter a valid password with at least 6 characters.',
-        'functions/failed-precondition': error.message || 'This staff account is not ready for a password change.',
-        'functions/internal': 'The secure password service is not deployed or is not configured correctly. Please contact the system administrator.',
-        'functions/unavailable': 'The secure password service is temporarily unavailable. Please try again.'
-      };
-      setStaffPasswordFeedback({
-        type: 'error',
-        message: messageByCode[error.code] || 'Unable to set the staff password. Please try again.'
-      });
-    } finally {
-      setIsStaffPasswordSaving(false);
     }
   };
 
@@ -6199,11 +6136,6 @@ export default function App() {
                                 <i className="fa-solid fa-envelope"></i> Email Reset Link
                               </button>
                             )}
-                            {u.role !== 'admin' && (
-                              <button onClick={() => openStaffPasswordModal(u)} className="btn staff-password-btn" title="Set a new password for this staff account">
-                                <i className="fa-solid fa-key"></i> Set Password
-                              </button>
-                            )}
                             {u.role !== 'admin' && isUserActive(u) && u.approvedDeviceId && (
                               <button onClick={() => handleResetApprovedDevice(u)} className="btn device-reset-btn" title="Reset approved device">
                                 <i className="fa-solid fa-mobile-screen-button"></i> Reset Device
@@ -6588,52 +6520,10 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
-                  {staffModal.role !== 'admin' && <button onClick={() => openStaffPasswordModal(staffModal)} className="btn staff-password-btn staff-password-modal-btn"><i className="fa-solid fa-key"></i> Set Staff Password</button>}
-                  <button onClick={() => handleAdminSendPasswordReset(staffModal)} className="btn blue" style={{width:'100%', marginTop:'10px', justifyContent:'center'}} disabled={!EMAIL_PATTERN.test(staffModal.email?.trim() || '')}><i className="fa-solid fa-envelope"></i> Send Password Reset Email</button>
+                  <button onClick={() => handleAdminSendPasswordReset(staffModal)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}} disabled={!EMAIL_PATTERN.test(staffModal.email?.trim() || '')}><i className="fa-solid fa-envelope"></i> Send Password Reset Email</button>
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>
-      )}
-
-      {staffPasswordModal && (
-        <div className="modal-overlay" onClick={closeStaffPasswordModal}>
-          <div className="modal-content staff-password-modal" onClick={event => event.stopPropagation()}>
-            <button type="button" className="profile-close-btn" onClick={closeStaffPasswordModal} aria-label="Close password form" disabled={isStaffPasswordSaving}>
-              <i className="fa-solid fa-xmark"></i>
-            </button>
-            <div className="staff-password-modal-heading">
-              <span className="staff-password-modal-icon"><i className="fa-solid fa-key"></i></span>
-              <div>
-                <p>ADMIN SECURITY</p>
-                <h2>Set Staff Password</h2>
-                <span>{staffPasswordModal.name} ({staffPasswordModal.userid})</span>
-              </div>
-            </div>
-            <p className="staff-password-modal-help">Set a new login password for this staff member. Their existing sessions will be signed out.</p>
-            <form onSubmit={handleAdminSetStaffPassword}>
-              <label>
-                <span>New password</span>
-                <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-lock" toggleLabel="new staff password" name="newPassword" autoComplete="new-password" minLength="6" required autoFocus />
-              </label>
-              <label>
-                <span>Confirm password</span>
-                <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-check-double" toggleLabel="staff password confirmation" name="confirmPassword" autoComplete="new-password" minLength="6" required />
-              </label>
-              {staffPasswordFeedback.message && (
-                <p className={`reset-feedback ${staffPasswordFeedback.type}`} role={staffPasswordFeedback.type === 'error' ? 'alert' : 'status'}>
-                  <i className={`fa-solid ${staffPasswordFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
-                  {staffPasswordFeedback.message}
-                </p>
-              )}
-              <div className="staff-password-modal-actions">
-                <button type="button" className="btn grey" onClick={closeStaffPasswordModal} disabled={isStaffPasswordSaving}>Cancel</button>
-                <button type="submit" className="btn blue" disabled={isStaffPasswordSaving}>
-                  {isStaffPasswordSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <><i className="fa-solid fa-key"></i> Set Password</>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
       )}
 
       {showProfileModal && (

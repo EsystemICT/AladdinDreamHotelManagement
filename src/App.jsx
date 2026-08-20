@@ -1061,6 +1061,10 @@ export default function App() {
   const [customerCallTime, setCustomerCallTime] = useState(getLocalTimeValue);
   const [customerFeedback, setCustomerFeedback] = useState({ type: '', message: '' });
   const [isCustomerSaving, setIsCustomerSaving] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [customerEditFeedback, setCustomerEditFeedback] = useState({ type: '', message: '' });
+  const [isCustomerUpdating, setIsCustomerUpdating] = useState(false);
+  const [deletingCustomerId, setDeletingCustomerId] = useState('');
   const [helpSearch, setHelpSearch] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isDrawerCollapsed, setIsDrawerCollapsed] = useState(() => (
@@ -2144,6 +2148,7 @@ export default function App() {
         'functions/not-found': 'This staff account could not be found.',
         'functions/invalid-argument': error.message || 'Enter a valid password with at least 6 characters.',
         'functions/failed-precondition': error.message || 'This staff account is not ready for a password change.',
+        'functions/internal': 'The secure password service is not deployed or is not configured correctly. Please contact the system administrator.',
         'functions/unavailable': 'The secure password service is temporarily unavailable. Please try again.'
       };
       setStaffPasswordFeedback({
@@ -2942,6 +2947,73 @@ export default function App() {
       setCustomerFeedback({ type: 'error', message: 'Unable to add the customer detail. Please try again.' });
     } finally {
       setIsCustomerSaving(false);
+    }
+  };
+
+  const openCustomerEditor = (customer) => {
+    setCustomerEditFeedback({ type: '', message: '' });
+    setEditingCustomer(customer);
+  };
+
+  const closeCustomerEditor = () => {
+    if (isCustomerUpdating) return;
+    setEditingCustomer(null);
+    setCustomerEditFeedback({ type: '', message: '' });
+  };
+
+  const handleUpdateCustomerDetail = async (event) => {
+    event.preventDefault();
+    if (!editingCustomer || isCustomerUpdating) return;
+
+    const form = event.currentTarget;
+    const customerName = form.customerName.value.trim();
+    const phoneNumber = form.phoneNumber.value.trim();
+    const address = form.address.value.trim();
+    const remark = form.remark.value.trim();
+    const callTime = form.callTime.value;
+    if (!CUSTOMER_PHONE_PATTERN.test(phoneNumber)) {
+      setCustomerEditFeedback({ type: 'error', message: 'Please enter a valid phone number (8 to 19 digits, spaces or hyphens).' });
+      return;
+    }
+
+    setIsCustomerUpdating(true);
+    setCustomerEditFeedback({ type: '', message: '' });
+    try {
+      await updateDoc(doc(db, 'customerDetails', editingCustomer.id), {
+        customerName,
+        phoneNumber,
+        address,
+        remark,
+        callTime,
+        updatedAt: serverTimestamp(),
+        updatedBy: currentUser.name,
+        updatedById: currentUser.userid
+      });
+      await logSystemAction(currentUser.name, 'CUSTOMER_DETAIL_UPDATE', `Updated customer detail for ${customerName}`);
+      setEditingCustomer(null);
+      setCustomerFeedback({ type: 'success', message: `Customer detail for ${customerName} updated successfully.` });
+    } catch (error) {
+      console.error('Customer detail update failed:', error);
+      setCustomerEditFeedback({ type: 'error', message: 'Unable to update the customer detail. Please try again.' });
+    } finally {
+      setIsCustomerUpdating(false);
+    }
+  };
+
+  const handleDeleteCustomerDetail = async (customer) => {
+    if (deletingCustomerId || !confirm(`Delete the customer detail for ${customer.customerName || 'this customer'}? This cannot be undone.`)) return;
+
+    setDeletingCustomerId(customer.id);
+    setCustomerFeedback({ type: '', message: '' });
+    try {
+      await deleteDoc(doc(db, 'customerDetails', customer.id));
+      await logSystemAction(currentUser.name, 'CUSTOMER_DETAIL_DELETE', `Deleted customer detail for ${customer.customerName || customer.id}`);
+      setCustomerFeedback({ type: 'success', message: 'Customer detail deleted successfully.' });
+    } catch (error) {
+      console.error('Customer detail delete failed:', error);
+      setCustomerFeedback({ type: 'error', message: 'Unable to delete the customer detail. Please try again.' });
+    } finally {
+      setDeletingCustomerId('');
     }
   };
 
@@ -4454,11 +4526,11 @@ export default function App() {
             <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table className="customer-details-table">
                 <thead>
-                  <tr><th>Customer Name</th><th>Phone Number</th><th>Address</th><th>Remark</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
+                  <tr><th>Customer Name</th><th>Phone Number</th><th>Address</th><th>Remark</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                   {filteredCustomerDetails.length === 0 ? (
-                    <tr><td colSpan="7" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
+                    <tr><td colSpan="8" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
                   ) : filteredCustomerDetails.map(customer => (
                     <tr key={customer.id}>
                       <td><strong>{customer.customerName || '-'}</strong></td>
@@ -4468,11 +4540,69 @@ export default function App() {
                       <td>{customer.keyedInBy || '-'}{customer.keyedInById && <small className="customer-staff-id">{customer.keyedInById}</small>}</td>
                       <td>{formatClockTime(customer.callTime)}</td>
                       <td>{formatDateTime(customer.createdAt)}</td>
+                      <td>
+                        <div className="customer-row-actions">
+                          <button type="button" className="customer-edit-btn" onClick={() => openCustomerEditor(customer)} title="Edit customer detail">
+                            <i className="fa-solid fa-pen"></i> Edit
+                          </button>
+                          <button type="button" className="customer-delete-btn" onClick={() => handleDeleteCustomerDetail(customer)} disabled={deletingCustomerId === customer.id} title="Delete customer detail">
+                            <i className={`fa-solid ${deletingCustomerId === customer.id ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i>
+                            {deletingCustomerId === customer.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingCustomer && (
+        <div className="modal-overlay" onClick={closeCustomerEditor}>
+          <div className="modal-content customer-edit-modal" onClick={event => event.stopPropagation()}>
+            <button type="button" className="profile-close-btn" onClick={closeCustomerEditor} aria-label="Close customer editor" disabled={isCustomerUpdating}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+            <div className="customer-edit-modal-heading">
+              <span><i className="fa-solid fa-address-card"></i></span>
+              <div><p>CUSTOMER DETAILS</p><h2>Edit Customer</h2></div>
+            </div>
+            <form onSubmit={handleUpdateCustomerDetail}>
+              <label>
+                <span>Customer Name</span>
+                <div className="customer-input-wrap"><i className="fa-solid fa-user"></i><input name="customerName" defaultValue={editingCustomer.customerName || ''} maxLength="100" required autoFocus /></div>
+              </label>
+              <label>
+                <span>Phone Number</span>
+                <div className="customer-input-wrap"><i className="fa-solid fa-phone"></i><input name="phoneNumber" type="tel" defaultValue={editingCustomer.phoneNumber || ''} inputMode="tel" maxLength="20" required /></div>
+              </label>
+              <label>
+                <span>Address <small>Optional</small></span>
+                <div className="customer-input-wrap"><i className="fa-solid fa-location-dot"></i><input name="address" defaultValue={editingCustomer.address || ''} maxLength="300" /></div>
+              </label>
+              <label>
+                <span>Call Time</span>
+                <div className="customer-input-wrap"><i className="fa-solid fa-phone-volume"></i><input name="callTime" type="time" lang="en-GB" defaultValue={editingCustomer.callTime || getLocalTimeValue()} required /></div>
+              </label>
+              <label className="customer-edit-remark-field">
+                <span>Remark <small>Optional</small></span>
+                <div className="customer-input-wrap customer-textarea-wrap"><i className="fa-solid fa-note-sticky"></i><textarea name="remark" defaultValue={editingCustomer.remark || ''} rows="3" maxLength="500"></textarea></div>
+              </label>
+              {customerEditFeedback.message && (
+                <div className={`customer-feedback ${customerEditFeedback.type}`} role="alert">
+                  <i className="fa-solid fa-circle-exclamation"></i>{customerEditFeedback.message}
+                </div>
+              )}
+              <div className="customer-edit-modal-actions">
+                <button type="button" className="btn grey" onClick={closeCustomerEditor} disabled={isCustomerUpdating}>Cancel</button>
+                <button type="submit" className="btn blue" disabled={isCustomerUpdating}>
+                  {isCustomerUpdating ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <><i className="fa-solid fa-floppy-disk"></i> Save Changes</>}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

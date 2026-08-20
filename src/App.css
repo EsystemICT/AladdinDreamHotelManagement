@@ -506,6 +506,8 @@ tr:hover { background: #fafafa; }
 .password-reset-row { background: #fffbeb; }
 .password-reset-row:hover { background: #fef3c7; }
 .password-reset-btn { display: inline-flex; margin-right: 8px; padding: 7px 10px; background: #7c3aed; font-size: 0.8rem; white-space: nowrap; }
+.staff-password-btn { display: inline-flex; margin-right: 8px; padding: 7px 10px; background: #1d4ed8; font-size: 0.8rem; white-space: nowrap; }
+.staff-password-modal-btn { width: 100%; justify-content: center; margin: 20px 0 0; }
 .password-reset-alert {
   display: flex;
   align-items: center;
@@ -1518,15 +1520,21 @@ body { padding-top: 148px; }
 
 .logout-btn:hover { background: #fee2e2 !important; color: #991b1b !important; }
 
-/* REAL-TIME ADMIN AWAY ATTENDANCE ALERT */
-.admin-away-alert {
+/* REAL-TIME ADMIN ALERTS */
+.admin-alert-stack {
   position: fixed;
   top: 18px;
   right: 18px;
   z-index: 2100;
-  display: flex;
+  display: grid;
   gap: 12px;
   width: min(420px, calc(100vw - 36px));
+}
+
+.admin-away-alert {
+  display: flex;
+  gap: 12px;
+  width: 100%;
   padding: 16px;
   box-sizing: border-box;
   color: #7f1d1d;
@@ -1567,6 +1575,47 @@ body { padding-top: 148px; }
 }
 .admin-away-alert-actions button.acknowledge { color: #fff; background: #dc2626; border-color: #dc2626; }
 .admin-away-alert-actions button:disabled { cursor: wait; opacity: 0.65; }
+
+.admin-birthday-alert {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  color: #713f12;
+  background: #fffbeb;
+  border: 2px solid #eab308;
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(113, 63, 18, 0.2);
+}
+.admin-birthday-alert-icon {
+  display: flex;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  color: #fff;
+  background: #ca8a04;
+  border-radius: 50%;
+  font-size: 1.1rem;
+}
+.admin-birthday-alert-content { flex: 1; min-width: 0; }
+.admin-birthday-alert-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-birthday-alert-heading strong { font-size: 1rem; }
+.admin-birthday-alert-heading span { padding: 3px 7px; color: #713f12; background: #fef08a; border-radius: 999px; font-size: 0.7rem; font-weight: 800; white-space: nowrap; }
+.admin-birthday-alert ul { display: grid; gap: 7px; margin: 10px 0 12px; padding: 0; list-style: none; }
+.admin-birthday-alert li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-birthday-alert li span { color: #854d0e; font-size: 0.78rem; white-space: nowrap; }
+.admin-birthday-alert button {
+  padding: 7px 10px;
+  color: #713f12;
+  background: #fff;
+  border: 1px solid #eab308;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 @media (max-width: 768px) {
   body { padding-top: 142px; }
@@ -1612,7 +1661,8 @@ body { padding-top: 148px; }
   .tabs button i { font-size: 0.82rem; }
   .nav-badge { top: -4px; right: -3px; }
   .floor-section { border-radius: 10px; padding: 12px; }
-  .admin-away-alert { top: 8px; right: 8px; width: calc(100vw - 16px); padding: 13px; }
+  .admin-alert-stack { top: 8px; right: 8px; width: calc(100vw - 16px); }
+  .admin-away-alert, .admin-birthday-alert { padding: 13px; }
 }
 
 @media (max-width: 600px) {
@@ -2124,13 +2174,27 @@ tbody tr:last-child td { border-bottom: 0; }
 .customer-history-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 0; }
 .customer-history-title > span > i { margin-right: 7px; color: var(--hotel-gold-600); }
 .customer-history-title .search-bar { width: min(100%, 320px); }
-.customer-details-table { min-width: 760px; }
+.customer-details-table { min-width: 980px; }
 .customer-details-table td { vertical-align: middle; }
+.customer-address-cell { min-width: 180px; max-width: 280px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .customer-remark-cell { min-width: 180px; max-width: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .customer-phone-link { color: var(--hotel-navy-700); font-weight: 700; text-decoration: none; }
 .customer-phone-link:hover { color: var(--hotel-gold-600); text-decoration: underline; }
 .customer-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.7rem; }
 .customer-empty-state { padding: 30px; color: #8a96a8; text-align: center; }
+
+/* Admin staff password */
+.staff-password-modal { position: relative; width: min(470px, calc(100vw - 30px)); box-sizing: border-box; }
+.staff-password-modal .profile-close-btn { top: 20px; right: 20px; }
+.staff-password-modal-heading { display: flex; align-items: center; gap: 13px; padding-right: 36px; }
+.staff-password-modal-icon { display: grid; flex: 0 0 46px; width: 46px; height: 46px; place-items: center; color: #fff; background: #1d4ed8; border-radius: 13px; }
+.staff-password-modal-heading p { margin: 0 0 2px; color: #1d4ed8; font-size: 0.65rem; font-weight: 900; letter-spacing: 0.12em; }
+.staff-password-modal-heading h2 { margin: 0 0 2px; }
+.staff-password-modal-heading > div > span { color: var(--hotel-slate-500); font-size: 0.82rem; font-weight: 700; }
+.staff-password-modal-help { margin: 18px 0; color: var(--hotel-slate-500); font-size: 0.85rem; line-height: 1.5; }
+.staff-password-modal form { display: grid; gap: 15px; }
+.staff-password-modal form > label { display: grid; gap: 7px; color: var(--hotel-slate-700); font-size: 0.82rem; font-weight: 800; }
+.staff-password-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 3px; }
 
 /* Monthly laundry stock ledger */
 .laundry-stock-ledger { position: relative; overflow: hidden; }

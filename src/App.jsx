@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { auth, db, staffProvisioningAuth } from './firebase';
+import { auth, authFunctions, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
 import './App.css';
 import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
+import { getUpcomingBirthdays } from './birthdayAlerts';
 
 // ICONS & TABS
 const ICONS = { 
@@ -1028,6 +1030,9 @@ export default function App() {
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [roomSearch, setRoomSearch] = useState('');
   const [staffModal, setStaffModal] = useState(null);
+  const [staffPasswordModal, setStaffPasswordModal] = useState(null);
+  const [staffPasswordFeedback, setStaffPasswordFeedback] = useState({ type: '', message: '' });
+  const [isStaffPasswordSaving, setIsStaffPasswordSaving] = useState(false);
   const [rejectModal, setRejectModal] = useState({ show: false, reqId: null });
   const [rejectReason, setRejectReason] = useState('');
   
@@ -2092,6 +2097,64 @@ export default function App() {
     }
   };
 
+  const openStaffPasswordModal = (staff) => {
+    setStaffModal(null);
+    setStaffPasswordFeedback({ type: '', message: '' });
+    setStaffPasswordModal(staff);
+  };
+
+  const closeStaffPasswordModal = () => {
+    if (isStaffPasswordSaving) return;
+    setStaffPasswordModal(null);
+    setStaffPasswordFeedback({ type: '', message: '' });
+  };
+
+  const handleAdminSetStaffPassword = async (event) => {
+    event.preventDefault();
+    if (currentUser.role !== 'admin' || !staffPasswordModal || isStaffPasswordSaving) return;
+
+    const form = event.currentTarget;
+    const newPassword = form.newPassword.value;
+    const confirmPassword = form.confirmPassword.value;
+    if (newPassword.length < 6) {
+      setStaffPasswordFeedback({ type: 'error', message: 'The password must contain at least 6 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setStaffPasswordFeedback({ type: 'error', message: 'The passwords do not match.' });
+      return;
+    }
+    if (!confirm(`Set a new password for ${staffPasswordModal.name} (${staffPasswordModal.userid})? Their existing sessions will be signed out.`)) return;
+
+    setIsStaffPasswordSaving(true);
+    setStaffPasswordFeedback({ type: '', message: '' });
+    try {
+      const setStaffPassword = httpsCallable(authFunctions, 'setStaffPassword');
+      await setStaffPassword({ staffDocId: staffPasswordModal.dbId, password: newPassword });
+      form.reset();
+      setStaffPasswordFeedback({
+        type: 'success',
+        message: `Password set successfully for ${staffPasswordModal.name}. Their existing sessions have been signed out.`
+      });
+    } catch (error) {
+      console.error('Admin staff password update failed:', error);
+      const messageByCode = {
+        'functions/unauthenticated': 'Your administrator session has expired. Sign in again and retry.',
+        'functions/permission-denied': 'Only an active administrator can set a staff password.',
+        'functions/not-found': 'This staff account could not be found.',
+        'functions/invalid-argument': error.message || 'Enter a valid password with at least 6 characters.',
+        'functions/failed-precondition': error.message || 'This staff account is not ready for a password change.',
+        'functions/unavailable': 'The secure password service is temporarily unavailable. Please try again.'
+      };
+      setStaffPasswordFeedback({
+        type: 'error',
+        message: messageByCode[error.code] || 'Unable to set the staff password. Please try again.'
+      });
+    } finally {
+      setIsStaffPasswordSaving(false);
+    }
+  };
+
   const handleDownloadFullBackup = async () => {
     if (currentUser.role !== 'admin' || isBackupDownloading) return;
     setIsBackupDownloading(true);
@@ -2846,6 +2909,7 @@ export default function App() {
     const form = event.currentTarget;
     const customerName = form.customerName.value.trim();
     const phoneNumber = form.phoneNumber.value.trim();
+    const address = form.address.value.trim();
     const remark = form.remark.value.trim();
     const callTime = customerCallTime;
 
@@ -2861,6 +2925,7 @@ export default function App() {
       await addDoc(collection(db, "customerDetails"), {
         customerName,
         phoneNumber,
+        address,
         remark,
         callTime,
         keyedInBy: currentUser.name,
@@ -3583,6 +3648,7 @@ export default function App() {
   const myPendingRequests = requests.filter(r => r.receiverId === currentUser?.dbId && r.status === 'pending').length;
   const unreadAdminAlerts = adminAlerts.filter(adminAlert => !adminAlert.acknowledged);
   const activeAdminAlert = unreadAdminAlerts[0] || null;
+  const upcomingBirthdays = currentUser?.role === 'admin' ? getUpcomingBirthdays(users, currentTime, 7) : [];
 
   const processedTickets = [...tickets].filter(t => t.roomId.toString().toLowerCase().includes(ticketSearch.toLowerCase())).sort((a, b) => {
       const dateA = a.createdAt ? a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt) : new Date(0);
@@ -3603,6 +3669,7 @@ export default function App() {
     !normalizedCustomerSearch ||
     (customer.customerName || '').toLowerCase().includes(normalizedCustomerSearch) ||
     (customer.phoneNumber || '').toLowerCase().includes(normalizedCustomerSearch) ||
+    (customer.address || '').toLowerCase().includes(normalizedCustomerSearch) ||
     (customer.remark || '').toLowerCase().includes(normalizedCustomerSearch) ||
     (customer.keyedInBy || '').toLowerCase().includes(normalizedCustomerSearch)
   ));
@@ -3963,8 +4030,9 @@ export default function App() {
   // --- RENDER APP ---
   return (
     <div className={`app-container ${isDrawerCollapsed ? 'drawer-collapsed' : ''}`}>
-      {currentUser.role === 'admin' && activeAdminAlert && (
-        <aside className="admin-away-alert" role="alert" aria-live="assertive">
+      {currentUser.role === 'admin' && (activeAdminAlert || upcomingBirthdays.length > 0) && (
+        <div className="admin-alert-stack">
+        {activeAdminAlert && <aside className="admin-away-alert" role="alert" aria-live="assertive">
           <div className="admin-away-alert-icon"><i className="fa-solid fa-location-dot"></i></div>
           <div className="admin-away-alert-content">
             <div className="admin-away-alert-heading">
@@ -3987,7 +4055,32 @@ export default function App() {
               </button>
             </div>
           </div>
-        </aside>
+        </aside>}
+        {upcomingBirthdays.length > 0 && (
+          <aside className="admin-birthday-alert" role="status" aria-live="polite">
+            <div className="admin-birthday-alert-icon"><i className="fa-solid fa-cake-candles"></i></div>
+            <div className="admin-birthday-alert-content">
+              <div className="admin-birthday-alert-heading">
+                <strong>Upcoming Staff Birthday{upcomingBirthdays.length === 1 ? '' : 's'}</strong>
+                <span>Within 7 days</span>
+              </div>
+              <ul>
+                {upcomingBirthdays.map(staff => (
+                  <li key={staff.dbId || staff.userid}>
+                    <strong>{staff.name || staff.userid}</strong>
+                    <span>
+                      {staff.nextBirthday.toLocaleDateString('en-MY', { day: 'numeric', month: 'short' })}
+                      {' · '}
+                      {staff.daysUntil === 0 ? 'Today' : staff.daysUntil === 1 ? 'Tomorrow' : `In ${staff.daysUntil} days`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <button type="button" onClick={() => changeView('ADMIN')}>View Staff</button>
+            </div>
+          </aside>
+        )}
+        </div>
       )}
       <button
         type="button"
@@ -4304,6 +4397,13 @@ export default function App() {
                   <input name="phoneNumber" type="tel" placeholder="e.g. 0123456789" autoComplete="tel" inputMode="tel" maxLength="20" required />
                 </div>
               </label>
+              <label className="customer-address-field">
+                <span>Address <small>Optional</small></span>
+                <div className="customer-input-wrap">
+                  <i className="fa-solid fa-location-dot"></i>
+                  <input name="address" type="text" placeholder="Enter customer address" autoComplete="street-address" maxLength="300" />
+                </div>
+              </label>
               <label>
                 <span>Keyed In By <small>Auto</small></span>
                 <div className="customer-input-wrap readonly">
@@ -4346,7 +4446,7 @@ export default function App() {
               <input
                 className="search-bar"
                 type="search"
-                placeholder="Search name, phone, remark or staff..."
+                placeholder="Search name, phone, address, remark or staff..."
                 value={customerSearch}
                 onChange={event => setCustomerSearch(event.target.value)}
               />
@@ -4354,15 +4454,16 @@ export default function App() {
             <div className="admin-table-container scroll-pane scroll-pane-tall">
               <table className="customer-details-table">
                 <thead>
-                  <tr><th>Customer Name</th><th>Phone Number</th><th>Remark</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
+                  <tr><th>Customer Name</th><th>Phone Number</th><th>Address</th><th>Remark</th><th>Keyed In By</th><th>Call Time</th><th>Added At</th></tr>
                 </thead>
                 <tbody>
                   {filteredCustomerDetails.length === 0 ? (
-                    <tr><td colSpan="6" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
+                    <tr><td colSpan="7" className="customer-empty-state">{normalizedCustomerSearch ? 'No matching customer details.' : 'No customer details recorded yet.'}</td></tr>
                   ) : filteredCustomerDetails.map(customer => (
                     <tr key={customer.id}>
                       <td><strong>{customer.customerName || '-'}</strong></td>
                       <td><a className="customer-phone-link" href={`tel:${customer.phoneNumber}`}>{customer.phoneNumber || '-'}</a></td>
+                      <td className="customer-address-cell">{customer.address || '-'}</td>
                       <td className="customer-remark-cell">{customer.remark || '-'}</td>
                       <td>{customer.keyedInBy || '-'}{customer.keyedInById && <small className="customer-staff-id">{customer.keyedInById}</small>}</td>
                       <td>{formatClockTime(customer.callTime)}</td>
@@ -5968,6 +6069,11 @@ export default function App() {
                                 <i className="fa-solid fa-envelope"></i> Email Reset Link
                               </button>
                             )}
+                            {u.role !== 'admin' && (
+                              <button onClick={() => openStaffPasswordModal(u)} className="btn staff-password-btn" title="Set a new password for this staff account">
+                                <i className="fa-solid fa-key"></i> Set Password
+                              </button>
+                            )}
                             {u.role !== 'admin' && isUserActive(u) && u.approvedDeviceId && (
                               <button onClick={() => handleResetApprovedDevice(u)} className="btn device-reset-btn" title="Reset approved device">
                                 <i className="fa-solid fa-mobile-screen-button"></i> Reset Device
@@ -6352,10 +6458,52 @@ export default function App() {
                           </tbody>
                       </table>
                   </div>
-                  <button onClick={() => handleAdminSendPasswordReset(staffModal)} className="btn blue" style={{width:'100%', marginTop:'20px', justifyContent:'center'}} disabled={!EMAIL_PATTERN.test(staffModal.email?.trim() || '')}><i className="fa-solid fa-envelope"></i> Send Password Reset Email</button>
+                  {staffModal.role !== 'admin' && <button onClick={() => openStaffPasswordModal(staffModal)} className="btn staff-password-btn staff-password-modal-btn"><i className="fa-solid fa-key"></i> Set Staff Password</button>}
+                  <button onClick={() => handleAdminSendPasswordReset(staffModal)} className="btn blue" style={{width:'100%', marginTop:'10px', justifyContent:'center'}} disabled={!EMAIL_PATTERN.test(staffModal.email?.trim() || '')}><i className="fa-solid fa-envelope"></i> Send Password Reset Email</button>
                   <button onClick={() => setStaffModal(null)} className="btn grey" style={{width:'100%', marginTop:'10px', justifyContent:'center'}}>Close</button>
               </div>
           </div>
+      )}
+
+      {staffPasswordModal && (
+        <div className="modal-overlay" onClick={closeStaffPasswordModal}>
+          <div className="modal-content staff-password-modal" onClick={event => event.stopPropagation()}>
+            <button type="button" className="profile-close-btn" onClick={closeStaffPasswordModal} aria-label="Close password form" disabled={isStaffPasswordSaving}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+            <div className="staff-password-modal-heading">
+              <span className="staff-password-modal-icon"><i className="fa-solid fa-key"></i></span>
+              <div>
+                <p>ADMIN SECURITY</p>
+                <h2>Set Staff Password</h2>
+                <span>{staffPasswordModal.name} ({staffPasswordModal.userid})</span>
+              </div>
+            </div>
+            <p className="staff-password-modal-help">Set a new login password for this staff member. Their existing sessions will be signed out.</p>
+            <form onSubmit={handleAdminSetStaffPassword}>
+              <label>
+                <span>New password</span>
+                <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-lock" toggleLabel="new staff password" name="newPassword" autoComplete="new-password" minLength="6" required autoFocus />
+              </label>
+              <label>
+                <span>Confirm password</span>
+                <PasswordField wrapperClassName="profile-input-wrap" leadingIcon="fa-solid fa-check-double" toggleLabel="staff password confirmation" name="confirmPassword" autoComplete="new-password" minLength="6" required />
+              </label>
+              {staffPasswordFeedback.message && (
+                <p className={`reset-feedback ${staffPasswordFeedback.type}`} role={staffPasswordFeedback.type === 'error' ? 'alert' : 'status'}>
+                  <i className={`fa-solid ${staffPasswordFeedback.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                  {staffPasswordFeedback.message}
+                </p>
+              )}
+              <div className="staff-password-modal-actions">
+                <button type="button" className="btn grey" onClick={closeStaffPasswordModal} disabled={isStaffPasswordSaving}>Cancel</button>
+                <button type="submit" className="btn blue" disabled={isStaffPasswordSaving}>
+                  {isStaffPasswordSaving ? <><i className="fa-solid fa-spinner fa-spin"></i> Saving...</> : <><i className="fa-solid fa-key"></i> Set Password</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {showProfileModal && (

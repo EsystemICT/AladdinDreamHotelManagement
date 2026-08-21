@@ -6,7 +6,7 @@ import './App.css';
 import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
 import { getUpcomingBirthdays } from './birthdayAlerts';
 import { getAnnualLeaveBalanceId, getAnnualLeaveDaysByYear, getAnnualLeaveSummary } from './annualLeave';
-import { filterAndSortLaundryHistory } from './laundryHistory';
+import { filterAndSortLaundryStockMovements } from './laundryStockFilter';
 
 // ICONS & TABS
 const ICONS = { 
@@ -1086,8 +1086,8 @@ export default function App() {
   const [laundryStockInlineEntries, setLaundryStockInlineEntries] = useState({});
   const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
   const [savingLaundryStockDate, setSavingLaundryStockDate] = useState('');
-  const [laundryHistoryStartDate, setLaundryHistoryStartDate] = useState('');
-  const [laundryHistoryEndDate, setLaundryHistoryEndDate] = useState('');
+  const [laundryStockStartDate, setLaundryStockStartDate] = useState('');
+  const [laundryStockEndDate, setLaundryStockEndDate] = useState('');
 
   // Daily Housekeeping UI
   const [housekeepingMonth, setHousekeepingMonth] = useState(getCurrentMonthString);
@@ -1484,7 +1484,7 @@ export default function App() {
     }
 
     if (view === 'LAUNDRY') {
-      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "asc"));
+      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"), limit(200));
       unsubs.push(onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
       unsubs.push(onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
         if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
@@ -1493,19 +1493,10 @@ export default function App() {
       unsubs.push(onSnapshot(qStock, (snap) => setStockItems(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
       const qLaundryStockMovements = query(
         collection(db, "laundryStockMovements"),
-        where("month", "==", laundryStockMonth),
-        limit(500)
+        where("month", "==", laundryStockMonth)
       );
       unsubs.push(onSnapshot(qLaundryStockMovements, (snap) => {
-        const movements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        movements.sort((a, b) => {
-          const dateComparison = (b.transactionDate || '').localeCompare(a.transactionDate || '');
-          if (dateComparison !== 0) return dateComparison;
-          const aCreated = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-          const bCreated = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-          return bCreated - aCreated;
-        });
-        setLaundryStockMovements(movements);
+        setLaundryStockMovements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       }));
     }
 
@@ -3837,8 +3828,18 @@ export default function App() {
       groupedStock[cat][sub].push(item);
   });
 
+  const [laundryStockYear, laundryStockMonthNumber] = laundryStockMonth.split('-').map(Number);
+  const laundryStockDaysInMonth = new Date(laundryStockYear, laundryStockMonthNumber, 0).getDate();
+  const laundryStockMonthStart = `${laundryStockMonth}-01`;
+  const laundryStockMonthEnd = `${laundryStockMonth}-${String(laundryStockDaysInMonth).padStart(2, '0')}`;
+  const filteredLaundryStockMovements = filterAndSortLaundryStockMovements(
+    laundryStockMovements,
+    laundryStockStartDate,
+    laundryStockEndDate
+  );
+  const hasLaundryStockDateFilter = Boolean(laundryStockStartDate || laundryStockEndDate);
   const monthlyLaundryStockSummary = LAUNDRY_STOCK_ITEMS.map(item => {
-    const itemMovements = laundryStockMovements.filter(movement => movement.item === item);
+    const itemMovements = filteredLaundryStockMovements.filter(movement => movement.item === item);
     const received = itemMovements
       .filter(movement => movement.movementType === 'received')
       .reduce((total, movement) => total + (Number(movement.quantity) || 0), 0);
@@ -3852,7 +3853,7 @@ export default function App() {
     givenOut: totals.givenOut + row.givenOut,
     net: totals.net + row.net
   }), { received: 0, givenOut: 0, net: 0 });
-  const laundryStockDailyMovementMap = laundryStockMovements.reduce((dailyMap, movement) => {
+  const laundryStockDailyMovementMap = filteredLaundryStockMovements.reduce((dailyMap, movement) => {
     const dateKey = movement.transactionDate;
     if (!dateKey || !LAUNDRY_STOCK_ITEMS.includes(movement.item)) return dailyMap;
     if (!dailyMap[dateKey]) dailyMap[dateKey] = {};
@@ -3864,12 +3865,14 @@ export default function App() {
     }
     return dailyMap;
   }, {});
-  const [laundryStockYear, laundryStockMonthNumber] = laundryStockMonth.split('-').map(Number);
-  const laundryStockDaysInMonth = new Date(laundryStockYear, laundryStockMonthNumber, 0).getDate();
   const laundryStockDailyRows = Array.from({ length: laundryStockDaysInMonth }, (_, index) => {
     const day = index + 1;
     const dateKey = `${laundryStockMonth}-${String(day).padStart(2, '0')}`;
     return { day, dateKey, items: laundryStockDailyMovementMap[dateKey] || {} };
+  }).filter(row => {
+    if (laundryStockStartDate && row.dateKey < laundryStockStartDate) return false;
+    if (laundryStockEndDate && row.dateKey > laundryStockEndDate) return false;
+    return true;
   });
   const laundryStockMonthDisplay = monthIsoToDisplay(laundryStockMonth);
 
@@ -3938,9 +3941,14 @@ export default function App() {
     if (!a.inRaw) return 1; if (!b.inRaw) return -1; return a.inRaw - b.inRaw;
   });
 
+  const oneWeekAgo = new Date(currentTime);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   const pendingLaundry = laundry.filter(l => l.status === 'pending');
-  const historyLaundry = filterAndSortLaundryHistory(laundry, laundryHistoryStartDate, laundryHistoryEndDate);
-  const hasLaundryHistoryDateFilter = Boolean(laundryHistoryStartDate || laundryHistoryEndDate);
+  const historyLaundry = laundry.filter(l => {
+      if (l.status !== 'received') return false;
+      const d = l.createdAt ? (l.createdAt.toDate ? l.createdAt.toDate() : new Date(l.createdAt)) : new Date();
+      return d >= oneWeekAgo;
+  });
 
   // --- FILTER AUDIT LOGS ---
   const filteredAuditLogs = auditLogs.filter(log => {
@@ -4744,6 +4752,8 @@ export default function App() {
                   onChange={nextMonth => {
                     setLaundryStockMonth(nextMonth);
                     setLaundryStockInlineEntries({});
+                    setLaundryStockStartDate('');
+                    setLaundryStockEndDate('');
                     setLaundryStockFeedback({ type: '', message: '' });
                   }}
                 />
@@ -4760,6 +4770,44 @@ export default function App() {
                 <span className="given-out">Given Out <b>-{monthlyLaundryStockTotals.givenOut}</b></span>
                 <span className={monthlyLaundryStockTotals.net < 0 ? 'net negative' : 'net'}>Net <b>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</b></span>
               </div>
+            </div>
+            <div className="laundry-stock-table-filter" role="group" aria-label="Laundry Stock table date filters">
+              <label>
+                <span>Start Date</span>
+                <input
+                  type="date"
+                  value={laundryStockStartDate}
+                  min={laundryStockMonthStart}
+                  max={laundryStockEndDate || laundryStockMonthEnd}
+                  onChange={event => setLaundryStockStartDate(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>End Date</span>
+                <input
+                  type="date"
+                  value={laundryStockEndDate}
+                  min={laundryStockStartDate || laundryStockMonthStart}
+                  max={laundryStockMonthEnd}
+                  onChange={event => setLaundryStockEndDate(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn grey laundry-stock-show-all"
+                onClick={() => {
+                  setLaundryStockStartDate('');
+                  setLaundryStockEndDate('');
+                }}
+                disabled={!hasLaundryStockDateFilter}
+              >
+                <i className="fa-solid fa-list"></i> Show All
+              </button>
+              <small>
+                {hasLaundryStockDateFilter
+                  ? `Showing ${laundryStockDailyRows.length} day(s), earliest to latest.`
+                  : `Showing all ${laundryStockDailyRows.length} days, earliest to latest.`}
+              </small>
             </div>
             {laundryStockFeedback.message && (
               <div className={`laundry-stock-feedback ${laundryStockFeedback.type}`} role={laundryStockFeedback.type === 'error' ? 'alert' : 'status'}>
@@ -4840,7 +4888,7 @@ export default function App() {
                 </tbody>
                 <tfoot>
                   <tr className="movement-total-row">
-                    <td>Monthly In / Out</td>
+                    <td>{hasLaundryStockDateFilter ? 'Filtered In / Out' : 'Monthly In / Out'}</td>
                     {monthlyLaundryStockSummary.map(row => (
                       <React.Fragment key={row.item}>
                         <td>+{row.received}</td>
@@ -4934,7 +4982,7 @@ export default function App() {
               })}
 
               <section className="mobile-month-total-card">
-                <h4><i className="fa-solid fa-calculator"></i> {laundryStockMonthDisplay} Totals</h4>
+                <h4><i className="fa-solid fa-calculator"></i> {hasLaundryStockDateFilter ? 'Filtered' : laundryStockMonthDisplay} Totals</h4>
                 <div className="mobile-total-headings"><span>Item</span><span>Received</span><span>Given Out</span><span>Final Total</span></div>
                 {monthlyLaundryStockSummary.map(row => (
                   <div className="mobile-total-row" key={row.item}>
@@ -4948,14 +4996,14 @@ export default function App() {
             </div>
 
             <details className="laundry-stock-records" open>
-              <summary>Monthly Records ({laundryStockMovements.length})</summary>
+              <summary>{hasLaundryStockDateFilter ? 'Filtered Records' : 'Monthly Records'} ({filteredLaundryStockMovements.length})</summary>
               <div className="admin-table-container scroll-pane">
                 <table className="laundry-stock-records-table">
                   <thead><tr><th>Date</th><th>Item</th><th>Movement</th><th>Quantity</th><th>Recorded By</th><th>Added At</th></tr></thead>
                   <tbody>
-                    {laundryStockMovements.length === 0 ? (
-                      <tr><td colSpan="6" className="laundry-stock-empty">No stock movements recorded for this month.</td></tr>
-                    ) : laundryStockMovements.map(movement => (
+                    {filteredLaundryStockMovements.length === 0 ? (
+                      <tr><td colSpan="6" className="laundry-stock-empty">No stock movements recorded for the selected date range.</td></tr>
+                    ) : filteredLaundryStockMovements.map(movement => (
                       <tr key={movement.id}>
                         <td>{calendarIsoToDisplay(movement.transactionDate) || '-'}</td>
                         <td><strong>{movement.item}</strong></td>
@@ -5074,46 +5122,10 @@ export default function App() {
             </div>
           </div>
 
-          <div className="floor-section laundry-history-section" style={{marginTop: '20px'}}>
-             <div className="laundry-history-heading">
-               <div>
-                 <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> Laundry History</h2>
-                 <p>Filter records by the laundry sent date. Results are ordered from earliest to latest.</p>
-               </div>
-               <div className="laundry-history-filters" role="group" aria-label="Laundry history date filters">
-                 <label>
-                   <span>Start Date</span>
-                   <input
-                     type="date"
-                     value={laundryHistoryStartDate}
-                     max={laundryHistoryEndDate || undefined}
-                     onChange={event => setLaundryHistoryStartDate(event.target.value)}
-                   />
-                 </label>
-                 <label>
-                   <span>End Date</span>
-                   <input
-                     type="date"
-                     value={laundryHistoryEndDate}
-                     min={laundryHistoryStartDate || undefined}
-                     onChange={event => setLaundryHistoryEndDate(event.target.value)}
-                   />
-                 </label>
-                 <button
-                   type="button"
-                   className="btn grey laundry-history-show-all"
-                   onClick={() => {
-                     setLaundryHistoryStartDate('');
-                     setLaundryHistoryEndDate('');
-                   }}
-                   disabled={!hasLaundryHistoryDateFilter}
-                 >
-                   <i className="fa-solid fa-list"></i> Show All
-                 </button>
-               </div>
-             </div>
+          <div className="floor-section" style={{marginTop: '20px'}}>
+             <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> 7-Day Laundry History</h2>
              <div className="scroll-pane scroll-pane-tall">
-                {historyLaundry.length === 0 ? <p className="laundry-history-empty">No laundry history found for the selected date range.</p> :
+                {historyLaundry.length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No history in the last 7 days.</p> :
                     historyLaundry.map(batch => (
                         <div key={batch.id} className="req-card" style={{borderLeftColor: '#10b981'}}>
                             <div style={{display:'flex', justifyContent:'space-between', borderBottom:'1px solid #eee', paddingBottom:'8px', marginBottom:'10px'}}>

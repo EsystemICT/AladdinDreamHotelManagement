@@ -1086,8 +1086,8 @@ export default function App() {
   const [laundryStockInlineEntries, setLaundryStockInlineEntries] = useState({});
   const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
   const [savingLaundryStockDate, setSavingLaundryStockDate] = useState('');
-  const [laundryStockStartDate, setLaundryStockStartDate] = useState('');
-  const [laundryStockEndDate, setLaundryStockEndDate] = useState('');
+  const [laundryStockStartDate, setLaundryStockStartDate] = useState(getLocalIsoDate);
+  const [laundryStockEndDate, setLaundryStockEndDate] = useState(getLocalIsoDate);
 
   // Daily Housekeeping UI
   const [housekeepingMonth, setHousekeepingMonth] = useState(getCurrentMonthString);
@@ -4750,10 +4750,12 @@ export default function App() {
                   key={laundryStockMonth}
                   value={laundryStockMonth}
                   onChange={nextMonth => {
+                    const today = getLocalIsoDate();
+                    const isCurrentMonth = nextMonth === today.slice(0, 7);
                     setLaundryStockMonth(nextMonth);
                     setLaundryStockInlineEntries({});
-                    setLaundryStockStartDate('');
-                    setLaundryStockEndDate('');
+                    setLaundryStockStartDate(isCurrentMonth ? today : '');
+                    setLaundryStockEndDate(isCurrentMonth ? today : '');
                     setLaundryStockFeedback({ type: '', message: '' });
                   }}
                 />

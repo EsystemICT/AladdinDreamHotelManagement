@@ -2424,6 +2424,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .stock-movement-badge.given_out { color: #b42335; background: #ffe4e6; }
 .laundry-stock-staff-id { display: block; margin-top: 2px; color: var(--hotel-slate-500); font-size: 0.68rem; }
 .laundry-stock-empty { padding: 28px; color: #8a96a8; text-align: center; }
+.laundry-history-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+.laundry-history-heading .floor-title { margin: 0 0 4px; }
+.laundry-history-heading > div:first-child > p { margin: 0; color: var(--hotel-slate-500); font-size: 0.78rem; }
+.laundry-history-filters { display: flex; align-items: flex-end; gap: 10px; }
+.laundry-history-filters label { display: grid; gap: 5px; color: var(--hotel-slate-600); font-size: 0.7rem; font-weight: 800; }
+.laundry-history-filters input { width: 145px; min-height: 40px; margin: 0; padding: 8px 10px; }
+.laundry-history-show-all { min-height: 40px; margin: 0; white-space: nowrap; }
+.laundry-history-empty { margin: 0; padding: 28px; color: #8a96a8; text-align: center; }
 
 /* Daily housekeeping room records */
 .housekeeping-page { width: min(100%, 1180px); margin: 0 auto; }
@@ -2914,6 +2922,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-entry-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .laundry-stock-entry-form > .btn { width: 100%; }
   .laundry-stock-summary-heading { align-items: flex-start; flex-direction: column; }
+  .laundry-history-heading { align-items: stretch; flex-direction: column; }
+  .laundry-history-filters { flex-wrap: wrap; }
   .laundry-stock-month-table-wrap { display: none; }
   .laundry-stock-mobile-table { display: block; }
   .housekeeping-title-row { flex-direction: column; }
@@ -2953,6 +2963,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-entry-form { grid-template-columns: 1fr; padding: 12px; }
   .laundry-stock-month-totals { width: 100%; }
   .laundry-stock-month-totals > span { flex: 1; text-align: center; }
+  .laundry-history-filters { align-items: stretch; flex-direction: column; }
+  .laundry-history-filters input { width: 100%; box-sizing: border-box; }
+  .laundry-history-show-all { justify-content: center; width: 100%; }
   .mobile-stock-item-row { padding-inline: 7px; }
   .mobile-stock-column-headings { padding-inline: 7px; }
   .housekeeping-summary-grid { grid-template-columns: 1fr; gap: 7px; }

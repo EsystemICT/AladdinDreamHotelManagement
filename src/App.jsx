@@ -6,6 +6,7 @@ import './App.css';
 import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
 import { getUpcomingBirthdays } from './birthdayAlerts';
 import { getAnnualLeaveBalanceId, getAnnualLeaveDaysByYear, getAnnualLeaveSummary } from './annualLeave';
+import { filterAndSortLaundryHistory } from './laundryHistory';
 
 // ICONS & TABS
 const ICONS = { 
@@ -1085,6 +1086,8 @@ export default function App() {
   const [laundryStockInlineEntries, setLaundryStockInlineEntries] = useState({});
   const [laundryStockFeedback, setLaundryStockFeedback] = useState({ type: '', message: '' });
   const [savingLaundryStockDate, setSavingLaundryStockDate] = useState('');
+  const [laundryHistoryStartDate, setLaundryHistoryStartDate] = useState('');
+  const [laundryHistoryEndDate, setLaundryHistoryEndDate] = useState('');
 
   // Daily Housekeeping UI
   const [housekeepingMonth, setHousekeepingMonth] = useState(getCurrentMonthString);
@@ -1481,7 +1484,7 @@ export default function App() {
     }
 
     if (view === 'LAUNDRY') {
-      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "desc"), limit(200));
+      const qLaundry = query(collection(db, "laundry"), orderBy("createdAt", "asc"));
       unsubs.push(onSnapshot(qLaundry, (snap) => setLaundry(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
       unsubs.push(onSnapshot(doc(db, "settings", "laundryDetails"), (snap) => {
         if (snap.exists()) setLaundryItemDetails(snap.data().items || {});
@@ -3935,14 +3938,9 @@ export default function App() {
     if (!a.inRaw) return 1; if (!b.inRaw) return -1; return a.inRaw - b.inRaw;
   });
 
-  const oneWeekAgo = new Date(currentTime);
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   const pendingLaundry = laundry.filter(l => l.status === 'pending');
-  const historyLaundry = laundry.filter(l => {
-      if (l.status !== 'received') return false;
-      const d = l.createdAt ? (l.createdAt.toDate ? l.createdAt.toDate() : new Date(l.createdAt)) : new Date();
-      return d >= oneWeekAgo;
-  });
+  const historyLaundry = filterAndSortLaundryHistory(laundry, laundryHistoryStartDate, laundryHistoryEndDate);
+  const hasLaundryHistoryDateFilter = Boolean(laundryHistoryStartDate || laundryHistoryEndDate);
 
   // --- FILTER AUDIT LOGS ---
   const filteredAuditLogs = auditLogs.filter(log => {
@@ -5076,10 +5074,46 @@ export default function App() {
             </div>
           </div>
 
-          <div className="floor-section" style={{marginTop: '20px'}}>
-             <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> 7-Day Laundry History</h2>
+          <div className="floor-section laundry-history-section" style={{marginTop: '20px'}}>
+             <div className="laundry-history-heading">
+               <div>
+                 <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> Laundry History</h2>
+                 <p>Filter records by the laundry sent date. Results are ordered from earliest to latest.</p>
+               </div>
+               <div className="laundry-history-filters" role="group" aria-label="Laundry history date filters">
+                 <label>
+                   <span>Start Date</span>
+                   <input
+                     type="date"
+                     value={laundryHistoryStartDate}
+                     max={laundryHistoryEndDate || undefined}
+                     onChange={event => setLaundryHistoryStartDate(event.target.value)}
+                   />
+                 </label>
+                 <label>
+                   <span>End Date</span>
+                   <input
+                     type="date"
+                     value={laundryHistoryEndDate}
+                     min={laundryHistoryStartDate || undefined}
+                     onChange={event => setLaundryHistoryEndDate(event.target.value)}
+                   />
+                 </label>
+                 <button
+                   type="button"
+                   className="btn grey laundry-history-show-all"
+                   onClick={() => {
+                     setLaundryHistoryStartDate('');
+                     setLaundryHistoryEndDate('');
+                   }}
+                   disabled={!hasLaundryHistoryDateFilter}
+                 >
+                   <i className="fa-solid fa-list"></i> Show All
+                 </button>
+               </div>
+             </div>
              <div className="scroll-pane scroll-pane-tall">
-                {historyLaundry.length === 0 ? <p style={{textAlign:'center', color:'#999'}}>No history in the last 7 days.</p> : 
+                {historyLaundry.length === 0 ? <p className="laundry-history-empty">No laundry history found for the selected date range.</p> :
                     historyLaundry.map(batch => (
                         <div key={batch.id} className="req-card" style={{borderLeftColor: '#10b981'}}>
                             <div style={{display:'flex', justifyContent:'space-between', borderBottom:'1px solid #eee', paddingBottom:'8px', marginBottom:'10px'}}>

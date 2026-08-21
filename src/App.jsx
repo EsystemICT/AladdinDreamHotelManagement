@@ -4779,7 +4779,13 @@ export default function App() {
                   value={laundryStockStartDate}
                   min={laundryStockMonthStart}
                   max={laundryStockEndDate || laundryStockMonthEnd}
-                  onChange={event => setLaundryStockStartDate(event.target.value)}
+                  onChange={event => {
+                    const selectedDate = event.target.value;
+                    setLaundryStockStartDate(selectedDate);
+                    if (selectedDate && (!laundryStockEndDate || laundryStockEndDate < selectedDate)) {
+                      setLaundryStockEndDate(selectedDate);
+                    }
+                  }}
                 />
               </label>
               <label>
@@ -4789,7 +4795,13 @@ export default function App() {
                   value={laundryStockEndDate}
                   min={laundryStockStartDate || laundryStockMonthStart}
                   max={laundryStockMonthEnd}
-                  onChange={event => setLaundryStockEndDate(event.target.value)}
+                  onChange={event => {
+                    const selectedDate = event.target.value;
+                    setLaundryStockEndDate(selectedDate);
+                    if (selectedDate && (!laundryStockStartDate || laundryStockStartDate > selectedDate)) {
+                      setLaundryStockStartDate(selectedDate);
+                    }
+                  }}
                 />
               </label>
               <button

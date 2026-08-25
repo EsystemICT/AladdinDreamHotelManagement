@@ -1081,6 +1081,7 @@ export default function App() {
   const [guestFeedbackSearch, setGuestFeedbackSearch] = useState('');
   const [guestFeedbackSource, setGuestFeedbackSource] = useState('ALL');
   const [guestFeedbackLoadError, setGuestFeedbackLoadError] = useState('');
+  const [guestFeedbackLinkStatus, setGuestFeedbackLinkStatus] = useState('');
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -1134,6 +1135,28 @@ export default function App() {
     if (['ADMIN', 'ATT_REPORT', 'BILLS', 'GUEST_FEEDBACK'].includes(nextView) && currentUser?.role !== 'admin') return;
     setView(nextView);
     setIsDrawerOpen(false);
+  };
+  const guestFeedbackPublicUrl = typeof window === 'undefined' ? '/guest-feedback' : `${window.location.origin}/guest-feedback`;
+  const handleCopyGuestFeedbackLink = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(guestFeedbackPublicUrl);
+      } else {
+        const temporaryInput = document.createElement('input');
+        temporaryInput.value = guestFeedbackPublicUrl;
+        temporaryInput.setAttribute('readonly', '');
+        temporaryInput.style.position = 'fixed';
+        temporaryInput.style.opacity = '0';
+        document.body.appendChild(temporaryInput);
+        temporaryInput.select();
+        document.execCommand('copy');
+        temporaryInput.remove();
+      }
+      setGuestFeedbackLinkStatus('Link copied');
+    } catch (error) {
+      console.error('Guest feedback link copy failed:', error);
+      setGuestFeedbackLinkStatus('Unable to copy. Select the link manually.');
+    }
   };
   const passwordResetCode = useMemo(() => {
     if (typeof window === 'undefined') return '';
@@ -6150,6 +6173,26 @@ export default function App() {
                 <p>Review comments submitted through the public guest feedback form.</p>
               </div>
               <div className="guest-feedback-admin-hero-icon"><i className="fa-solid fa-comments"></i></div>
+            </section>
+
+            <section className="guest-feedback-share-panel">
+              <div className="guest-feedback-share-icon"><i className="fa-solid fa-link"></i></div>
+              <div className="guest-feedback-share-copy">
+                <span>Public guest form</span>
+                <strong>Share the feedback link with guests</strong>
+                <p>Guests can open this form without signing in.</p>
+              </div>
+              <div className="guest-feedback-share-link">
+                <input value={guestFeedbackPublicUrl} readOnly aria-label="Public guest feedback link" onFocus={event => event.target.select()} />
+                <button type="button" className="copy" onClick={handleCopyGuestFeedbackLink}>
+                  <i className={`fa-solid ${guestFeedbackLinkStatus === 'Link copied' ? 'fa-check' : 'fa-copy'}`}></i>
+                  {guestFeedbackLinkStatus === 'Link copied' ? 'Copied' : 'Copy Link'}
+                </button>
+                <a href={guestFeedbackPublicUrl} target="_blank" rel="noreferrer">
+                  <i className="fa-solid fa-arrow-up-right-from-square"></i> Open Form
+                </a>
+              </div>
+              {guestFeedbackLinkStatus && guestFeedbackLinkStatus !== 'Link copied' && <small role="status">{guestFeedbackLinkStatus}</small>}
             </section>
 
             <section className="guest-feedback-admin-summary" aria-label="Feedback source summary">

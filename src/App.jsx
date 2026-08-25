@@ -1023,6 +1023,7 @@ export default function App() {
   const [deposits, setDeposits] = useState([]); 
   const [verifications, setVerifications] = useState([]); 
   const [utilityBills, setUtilityBills] = useState([]);
+  const [guestFeedback, setGuestFeedback] = useState([]);
 
   // UI
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -1077,6 +1078,9 @@ export default function App() {
   const [isUtilityBillSaving, setIsUtilityBillSaving] = useState(false);
   const [isBackupDownloading, setIsBackupDownloading] = useState(false);
   const [backupFeedback, setBackupFeedback] = useState({ type: '', message: '' });
+  const [guestFeedbackSearch, setGuestFeedbackSearch] = useState('');
+  const [guestFeedbackSource, setGuestFeedbackSource] = useState('ALL');
+  const [guestFeedbackLoadError, setGuestFeedbackLoadError] = useState('');
 
   // Laundry UI
   const [laundryForm, setLaundryForm] = useState({});
@@ -1127,7 +1131,7 @@ export default function App() {
   const [hotelLocation, setHotelLocation] = useState(DEFAULT_HOTEL_COORDS);
   const isRequestView = view === 'REQ';
   const changeView = (nextView) => {
-    if (['ADMIN', 'ATT_REPORT', 'BILLS'].includes(nextView) && currentUser?.role !== 'admin') return;
+    if (['ADMIN', 'ATT_REPORT', 'BILLS', 'GUEST_FEEDBACK'].includes(nextView) && currentUser?.role !== 'admin') return;
     setView(nextView);
     setIsDrawerOpen(false);
   };
@@ -1550,6 +1554,17 @@ export default function App() {
       }, (error) => {
         console.error('Utility bill listener failed:', error);
         setUtilityBillFeedback({ type: 'error', message: 'Unable to load SAJ / TNB bill records.' });
+      }));
+    }
+
+    if (view === 'GUEST_FEEDBACK' && currentUser.role === 'admin') {
+      setGuestFeedbackLoadError('');
+      const feedbackQuery = query(collection(db, 'guestFeedback'), orderBy('submittedAt', 'desc'), limit(500));
+      unsubs.push(onSnapshot(feedbackQuery, snapshot => {
+        setGuestFeedback(snapshot.docs.map(feedbackDoc => ({ id: feedbackDoc.id, ...feedbackDoc.data() })));
+      }, error => {
+        console.error('Guest feedback listener failed:', error);
+        setGuestFeedbackLoadError('Unable to load guest feedback. Please try again.');
       }));
     }
 
@@ -4272,6 +4287,9 @@ export default function App() {
           {currentUser.role === 'admin' && (
             <>
               <span className="drawer-section-label admin-label">Administration</span>
+              <button className={view === 'GUEST_FEEDBACK' ? 'active' : ''} onClick={() => changeView('GUEST_FEEDBACK')} aria-current={view === 'GUEST_FEEDBACK' ? 'page' : undefined}>
+                <i className="fa-solid fa-star"></i> <span>Guest Feedback</span>
+              </button>
               <button className={view === 'BILLS' ? 'active' : ''} onClick={() => changeView('BILLS')} aria-current={view === 'BILLS' ? 'page' : undefined}>
                 <i className="fa-solid fa-bolt"></i> <span>SAJ / TNB Bills</span>
               </button>
@@ -4313,8 +4331,8 @@ export default function App() {
             <i className="fa-solid fa-bars"></i>
           </button>
           <div className="current-page-title">
-            <span>{view === 'BILLS' ? 'Administration' : 'Hotel Operations'}</span>
-            <strong>{view === 'BILLS' ? 'SAJ / TNB Bills' : view === 'ADMIN' ? 'Admin' : (ICONS[view]?.label || 'Dashboard')}</strong>
+            <span>{['BILLS', 'GUEST_FEEDBACK', 'ADMIN'].includes(view) ? 'Administration' : 'Hotel Operations'}</span>
+            <strong>{view === 'BILLS' ? 'SAJ / TNB Bills' : view === 'GUEST_FEEDBACK' ? 'Guest Feedback' : view === 'ADMIN' ? 'Admin' : (ICONS[view]?.label || 'Dashboard')}</strong>
           </div>
           <button type="button" className="header-profile" onClick={openProfilePortal} title="Open profile">
             <i className="fa-solid fa-circle-user"></i>
@@ -6110,6 +6128,117 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* --- VIEW: ADMIN-ONLY GUEST FEEDBACK --- */}
+      {view === 'GUEST_FEEDBACK' && currentUser.role === 'admin' && (() => {
+        const normalizedSearch = guestFeedbackSearch.trim().toLowerCase();
+        const visibleFeedback = guestFeedback.filter(entry => {
+          const displayedSource = entry.source === 'Other' ? (entry.otherSource || 'Other') : (entry.source || 'Unknown');
+          const matchesSource = guestFeedbackSource === 'ALL' || entry.source === guestFeedbackSource;
+          const matchesSearch = !normalizedSearch || [entry.name, entry.contact, entry.remark, displayedSource]
+            .some(value => String(value || '').toLowerCase().includes(normalizedSearch));
+          return matchesSource && matchesSearch;
+        });
+        const sourceCount = source => guestFeedback.filter(entry => entry.source === source).length;
+
+        return (
+          <div className="dashboard guest-feedback-admin-page">
+            <section className="guest-feedback-admin-hero">
+              <div>
+                <span className="guest-feedback-admin-eyebrow"><i className="fa-solid fa-shield-halved"></i> Admin only</span>
+                <h2>Guest Review &amp; Feedback</h2>
+                <p>Review comments submitted through the public guest feedback form.</p>
+              </div>
+              <div className="guest-feedback-admin-hero-icon"><i className="fa-solid fa-comments"></i></div>
+            </section>
+
+            <section className="guest-feedback-admin-summary" aria-label="Feedback source summary">
+              <article className="total"><i className="fa-solid fa-inbox"></i><span><small>All feedback</small><strong>{guestFeedback.length}</strong></span></article>
+              <article className="booking"><i className="fa-solid fa-b"></i><span><small>Booking.com</small><strong>{sourceCount('Booking.com')}</strong></span></article>
+              <article className="ctrip"><i className="fa-solid fa-plane-departure"></i><span><small>Ctrip</small><strong>{sourceCount('Ctrip')}</strong></span></article>
+              <article className="agoda"><i className="fa-solid fa-a"></i><span><small>Agoda</small><strong>{sourceCount('Agoda')}</strong></span></article>
+              <article className="other"><i className="fa-solid fa-ellipsis"></i><span><small>Other</small><strong>{sourceCount('Other')}</strong></span></article>
+            </section>
+
+            <section className="floor-section guest-feedback-admin-list">
+              <div className="guest-feedback-admin-heading">
+                <div>
+                  <span>Guest responses</span>
+                  <h2 className="floor-title"><i className="fa-solid fa-clock-rotate-left"></i> Submission History</h2>
+                </div>
+                <small>{visibleFeedback.length} of {guestFeedback.length} response{guestFeedback.length === 1 ? '' : 's'}</small>
+              </div>
+
+              <div className="guest-feedback-admin-toolbar">
+                <label className="guest-feedback-admin-search">
+                  <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                  <input
+                    type="search"
+                    value={guestFeedbackSearch}
+                    onChange={event => setGuestFeedbackSearch(event.target.value)}
+                    placeholder="Search name, contact or remark..."
+                    aria-label="Search guest feedback"
+                  />
+                </label>
+                <label className="guest-feedback-admin-filter">
+                  <i className="fa-solid fa-filter" aria-hidden="true"></i>
+                  <select value={guestFeedbackSource} onChange={event => setGuestFeedbackSource(event.target.value)} aria-label="Filter feedback by source">
+                    <option value="ALL">All sources</option>
+                    <option value="Booking.com">Booking.com</option>
+                    <option value="Ctrip">Ctrip</option>
+                    <option value="Agoda">Agoda</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+              </div>
+
+              {guestFeedbackLoadError ? (
+                <div className="guest-feedback-admin-state error" role="alert">
+                  <i className="fa-solid fa-circle-exclamation"></i>
+                  <strong>Feedback could not be loaded</strong>
+                  <span>{guestFeedbackLoadError}</span>
+                </div>
+              ) : visibleFeedback.length === 0 ? (
+                <div className="guest-feedback-admin-state">
+                  <i className="fa-regular fa-message"></i>
+                  <strong>{guestFeedback.length === 0 ? 'No guest feedback yet' : 'No matching feedback'}</strong>
+                  <span>{guestFeedback.length === 0 ? 'New public form submissions will appear here.' : 'Try changing the search or source filter.'}</span>
+                </div>
+              ) : (
+                <div className="guest-feedback-admin-grid">
+                  {visibleFeedback.map(entry => {
+                    const sourceLabel = entry.source === 'Other' ? (entry.otherSource || 'Other') : (entry.source || 'Unknown');
+                    const initials = String(entry.name || 'Guest').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+                    const isEmail = EMAIL_PATTERN.test(String(entry.contact || '').trim());
+                    return (
+                      <article key={entry.id} className="guest-feedback-admin-card">
+                        <header>
+                          <div className="guest-feedback-admin-avatar" aria-hidden="true">{initials || 'G'}</div>
+                          <div className="guest-feedback-admin-guest">
+                            <strong>{entry.name || 'Guest'}</strong>
+                            <a href={isEmail ? `mailto:${entry.contact}` : `tel:${String(entry.contact || '').replace(/[^+\d]/g, '')}`}>
+                              <i className={`fa-solid ${isEmail ? 'fa-envelope' : 'fa-phone'}`}></i>
+                              {entry.contact || '-'}
+                            </a>
+                          </div>
+                          <span className={`guest-feedback-admin-source ${String(entry.source || 'unknown').toLowerCase().replace(/[^a-z]+/g, '-')}`}>
+                            {sourceLabel}
+                          </span>
+                        </header>
+                        <p className="guest-feedback-admin-remark">{entry.remark || 'No remark provided.'}</p>
+                        <footer>
+                          <span><i className="fa-regular fa-calendar"></i> {formatDateTime(entry.submittedAt)}</span>
+                          {entry.source === 'Other' && <small>Source entered by guest</small>}
+                        </footer>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        );
+      })()}
 
       {/* --- VIEW: ADMIN-ONLY SAJ / TNB MONTHLY BILLS --- */}
       {view === 'BILLS' && currentUser.role === 'admin' && (() => {

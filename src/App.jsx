@@ -257,7 +257,7 @@ const BACKUP_COLLECTIONS = [
   'rooms', 'users', 'tickets', 'customerDetails', 'requests', 'attendance',
   'leaves', 'annualLeaveBalances', 'inventory', 'claimDays', 'laundry', 'stock', 'laundryStockMovements',
   'housekeepingDaily', 'housekeepingCustomerInfo', 'deposits', 'verifications', 'utilityBills', 'auditLogs',
-  'adminAlerts', 'settings'
+  'adminAlerts', 'guestFeedback', 'settings'
 ];
 
 // HELPERS

@@ -55,6 +55,11 @@ export default function GuestFeedback() {
       return;
     }
 
+    if (!/^\d+$/.test(contact)) {
+      setFeedback({ type: 'error', message: 'Phone number can contain digits only.' });
+      return;
+    }
+
     if (form.source === 'Other' && !otherSource) {
       setFeedback({ type: 'error', message: 'Please tell us where you booked or found us.' });
       return;
@@ -139,16 +144,18 @@ export default function GuestFeedback() {
             </label>
 
             <label className="guest-feedback-field">
-              <span>Contact <em>Required</em></span>
+              <span>Phone Number <em>Required</em></span>
               <div className="guest-feedback-input-wrap">
                 <i className="fa-solid fa-phone" aria-hidden="true"></i>
                 <input
-                  type="text"
+                  type="tel"
                   value={form.contact}
-                  onChange={event => updateField('contact', event.target.value)}
-                  placeholder="Phone number or email"
+                  onChange={event => updateField('contact', event.target.value.replace(/\D/g, ''))}
+                  placeholder="Phone number"
                   autoComplete="tel"
-                  maxLength="100"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength="20"
                   required
                 />
               </div>

@@ -7,21 +7,41 @@ const cleanValue = (value) => String(value || '')
   .replace(/^[\s:\uFF1A#\-|;,]+|[\s|;,]+$/g, '')
   .replace(/\s{2,}/g, ' ');
 
+const MONTH_NAMES = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+  may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
+};
+
 const normalizeDate = (rawValue, fallbackMonth) => {
   const value = cleanValue(rawValue);
-  let match = value.match(/\b(20\d{2})[./-](\d{1,2})[./-](\d{1,2})\b/);
+  if (!value) return '';
+
   let year;
   let month;
   let day;
 
+  // 1. ISO format YYYY-MM-DD
+  let match = value.match(/\b(20\d{2})[./-](\d{1,2})[./-](\d{1,2})\b/);
   if (match) {
     [, year, month, day] = match;
   } else {
-    match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](20\d{2}|\d{2}))?\b/);
-    if (!match) return '';
-    [, day, month, year] = match;
-    if (!year) year = String(fallbackMonth || '').slice(0, 4);
-    if (year?.length === 2) year = `20${year}`;
+    // 2. Named month format DD MMM YYYY or DD-MMM-YYYY (e.g. 10 Aug 2026)
+    const nameMatch = value.match(/\b(\d{1,2})[\s./-]([a-z]{3,9})(?:[\s./-](20\d{2}|\d{2}))?\b/i);
+    if (nameMatch && MONTH_NAMES[nameMatch[2].toLowerCase()]) {
+      day = nameMatch[1];
+      month = MONTH_NAMES[nameMatch[2].toLowerCase()];
+      year = nameMatch[3];
+      if (!year) year = String(fallbackMonth || new Date().getFullYear()).slice(0, 4);
+      if (year?.length === 2) year = `20${year}`;
+    } else {
+      // 3. DD/MM/YYYY or DD/MM
+      match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](20\d{2}|\d{2}))?\b/);
+      if (!match) return '';
+      [, day, month, year] = match;
+      if (!year) year = String(fallbackMonth || new Date().getFullYear()).slice(0, 4);
+      if (year?.length === 2) year = `20${year}`;
+    }
   }
 
   if (!year) return '';
@@ -38,7 +58,7 @@ const normalizeDate = (rawValue, fallbackMonth) => {
 const findDateText = (text) => {
   const labelledDate = text.match(DATE_LABEL_PATTERN)?.[1];
   if (labelledDate) return labelledDate;
-  return text.match(/\b(?:20\d{2}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}(?:[./-](?:20\d{2}|\d{2}))?)\b/)?.[0] || '';
+  return text.match(/\b(?:20\d{2}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}(?:[./-](?:20\d{2}|\d{2}))?|\d{1,2}[\s./-][a-z]{3,9}(?:[\s./-](?:20\d{2}|\d{2}))?)\b/i)?.[0] || '';
 };
 
 const findRoomId = (text, knownRoomIds) => {
@@ -113,12 +133,25 @@ export const parseHousekeepingArrangementText = (rawText, rooms, fallbackMonth) 
   const unknownRooms = [];
 
   text.split(/\r?\n/).forEach(line => {
-    const match = line.match(/^\s*\d+\s*[.)]\s*([a-z]?\d{1,4}[a-z]?)\s*[-\u2013\u2014]\s*(.*)$/i);
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    // Flexible line matcher for entries like:
+    // 1. 101 - Customer remark
+    // 1) 101 - Customer remark
+    // 101 - Customer remark
+    // Room 101: Customer remark
+    // 1. Room 101 - Customer remark
+    const match = trimmed.match(/^(?:\d+\s*[.)\-:]\s*)?(?:room|rm|bilik|\u623f|\u623f\u53f7|\u623f\u95f4)?\s*([a-z]?\d{1,4}[a-z]?)\s*[:#\-\u2013\u2014\uFF1A\s]\s*(.*)$/i);
     if (!match) return;
+
     const typedRoomId = match[1];
     const roomId = knownRoomIds.find(knownRoomId => knownRoomId.toLowerCase() === typedRoomId.toLowerCase());
     if (!roomId) {
-      unknownRooms.push(typedRoomId);
+      // Only record as unknown room if the line explicitly looks like a room line item
+      if (/^(?:\d+\s*[.)\-:]|(?:room|rm|bilik|\u623f)\s*\d+)/i.test(trimmed)) {
+        unknownRooms.push(typedRoomId);
+      }
       return;
     }
 

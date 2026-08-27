@@ -2762,8 +2762,8 @@ export default function App() {
         roomType: modal.room.type || '',
         customerInfo1,
         customerInfo2,
-        keyedInBy: currentUser.name,
-        keyedInById: currentUser.userid,
+        keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
+        keyedInById: currentUser?.userid || currentUser?.id || 'staff',
         updatedAt: serverTimestamp()
       }, { merge: true });
       setHousekeepingStaffModal(currentModal => (
@@ -2772,7 +2772,7 @@ export default function App() {
           : currentModal
       ));
       await logSystemAction(
-        currentUser.name,
+        currentUser?.name || currentUser?.userid || 'Staff',
         source === 'smart' ? 'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN' : 'HOUSEKEEPING_CUSTOMER_UPDATE',
         `Updated customer information for Room ${roomId} on ${modal.serviceDate}`
       );
@@ -2838,27 +2838,61 @@ export default function App() {
           roomType: room.type || '',
           customerInfo1: String(entry.customerInfo[0] || '').trim().slice(0, 200),
           customerInfo2: String(entry.customerInfo[1] || '').trim().slice(0, 200),
-          keyedInBy: currentUser.name,
-          keyedInById: currentUser.userid,
+          keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
+          keyedInById: currentUser?.userid || currentUser?.id || 'staff',
           updatedAt: serverTimestamp()
         }, { merge: true });
       });
       await customerBatch.commit();
       await logSystemAction(
-        currentUser.name,
+        currentUser?.name || currentUser?.userid || 'Staff',
         'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN',
         `Auto keyed in ${housekeepingSmartResult.entries.length} room arrangement entries for ${housekeepingSmartResult.serviceDate}`
       );
       const targetMonth = housekeepingSmartResult.serviceDate.slice(0, 7);
       setHousekeepingMonth(targetMonth);
+      setHousekeepingCustomerRecords(previous => {
+        const nextMap = new Map(previous.map(r => [r.id, r]));
+        housekeepingSmartResult.entries.forEach(entry => {
+          const recordId = `${housekeepingSmartResult.serviceDate}_${encodeURIComponent(entry.roomId)}`;
+          const room = housekeepingRooms.find(candidate => String(candidate.id) === entry.roomId);
+          nextMap.set(recordId, {
+            id: recordId,
+            serviceDate: housekeepingSmartResult.serviceDate,
+            month: targetMonth,
+            roomId: entry.roomId,
+            roomType: room?.type || '',
+            customerInfo1: String(entry.customerInfo[0] || '').trim().slice(0, 200),
+            customerInfo2: String(entry.customerInfo[1] || '').trim().slice(0, 200),
+            keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
+            keyedInById: currentUser?.userid || currentUser?.id || 'staff',
+            updatedAt: new Date()
+          });
+        });
+        return [...nextMap.values()];
+      });
       setHousekeepingInlineCustomerDrafts(previous => {
         const next = { ...previous };
-        housekeepingSmartResult.entries.forEach(entry => delete next[`${entry.roomId}|${housekeepingSmartResult.serviceDate}`]);
+        housekeepingSmartResult.entries.forEach(entry => {
+          Object.keys(next).forEach(key => {
+            const [keyRoomId, keyDate] = key.split('|');
+            if (keyDate === housekeepingSmartResult.serviceDate && String(keyRoomId).toLowerCase() === String(entry.roomId).toLowerCase()) {
+              delete next[key];
+            }
+          });
+        });
         return next;
       });
       setHousekeepingPendingCustomerCells(previous => {
         const next = { ...previous };
-        housekeepingSmartResult.entries.forEach(entry => delete next[`${entry.roomId}|${housekeepingSmartResult.serviceDate}`]);
+        housekeepingSmartResult.entries.forEach(entry => {
+          Object.keys(next).forEach(key => {
+            const [keyRoomId, keyDate] = key.split('|');
+            if (keyDate === housekeepingSmartResult.serviceDate && String(keyRoomId).toLowerCase() === String(entry.roomId).toLowerCase()) {
+              delete next[key];
+            }
+          });
+        });
         return next;
       });
       setHousekeepingSmartText('');
@@ -5334,7 +5368,10 @@ export default function App() {
                           const cellKey = `${room.id}|${day.dateKey}`;
                           const cellRecords = housekeepingCellRecordMap[cellKey] || [];
                           const customerRecord = housekeepingCustomerInfoMap[cellKey];
-                          const inlineCustomerInfo = housekeepingInlineCustomerDrafts[cellKey] || [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+                          const draft = housekeepingInlineCustomerDrafts[cellKey];
+                          const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
+                            ? draft
+                            : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
                           const customerInfo = inlineCustomerInfo.filter(Boolean);
                           const customerSaveStatus = housekeepingPendingCustomerCells[cellKey] || '';
                           const isPending = Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey);

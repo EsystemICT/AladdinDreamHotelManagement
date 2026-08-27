@@ -1438,78 +1438,6 @@ export default function App() {
     };
   }, [currentUser, isRequestView]);
 
-  // Load each section only when it is opened instead of downloading every
-  // collection immediately after login.
-  useEffect(() => {
-    if (!currentUser || !isProfileComplete(currentUser)) return;
-    const unsubs = [];
-
-    if (view === 'ROOMS' && !selectedRoom) {
-      const qOpenTickets = query(collection(db, "tickets"), where("status", "==", "open"), limit(100));
-      unsubs.push(onSnapshot(qOpenTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    } else if (view === 'TICKETS' || selectedRoom) {
-      const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(200));
-      unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    }
-
-    if (view === 'CUSTOMERS') {
-      const qCustomerDetails = query(collection(db, "customerDetails"), orderBy("createdAt", "desc"), limit(200));
-      unsubs.push(onSnapshot(qCustomerDetails, (snap) => setCustomerDetails(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
-    }
-
-    let attendanceQuery = null;
-    if (view === 'SHIFT') {
-      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(100));
-    } else if (view === 'ATT_REPORT' && currentUser.role === 'admin') {
-      if (attFilterMonth) {
-        const [filterYear, filterMonth] = attFilterMonth.split('-').map(Number);
-        const monthStart = new Date(filterYear, filterMonth - 1, 1);
-        const monthEnd = new Date(filterYear, filterMonth, 1);
-        attendanceQuery = query(
-          collection(db, "attendance"),
-          where("timestamp", ">=", monthStart),
-          where("timestamp", "<", monthEnd),
-          orderBy("timestamp", "desc"),
-          limit(1000)
-        );
-      } else {
-        attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(1000));
-      }
-    } else if (view === 'ADMIN' && currentUser.role === 'admin' && staffModal) {
-      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(200));
-    }
-
-    if (attendanceQuery) {
-      unsubs.push(onSnapshot(attendanceQuery, (snap) => {
-        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setAttendance(data);
-        const myLogs = data.filter(a => a.userId === currentUser.userid);
-        setLastClock(myLogs.length > 0 ? myLogs[0] : null);
-      }));
-    }
-
-    if (['SHIFT', 'MC'].includes(view) && currentUser.role !== 'admin') {
-      const qLeaves = query(collection(db, "leaves"), where("userId", "==", currentUser.userid), limit(500));
-      unsubs.push(onSnapshot(qLeaves, (snap) => {
-        const staffLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-          const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
-          const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
-          return bTime - aTime;
-        });
-        setLeaves(staffLeaves);
-      }));
-    }
-
-    if (view === 'ITEMS') {
-      const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(200));
-    return () => {
-      cancelled = true;
-      window.removeEventListener('hashchange', handleHashChange);
-      unsubMaintenance();
-      unsubLocation();
-    };
-  }, []);
-
   // Avoid re-rendering the entire application every second on pages that do
   // not display a live clock or running attendance durations.
   useEffect(() => {
@@ -1740,6 +1668,7 @@ export default function App() {
 
       const qHousekeepingCustomers = query(
         collection(db, "housekeepingCustomerInfo"),
+        where("month", "==", housekeepingMonth),
         limit(2000)
       );
       unsubs.push(onSnapshot(qHousekeepingCustomers, (snap) => {
@@ -5586,7 +5515,10 @@ export default function App() {
                           <span>{day.weekday}</span>
                           <strong>{day.day}</strong>
                         </th>
-                              <tbody>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
                     {housekeepingRooms.map(room => (
                       <tr key={room.id} className={housekeepingActiveCell?.roomId === String(room.id) ? 'active-housekeeping-row' : ''}>
                         <th className={`housekeeping-room-column ${housekeepingActiveCell?.roomId === String(room.id) ? 'active-row-header' : ''}`} scope="row">
@@ -5671,8 +5603,12 @@ export default function App() {
               )}
             </div>
           </section>
-        </div> draft[1]))
-                            ? draft
+        </div>
+      )}
+
+      {/* --- VIEW: DEPOSIT --- */}
+      {view === 'DEPOSIT' && (
+        <div className="dashboard">
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-money-bill-wave"></i> Room Deposit Collected</h2>
             <form onSubmit={handleAddDeposit} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>

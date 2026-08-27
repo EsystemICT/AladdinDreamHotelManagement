@@ -13,7 +13,7 @@ const MONTH_NAMES = {
   oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12
 };
 
-const normalizeDate = (rawValue, fallbackMonth) => {
+export const normalizeDate = (rawValue, fallbackMonth) => {
   const value = cleanValue(rawValue);
   if (!value) return '';
 

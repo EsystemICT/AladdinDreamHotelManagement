@@ -2766,6 +2766,22 @@ export default function App() {
         keyedInById: currentUser?.userid || currentUser?.id || 'staff',
         updatedAt: serverTimestamp()
       }, { merge: true });
+      setHousekeepingCustomerRecords(previous => {
+        const nextMap = new Map(previous.map(r => [r.id, r]));
+        nextMap.set(recordId, {
+          id: recordId,
+          serviceDate: modal.serviceDate,
+          month: modal.serviceDate.slice(0, 7),
+          roomId,
+          roomType: modal.room.type || '',
+          customerInfo1,
+          customerInfo2,
+          keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
+          keyedInById: currentUser?.userid || currentUser?.id || 'staff',
+          updatedAt: new Date()
+        });
+        return [...nextMap.values()];
+      });
       setHousekeepingStaffModal(currentModal => (
         currentModal?.serviceDate === modal.serviceDate && String(currentModal.room.id) === roomId
           ? { ...currentModal, customerRecordId: recordId }
@@ -2796,14 +2812,14 @@ export default function App() {
     housekeepingCustomerAutoSaveTimerRef.current = { timerId, modal };
   };
 
-  const queueHousekeepingInlineCustomerSave = (serviceDate, room, customerInfo, customerRecordId) => {
+  const queueHousekeepingInlineCustomerSave = (serviceDate, room, customerInfo, customerRecordId, immediate = false) => {
     const cellKey = `${room.id}|${serviceDate}`;
     if (housekeepingInlineCustomerTimersRef.current[cellKey]) {
       clearTimeout(housekeepingInlineCustomerTimersRef.current[cellKey]);
-    }
-    setHousekeepingPendingCustomerCells(previous => ({ ...previous, [cellKey]: 'waiting' }));
-    housekeepingInlineCustomerTimersRef.current[cellKey] = setTimeout(async () => {
       delete housekeepingInlineCustomerTimersRef.current[cellKey];
+    }
+
+    const doSave = async () => {
       setHousekeepingPendingCustomerCells(previous => ({ ...previous, [cellKey]: 'saving' }));
       const saved = await handleHousekeepingCustomerInfoSave({
         serviceDate,
@@ -2812,7 +2828,23 @@ export default function App() {
         customerRecordId
       });
       setHousekeepingPendingCustomerCells(previous => ({ ...previous, [cellKey]: saved ? 'saved' : 'error' }));
-    }, 700);
+      if (saved) {
+        setTimeout(() => {
+          setHousekeepingPendingCustomerCells(previous => {
+            const next = { ...previous };
+            if (next[cellKey] === 'saved') delete next[cellKey];
+            return next;
+          });
+        }, 2000);
+      }
+    };
+
+    if (immediate) {
+      doSave();
+    } else {
+      setHousekeepingPendingCustomerCells(previous => ({ ...previous, [cellKey]: 'waiting' }));
+      housekeepingInlineCustomerTimersRef.current[cellKey] = setTimeout(doSave, 700);
+    }
   };
 
   const handleHousekeepingSmartKeyIn = async () => {
@@ -5354,10 +5386,7 @@ export default function App() {
                           <span>{day.weekday}</span>
                           <strong>{day.day}</strong>
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
+                              <tbody>
                     {housekeepingRooms.map(room => (
                       <tr key={room.id} className={housekeepingActiveCell?.roomId === String(room.id) ? 'active-housekeeping-row' : ''}>
                         <th className={`housekeeping-room-column ${housekeepingActiveCell?.roomId === String(room.id) ? 'active-row-header' : ''}`} scope="row">
@@ -5409,6 +5438,11 @@ export default function App() {
                                       placeholder={`Remark ${index + 1}`}
                                       aria-label={`Room ${room.id} ${calendarIsoToDisplay(day.dateKey)} remark ${index + 1}`}
                                       onFocus={() => setHousekeepingActiveCell({ roomId: String(room.id), serviceDate: day.dateKey })}
+                                      onBlur={() => {
+                                        if (housekeepingInlineCustomerDrafts[cellKey]) {
+                                          queueHousekeepingInlineCustomerSave(day.dateKey, room, inlineCustomerInfo, customerRecord?.id || '', true);
+                                        }
+                                      }}
                                       onChange={event => {
                                         const nextCustomerInfo = [...inlineCustomerInfo];
                                         nextCustomerInfo[index] = event.target.value;
@@ -5437,12 +5471,8 @@ export default function App() {
               )}
             </div>
           </section>
-        </div>
-      )}
-
-      {/* --- VIEW: DEPOSITS --- */}
-      {view === 'DEPOSIT' && (
-        <div className="dashboard">
+        </div> draft[1]))
+                            ? draft
           <div className="floor-section">
             <h2 className="floor-title"><i className="fa-solid fa-money-bill-wave"></i> Room Deposit Collected</h2>
             <form onSubmit={handleAddDeposit} style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom: '20px', background: '#f9fafb', padding: '15px', borderRadius: '8px', border: '1px solid #eee'}}>

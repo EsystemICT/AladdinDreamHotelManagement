@@ -3,7 +3,7 @@ import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
 import './App.css';
-import { parseHousekeepingArrangementText } from './housekeepingCustomerParser';
+import { parseHousekeepingArrangementText, normalizeDate } from './housekeepingCustomerParser';
 import { getUpcomingBirthdays } from './birthdayAlerts';
 import { getAnnualLeaveBalanceId, getAnnualLeaveDaysByYear, getAnnualLeaveSummary } from './annualLeave';
 import { filterAndSortLaundryStockMovements } from './laundryStockFilter';
@@ -1502,6 +1502,201 @@ export default function App() {
 
     if (view === 'ITEMS') {
       const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(200));
+    return () => {
+      cancelled = true;
+      window.removeEventListener('hashchange', handleHashChange);
+      unsubMaintenance();
+      unsubLocation();
+    };
+  }, []);
+
+  // Avoid re-rendering the entire application every second on pages that do
+  // not display a live clock or running attendance durations.
+  useEffect(() => {
+    if (!currentUser || !['SHIFT', 'ATT_REPORT'].includes(view)) return;
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [currentUser, view]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsDrawerOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [isDrawerOpen]);
+
+  // --- 2. CORE DATA LISTENERS ---
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return;
+
+    const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
+      setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
+      const loadedUsers = snap.docs.map(d => ({ dbId: d.id, ...d.data() }));
+      setUsers(loadedUsers);
+
+      const latestCurrentUser = loadedUsers.find(user => user.dbId === currentUser.dbId);
+      const accountUnavailable = !latestCurrentUser || !isUserActive(latestCurrentUser);
+      const deviceUnavailable = currentUser.role !== 'admin' &&
+        isMobileOrTabletDevice() &&
+        latestCurrentUser?.approvedDeviceId !== getDeviceId(false);
+
+      if (accountUnavailable || deviceUnavailable) {
+          localStorage.removeItem('hotelUser');
+          setCurrentUser(null);
+          setLoginId('');
+          setLoginPass('');
+          if (latestCurrentUser && !isUserActive(latestCurrentUser)) {
+            setLoginError('This staff account is inactive. Please contact an administrator.');
+          } else if (deviceUnavailable) {
+            setLoginError(latestCurrentUser?.approvedDeviceId ? DEVICE_BINDING_ERROR : DEVICE_BINDING_RESET_MESSAGE);
+          }
+          setView('ROOMS');
+      }
+    });
+
+    let unsubAdminLeaves = () => {};
+    if (currentUser.role === 'admin') {
+      const qLeaves = query(collection(db, "leaves"), orderBy("createdAt", "desc"), limit(500));
+      unsubAdminLeaves = onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    }
+    
+    return () => {
+      unsubRooms();
+      unsubUsers();
+      unsubAdminLeaves();
+    };
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return undefined;
+    const shouldLoadAdminBalances = currentUser.role === 'admin' && view === 'ADMIN';
+    const shouldLoadOwnBalance = currentUser.role !== 'admin' && view === 'MC';
+    if (!shouldLoadAdminBalances && !shouldLoadOwnBalance) return undefined;
+
+    if (shouldLoadAdminBalances) {
+      const balancesQuery = query(
+        collection(db, 'annualLeaveBalances'),
+        where('year', '==', annualLeaveYear),
+        limit(500)
+      );
+      return onSnapshot(balancesQuery, snapshot => {
+        setAnnualLeaveBalances(snapshot.docs.map(balanceDoc => ({ id: balanceDoc.id, ...balanceDoc.data() })));
+      }, error => {
+        console.error('Annual leave balances listener failed:', error);
+        setAnnualLeaveFeedback({ type: 'error', message: 'Unable to load annual leave balances.' });
+      });
+    }
+
+    const balanceRef = doc(db, 'annualLeaveBalances', getAnnualLeaveBalanceId(annualLeaveYear, currentUser.dbId));
+    return onSnapshot(balanceRef, snapshot => {
+      setAnnualLeaveBalances(snapshot.exists() ? [{ id: snapshot.id, ...snapshot.data() }] : []);
+    }, error => {
+      console.error('Own annual leave balance listener failed:', error);
+      setAnnualLeaveFeedback({ type: 'error', message: 'Unable to load your annual leave balance.' });
+    });
+  }, [currentUser, view, annualLeaveYear]);
+
+  // Only read messages that belong to the signed-in user. Sent history is
+  // subscribed to only while the Request Staff page is actually open.
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return undefined;
+
+    const incomingQuery = query(
+      collection(db, 'requests'),
+      where('receiverId', '==', currentUser.dbId),
+      limit(100)
+    );
+    const unsubIncoming = onSnapshot(incomingQuery, (snapshot) => {
+      setReceivedRequests(snapshot.docs.map(requestDoc => ({ id: requestDoc.id, ...requestDoc.data() })));
+    });
+
+    let unsubSent = () => {};
+    if (isRequestView) {
+      const sentQuery = query(
+        collection(db, 'requests'),
+        where('senderId', '==', currentUser.dbId),
+        limit(100)
+      );
+      unsubSent = onSnapshot(sentQuery, (snapshot) => {
+        setSentRequests(snapshot.docs.map(requestDoc => ({ id: requestDoc.id, ...requestDoc.data() })));
+      });
+    }
+
+    return () => {
+      unsubIncoming();
+      unsubSent();
+    };
+  }, [currentUser, isRequestView]);
+
+  // Load each section only when it is opened instead of downloading every
+  // collection immediately after login.
+  useEffect(() => {
+    if (!currentUser || !isProfileComplete(currentUser)) return;
+    const unsubs = [];
+
+    if (view === 'ROOMS' && !selectedRoom) {
+      const qOpenTickets = query(collection(db, "tickets"), where("status", "==", "open"), limit(100));
+      unsubs.push(onSnapshot(qOpenTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    } else if (view === 'TICKETS' || selectedRoom) {
+      const qTickets = query(collection(db, "tickets"), orderBy("createdAt", "desc"), limit(200));
+      unsubs.push(onSnapshot(qTickets, (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    if (view === 'CUSTOMERS') {
+      const qCustomerDetails = query(collection(db, "customerDetails"), orderBy("createdAt", "desc"), limit(200));
+      unsubs.push(onSnapshot(qCustomerDetails, (snap) => setCustomerDetails(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
+    }
+
+    let attendanceQuery = null;
+    if (view === 'SHIFT') {
+      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(100));
+    } else if (view === 'ATT_REPORT' && currentUser.role === 'admin') {
+      if (attFilterMonth) {
+        const [filterYear, filterMonth] = attFilterMonth.split('-').map(Number);
+        const monthStart = new Date(filterYear, filterMonth - 1, 1);
+        const monthEnd = new Date(filterYear, filterMonth, 1);
+        attendanceQuery = query(
+          collection(db, "attendance"),
+          where("timestamp", ">=", monthStart),
+          where("timestamp", "<", monthEnd),
+          orderBy("timestamp", "desc"),
+          limit(1000)
+        );
+      } else {
+        attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(1000));
+      }
+    } else if (view === 'ADMIN' && currentUser.role === 'admin' && staffModal) {
+      attendanceQuery = query(collection(db, "attendance"), orderBy("timestamp", "desc"), limit(200));
+    }
+
+    if (attendanceQuery) {
+      unsubs.push(onSnapshot(attendanceQuery, (snap) => {
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAttendance(data);
+        const myLogs = data.filter(a => a.userId === currentUser.userid);
+        setLastClock(myLogs.length > 0 ? myLogs[0] : null);
+      }));
+    }
+
+    if (['SHIFT', 'MC'].includes(view) && currentUser.role !== 'admin') {
+      const qLeaves = query(collection(db, "leaves"), where("userId", "==", currentUser.userid), limit(500));
+      unsubs.push(onSnapshot(qLeaves, (snap) => {
+        const staffLeaves = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+          const aTime = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+          const bTime = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+        setLeaves(staffLeaves);
+      }));
+    }
+
+    if (view === 'ITEMS') {
+      const qInv = query(collection(db, "inventory"), orderBy("createdAt", "asc"), limit(200));
       unsubs.push(onSnapshot(qInv, (snap) => setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() })))));
     }
 
@@ -1542,10 +1737,10 @@ export default function App() {
         });
         setHousekeepingRecords(records);
       }));
+
       const qHousekeepingCustomers = query(
         collection(db, "housekeepingCustomerInfo"),
-        where("month", "==", housekeepingMonth),
-        limit(1000)
+        limit(2000)
       );
       unsubs.push(onSnapshot(qHousekeepingCustomers, (snap) => {
         setHousekeepingCustomerRecords(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -2749,15 +2944,18 @@ export default function App() {
   };
 
   const handleHousekeepingCustomerInfoSave = async (modal, source = 'manual') => {
+    const rawServiceDate = String(modal.serviceDate || '').trim();
+    const isoServiceDate = normalizeDate(rawServiceDate, housekeepingMonth) || rawServiceDate;
+    const isoMonth = isoServiceDate.slice(0, 7);
     const customerInfo1 = String(modal.customerInfo?.[0] || '').trim().slice(0, 200);
     const customerInfo2 = String(modal.customerInfo?.[1] || '').trim().slice(0, 200);
     const roomId = String(modal.room.id);
-    const recordId = modal.customerRecordId || `${modal.serviceDate}_${encodeURIComponent(roomId)}`;
+    const recordId = modal.customerRecordId || `${isoServiceDate}_${encodeURIComponent(roomId)}`;
 
     try {
       await setDoc(doc(db, 'housekeepingCustomerInfo', recordId), {
-        serviceDate: modal.serviceDate,
-        month: modal.serviceDate.slice(0, 7),
+        serviceDate: isoServiceDate,
+        month: isoMonth,
         roomId,
         roomType: modal.room.type || '',
         customerInfo1,
@@ -2770,8 +2968,8 @@ export default function App() {
         const nextMap = new Map(previous.map(r => [r.id, r]));
         nextMap.set(recordId, {
           id: recordId,
-          serviceDate: modal.serviceDate,
-          month: modal.serviceDate.slice(0, 7),
+          serviceDate: isoServiceDate,
+          month: isoMonth,
           roomId,
           roomType: modal.room.type || '',
           customerInfo1,
@@ -2790,7 +2988,7 @@ export default function App() {
       await logSystemAction(
         currentUser?.name || currentUser?.userid || 'Staff',
         source === 'smart' ? 'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN' : 'HOUSEKEEPING_CUSTOMER_UPDATE',
-        `Updated customer information for Room ${roomId} on ${modal.serviceDate}`
+        `Updated customer information for Room ${roomId} on ${isoServiceDate}`
       );
       return true;
     } catch (error) {
@@ -2853,19 +3051,22 @@ export default function App() {
     setIsHousekeepingSmartSaving(true);
     setHousekeepingFeedback({ type: '', message: '' });
     try {
+      const rawServiceDate = String(housekeepingSmartResult.serviceDate || '').trim();
+      const isoServiceDate = normalizeDate(rawServiceDate, housekeepingMonth) || rawServiceDate;
+      const isoMonth = isoServiceDate.slice(0, 7);
       const customerBatch = writeBatch(db);
       housekeepingSmartResult.entries.forEach(entry => {
-        const cellKey = `${entry.roomId}|${housekeepingSmartResult.serviceDate}`;
+        const cellKey = `${entry.roomId}|${isoServiceDate}`;
         if (housekeepingInlineCustomerTimersRef.current[cellKey]) {
           clearTimeout(housekeepingInlineCustomerTimersRef.current[cellKey]);
           delete housekeepingInlineCustomerTimersRef.current[cellKey];
         }
         const room = housekeepingRooms.find(candidate => String(candidate.id) === entry.roomId);
         if (!room) return;
-        const recordId = `${housekeepingSmartResult.serviceDate}_${encodeURIComponent(entry.roomId)}`;
+        const recordId = `${isoServiceDate}_${encodeURIComponent(entry.roomId)}`;
         customerBatch.set(doc(db, 'housekeepingCustomerInfo', recordId), {
-          serviceDate: housekeepingSmartResult.serviceDate,
-          month: housekeepingSmartResult.serviceDate.slice(0, 7),
+          serviceDate: isoServiceDate,
+          month: isoMonth,
           roomId: entry.roomId,
           roomType: room.type || '',
           customerInfo1: String(entry.customerInfo[0] || '').trim().slice(0, 200),
@@ -2879,19 +3080,18 @@ export default function App() {
       await logSystemAction(
         currentUser?.name || currentUser?.userid || 'Staff',
         'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN',
-        `Auto keyed in ${housekeepingSmartResult.entries.length} room arrangement entries for ${housekeepingSmartResult.serviceDate}`
+        `Auto keyed in ${housekeepingSmartResult.entries.length} room arrangement entries for ${isoServiceDate}`
       );
-      const targetMonth = housekeepingSmartResult.serviceDate.slice(0, 7);
-      setHousekeepingMonth(targetMonth);
+      setHousekeepingMonth(isoMonth);
       setHousekeepingCustomerRecords(previous => {
         const nextMap = new Map(previous.map(r => [r.id, r]));
         housekeepingSmartResult.entries.forEach(entry => {
-          const recordId = `${housekeepingSmartResult.serviceDate}_${encodeURIComponent(entry.roomId)}`;
+          const recordId = `${isoServiceDate}_${encodeURIComponent(entry.roomId)}`;
           const room = housekeepingRooms.find(candidate => String(candidate.id) === entry.roomId);
           nextMap.set(recordId, {
             id: recordId,
-            serviceDate: housekeepingSmartResult.serviceDate,
-            month: targetMonth,
+            serviceDate: isoServiceDate,
+            month: isoMonth,
             roomId: entry.roomId,
             roomType: room?.type || '',
             customerInfo1: String(entry.customerInfo[0] || '').trim().slice(0, 200),

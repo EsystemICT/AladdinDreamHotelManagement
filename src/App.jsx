@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { auth, db, staffProvisioningAuth } from './firebase';
 import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc, deleteField, serverTimestamp, query, orderBy, where, getDocs, getDoc, limit, setDoc, writeBatch } from 'firebase/firestore';
 import { confirmPasswordReset, createUserWithEmailAndPassword, deleteUser, EmailAuthProvider, reauthenticateWithCredential, reload, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'firebase/auth';
@@ -3934,6 +3935,330 @@ export default function App() {
     }, 250);
   };
 
+  // --- EXPORT AUDIT TO EXCEL ---
+  const handleExportAuditExcel = () => {
+    if (!filteredAuditLogs || filteredAuditLogs.length === 0) {
+      alert("No audit log records to export.");
+      return;
+    }
+    const excelData = filteredAuditLogs.map(log => ({
+      "Date & Time": `${formatDate(log.timestamp)} ${formatTime(log.timestamp)}`,
+      "User": log.user || '',
+      "Action Type": log.action || '',
+      "Details": log.details || ''
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    worksheet['!cols'] = [
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 25 },
+      { wch: 60 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Audit Trail");
+    const monthStr = auditFilterMonth ? auditFilterMonth : getLocalIsoDate().substring(0, 7);
+    XLSX.writeFile(workbook, `System_Audit_Report_${monthStr}.xlsx`);
+  };
+
+  // --- PRINT HOUSEKEEPING REPORT ---
+  const handlePrintHousekeeping = () => {
+    const printWindow = window.open('', '', 'height=700,width=1000');
+    
+    let reportContent = `
+      <html>
+        <head>
+          <title>Housekeeping Schedule Report - ${housekeepingMonthDisplay}</title>
+          <style>
+            body { font-family: sans-serif; color: #333; padding: 20px; }
+            h1 { color: #1e3a8a; text-align: center; margin-bottom: 5px; }
+            .subtitle { text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+            th { background-color: #f4f4f4; color: #111; font-weight: bold; }
+            tr:nth-child(even) { background-color: #fafafa; }
+            .room-badge { font-weight: bold; color: #1e3a8a; }
+            .staff-list { color: #059669; font-weight: 500; }
+            .remark-list { color: #4b5563; font-style: italic; }
+            @media print {
+              body { padding: 0; }
+              @page { size: landscape; margin: 10mm; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Aladdin Dream Hotel - Housekeeping Schedule</h1>
+          <div class="subtitle">Month: ${housekeepingMonthDisplay} | Generated: ${new Date().toLocaleString('en-MY')}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Room</th>
+                <th>Room Type</th>
+                <th>Assigned Staff</th>
+                <th>Customer Remarks / Info</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    let hasData = false;
+    housekeepingCalendarDays.forEach(day => {
+      housekeepingRooms.forEach(room => {
+        const cellKey = `${room.id}|${day.dateKey}`;
+        const cellRecords = housekeepingCellRecordMap[cellKey] || [];
+        const customerRecord = housekeepingCustomerInfoMap[cellKey];
+        const draft = housekeepingInlineCustomerDrafts[cellKey];
+        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
+          ? draft
+          : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const customerInfo = inlineCustomerInfo.filter(Boolean);
+        
+        const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
+        
+        if (assignedNames.length > 0 || customerInfo.length > 0) {
+          hasData = true;
+          reportContent += `
+            <tr>
+              <td style="white-space:nowrap;"><b>${day.day} ${day.weekday}</b> (${calendarIsoToDisplay(day.dateKey)})</td>
+              <td class="room-badge">Room ${room.id}</td>
+              <td>${room.type || '-'}</td>
+              <td class="staff-list">${assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned'}</td>
+              <td class="remark-list">${customerInfo.length > 0 ? customerInfo.join(' | ') : '-'}</td>
+            </tr>
+          `;
+        }
+      });
+    });
+
+    if (!hasData) {
+      reportContent += `<tr><td colspan="5" style="text-align:center;">No housekeeping assignments or remarks found for ${housekeepingMonthDisplay}.</td></tr>`;
+    }
+
+    reportContent += `
+            </tbody>
+          </table>
+          <p style="text-align:center; font-size:0.8rem; color:#888; margin-top:30px;">
+            Aladdin Dream Hotel Management System
+          </p>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(reportContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 300);
+  };
+
+  // --- EXPORT HOUSEKEEPING TO EXCEL ---
+  const handleExportHousekeepingExcel = () => {
+    const rows = [];
+    
+    housekeepingCalendarDays.forEach(day => {
+      housekeepingRooms.forEach(room => {
+        const cellKey = `${room.id}|${day.dateKey}`;
+        const cellRecords = housekeepingCellRecordMap[cellKey] || [];
+        const customerRecord = housekeepingCustomerInfoMap[cellKey];
+        const draft = housekeepingInlineCustomerDrafts[cellKey];
+        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
+          ? draft
+          : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const customerInfo = inlineCustomerInfo.filter(Boolean);
+        
+        const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
+        
+        if (assignedNames.length > 0 || customerInfo.length > 0) {
+          rows.push({
+            "Date": calendarIsoToDisplay(day.dateKey),
+            "Day": day.weekday,
+            "Room Number": room.id,
+            "Room Type": room.type || '',
+            "Assigned Staff": assignedNames.join(', ') || 'Unassigned',
+            "Remark 1": inlineCustomerInfo[0] || '',
+            "Remark 2": inlineCustomerInfo[1] || ''
+          });
+        }
+      });
+    });
+
+    if (rows.length === 0) {
+      alert("No housekeeping records found to export for this month.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 14 },
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 15 },
+      { wch: 25 },
+      { wch: 30 },
+      { wch: 30 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Housekeeping Schedule");
+    XLSX.writeFile(workbook, `Housekeeping_Schedule_${housekeepingMonth}.xlsx`);
+  };
+
+  // --- PRINT LAUNDRY REPORT ---
+  const handlePrintLaundry = () => {
+    const printWindow = window.open('', '', 'height=700,width=1000');
+    
+    let reportContent = `
+      <html>
+        <head>
+          <title>Laundry & Stock Report - ${laundryStockMonthDisplay}</title>
+          <style>
+            body { font-family: sans-serif; color: #333; padding: 20px; }
+            h1 { color: #1e3a8a; text-align: center; margin-bottom: 5px; }
+            .subtitle { text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+            h2 { color: #1e3a8a; font-size: 1.1rem; margin-top: 25px; border-left: 4px solid #3b82f6; padding-left: 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f4f4f4; color: #111; font-weight: bold; }
+            tr:nth-child(even) { background-color: #fafafa; }
+            .num { text-align: right; }
+            .received { color: #059669; font-weight: bold; }
+            .given-out { color: #dc2626; font-weight: bold; }
+            .net-positive { color: #059669; font-weight: bold; }
+            .net-negative { color: #dc2626; font-weight: bold; }
+            @media print {
+              body { padding: 0; }
+              @page { size: landscape; margin: 10mm; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Aladdin Dream Hotel - Laundry & Stock Report</h1>
+          <div class="subtitle">
+            Period: ${hasLaundryStockDateFilter ? `${laundryStockStartDate} to ${laundryStockEndDate}` : laundryStockMonthDisplay} 
+            | Generated: ${new Date().toLocaleString('en-MY')}
+          </div>
+
+          <h2>1. Stock Movement Summary</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Item Name</th>
+                <th class="num">Total Received</th>
+                <th class="num">Total Given Out</th>
+                <th class="num">Net Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${monthlyLaundryStockSummary.map(s => `
+                <tr>
+                  <td><b>${s.item}</b></td>
+                  <td class="num received">+${s.received}</td>
+                  <td class="num given-out">-${s.givenOut}</td>
+                  <td class="num ${s.net < 0 ? 'net-negative' : 'net-positive'}">${s.net > 0 ? '+' : ''}${s.net}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <h2>2. Daily Movement Matrix</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                ${LAUNDRY_STOCK_ITEMS.map(item => `
+                  <th colspan="2" style="text-align:center;">${item}</th>
+                `).join('')}
+              </tr>
+              <tr>
+                <th></th>
+                ${LAUNDRY_STOCK_ITEMS.map(() => `
+                  <th class="num" style="font-size:0.75rem; color:#059669;">Recv</th>
+                  <th class="num" style="font-size:0.75rem; color:#dc2626;">Given</th>
+                `).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${laundryStockDailyRows.map(row => `
+                <tr>
+                  <td><b>${calendarIsoToDisplay(row.dateKey)}</b> (${row.day})</td>
+                  ${LAUNDRY_STOCK_ITEMS.map(item => {
+                    const dailyTotals = row.items[item] || { received: 0, givenOut: 0 };
+                    return `
+                      <td class="num ${dailyTotals.received > 0 ? 'received' : ''}">${dailyTotals.received || '-'}</td>
+                      <td class="num ${dailyTotals.givenOut > 0 ? 'given-out' : ''}">${dailyTotals.givenOut || '-'}</td>
+                    `;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <p style="text-align:center; font-size:0.8rem; color:#888; margin-top:30px;">
+            Aladdin Dream Hotel Management System
+          </p>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(reportContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 300);
+  };
+
+  // --- EXPORT LAUNDRY TO EXCEL ---
+  const handleExportLaundryExcel = () => {
+    const workbook = XLSX.utils.book_new();
+
+    // Sheet 1: Summary Table
+    const summaryRows = monthlyLaundryStockSummary.map(s => ({
+      "Item Name": s.item,
+      "Total Received": s.received,
+      "Total Given Out": s.givenOut,
+      "Net Balance": s.net
+    }));
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    wsSummary['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+    XLSX.utils.book_append_sheet(workbook, wsSummary, "Summary");
+
+    // Sheet 2: Daily Matrix
+    const dailyMatrixRows = laundryStockDailyRows.map(row => {
+      const rowObj = {
+        "Date": calendarIsoToDisplay(row.dateKey),
+        "Day": row.day
+      };
+      LAUNDRY_STOCK_ITEMS.forEach(item => {
+        const dailyTotals = row.items[item] || { received: 0, givenOut: 0 };
+        rowObj[`${item} (Recv)`] = dailyTotals.received;
+        rowObj[`${item} (Given)`] = dailyTotals.givenOut;
+      });
+      return rowObj;
+    });
+    const wsDaily = XLSX.utils.json_to_sheet(dailyMatrixRows);
+    XLSX.utils.book_append_sheet(workbook, wsDaily, "Daily Movements");
+
+    // Sheet 3: Movement Log Records (if any)
+    if (filteredLaundryStockMovements && filteredLaundryStockMovements.length > 0) {
+      const movementRows = filteredLaundryStockMovements.map(m => ({
+        "Date": m.date || '',
+        "Item": m.item || '',
+        "Movement Type": m.type === 'received' ? 'Received' : 'Given Out',
+        "Quantity": m.qty || 0,
+        "Staff": m.staffName || '',
+        "Remark": m.remark || ''
+      }));
+      const wsMovements = XLSX.utils.json_to_sheet(movementRows);
+      XLSX.utils.book_append_sheet(workbook, wsMovements, "Movement Records");
+    }
+
+    const fileNameStr = hasLaundryStockDateFilter
+      ? `Laundry_Stock_Report_${laundryStockStartDate}_to_${laundryStockEndDate}.xlsx`
+      : `Laundry_Stock_Report_${laundryStockMonth}.xlsx`;
+
+    XLSX.writeFile(workbook, fileNameStr);
+  };
+
   // --- DATA PROCESSING ---
   const filteredAttSessions = allAttSessions.filter(s => {
     let match = true;
@@ -5003,10 +5328,18 @@ export default function App() {
                 <h3>{laundryStockMonthDisplay} Daily Stock Table</h3>
                 <small className="laundry-stock-inline-help">Enter quantities directly in the table, then save that date. Staff is recorded automatically as {currentUser.name}.</small>
               </div>
-              <div className="laundry-stock-month-totals">
-                <span className="received">Received <b>+{monthlyLaundryStockTotals.received}</b></span>
-                <span className="given-out">Given Out <b>-{monthlyLaundryStockTotals.givenOut}</b></span>
-                <span className={monthlyLaundryStockTotals.net < 0 ? 'net negative' : 'net'}>Net <b>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</b></span>
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+                <button className="btn grey" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handlePrintLaundry}>
+                  <i className="fa-solid fa-print"></i> Print Report
+                </button>
+                <button className="btn green" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handleExportLaundryExcel}>
+                  <i className="fa-solid fa-file-excel"></i> Export Excel
+                </button>
+                <div className="laundry-stock-month-totals">
+                  <span className="received">Received <b>+{monthlyLaundryStockTotals.received}</b></span>
+                  <span className="given-out">Given Out <b>-{monthlyLaundryStockTotals.givenOut}</b></span>
+                  <span className={monthlyLaundryStockTotals.net < 0 ? 'net negative' : 'net'}>Net <b>{monthlyLaundryStockTotals.net > 0 ? '+' : ''}{monthlyLaundryStockTotals.net}</b></span>
+                </div>
               </div>
             </div>
             <div className="laundry-stock-table-filter" role="group" aria-label="Laundry Stock table date filters">
@@ -5496,7 +5829,15 @@ export default function App() {
                 <p>MONTHLY ROOM SCHEDULE</p>
                 <h3>{housekeepingMonthDisplay}</h3>
               </div>
-              <span><i className="fa-solid fa-arrows-left-right"></i> Scroll sideways to view all {housekeepingDaysInMonth} days</span>
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+                <button className="btn grey" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handlePrintHousekeeping}>
+                  <i className="fa-solid fa-print"></i> Print Report
+                </button>
+                <button className="btn green" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handleExportHousekeepingExcel}>
+                  <i className="fa-solid fa-file-excel"></i> Export Excel
+                </button>
+                <span><i className="fa-solid fa-arrows-left-right"></i> Scroll sideways to view all {housekeepingDaysInMonth} days</span>
+              </div>
             </div>
 
             <div className="housekeeping-calendar-wrap">
@@ -6914,9 +7255,14 @@ export default function App() {
           <div className="floor-section" style={{marginTop: '20px'}}>
             <h2 className="floor-title">
               <span><i className="fa-solid fa-list-check"></i> System Audit Trail</span>
-              <button className="btn grey" style={{fontSize: '0.8rem', padding: '6px 12px'}} onClick={handlePrintAudit}>
-                <i className="fa-solid fa-print"></i> Print Report
-              </button>
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                <button className="btn grey" style={{fontSize: '0.8rem', padding: '6px 12px'}} onClick={handlePrintAudit}>
+                  <i className="fa-solid fa-print"></i> Print Report
+                </button>
+                <button className="btn green" style={{fontSize: '0.8rem', padding: '6px 12px'}} onClick={handleExportAuditExcel}>
+                  <i className="fa-solid fa-file-excel"></i> Export Excel
+                </button>
+              </div>
             </h2>
 
             <div className="filter-bar" style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'15px', background:'#f9f9f9', padding:'10px', borderRadius:'8px', border:'1px solid #eee'}}>

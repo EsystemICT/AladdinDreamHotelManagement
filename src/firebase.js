@@ -3,18 +3,17 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Hotel records and email/password accounts use the same Firebase project.
+// Existing hotel records remain in the original Firestore project.
 const firestoreConfig = {
-  apiKey: "AIzaSyCXBESP_6RiK863eCabD02YLKYW_bajkBg",
-  authDomain: "new-portal-14fcc.firebaseapp.com",
-  projectId: "new-portal-14fcc",
-  storageBucket: "new-portal-14fcc.firebasestorage.app",
-  messagingSenderId: "168705166984",
-  appId: "1:168705166984:web:46cca45eb346b8b481193d",
-  measurementId: "G-2HCGCSRVG3"
+  apiKey: "AIzaSyA2B9FPumPp_KFKxp-71l_osXvbd_qiKXg",
+  authDomain: "hotel-ops-system.firebaseapp.com",
+  projectId: "hotel-ops-system",
+  storageBucket: "hotel-ops-system.firebasestorage.app",
+  messagingSenderId: "83606842421",
+  appId: "1:83606842421:web:0d1a4057a83f9f4a23957c"
 };
 
-// Email/password accounts and password-reset emails use this project too.
+// Email/password accounts and password-reset emails use the new Auth project.
 const authConfig = {
   apiKey: "AIzaSyCXBESP_6RiK863eCabD02YLKYW_bajkBg",
   authDomain: "new-portal-14fcc.firebaseapp.com",

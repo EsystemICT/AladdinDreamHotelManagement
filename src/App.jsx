@@ -371,9 +371,13 @@ const calendarIsoToDisplay = (value) => {
 };
 
 const calendarDisplayToIso = (value) => {
-  const match = (value || '').trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  const normalizedValue = (value || '').trim();
+  const match = normalizedValue.match(/^(?:([0-9]{1,2})[/-]([0-9]{1,2})[/-]([0-9]{4})|([0-9]{2})([0-9]{2})([0-9]{4}))$/);
   if (!match) return '';
-  const [, day, month, year] = match;
+  const [, separatedDay, separatedMonth, separatedYear, compactDay, compactMonth, compactYear] = match;
+  const day = separatedDay || compactDay;
+  const month = separatedMonth || compactMonth;
+  const year = separatedYear || compactYear;
   const isoValue = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   return isValidCalendarDate(isoValue) ? isoValue : '';
 };
@@ -509,8 +513,9 @@ const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
           type="text"
           value={displayValue}
           onChange={(event) => {
-            setDisplayValue(event.target.value);
-            setIsoValue(calendarDisplayToIso(event.target.value));
+            const nextIsoValue = calendarDisplayToIso(event.target.value);
+            setDisplayValue(nextIsoValue ? calendarIsoToDisplay(nextIsoValue) : event.target.value);
+            setIsoValue(nextIsoValue);
           }}
           placeholder="DD/MM/YYYY"
           inputMode="numeric"
@@ -532,7 +537,7 @@ const CalendarDateField = ({ name, idPrefix, ariaLabel }) => {
             setDisplayValue(calendarIsoToDisplay(event.target.value));
           }}
           tabIndex="-1"
-          aria-hidden="true"
+          aria-label={`Choose ${ariaLabel} from calendar`}
         />
       </div>
       <input ref={hiddenInputRef} type="hidden" name={name} value={isoValue} readOnly />

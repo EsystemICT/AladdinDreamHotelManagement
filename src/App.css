@@ -745,14 +745,15 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: #ddbd88
 .profile-calendar-btn:hover { background: #bfdbfe; }
 .profile-native-date-picker {
   position: absolute;
-  right: 14px;
-  bottom: 2px;
-  width: 1px;
-  height: 1px;
+  z-index: 1;
+  right: 7px;
+  top: 6px;
+  width: 34px;
+  height: 34px;
   margin: 0;
   padding: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
 }
 .profile-date-help { display: block; margin-top: 5px; color: #64748b; font-size: 0.7rem; }
 .profile-input-wrap {

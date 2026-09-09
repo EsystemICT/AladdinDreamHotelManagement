@@ -2817,6 +2817,136 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-auto-save-status.saving { color: #8b5b0b; background: #fffbeb; border-color: #f2d69a; }
 .housekeeping-auto-save-status.saved { color: #087054; background: #ecfdf5; border-color: #b7e8d3; }
 .housekeeping-auto-save-status.error { color: #a1273a; background: #fff1f2; border-color: #f0c0c8; }
+.housekeeping-table-filter {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  background: var(--hotel-ivory-100);
+  border: 1px solid var(--hotel-line);
+  border-radius: 11px;
+}
+.housekeeping-table-filter label {
+  display: grid;
+  gap: 5px;
+  color: var(--hotel-slate-600);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.housekeeping-table-filter input {
+  width: 150px;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 10px;
+}
+.housekeeping-show-all {
+  min-height: 40px;
+  margin: 0;
+  white-space: nowrap;
+}
+.housekeeping-table-filter > small {
+  margin: 0 0 10px auto;
+  color: var(--hotel-slate-500);
+  font-size: 0.72rem;
+}
+
+/* Housekeeping Print Modal */
+.housekeeping-print-modal {
+  max-width: 520px;
+  width: 92%;
+  position: relative;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.22);
+}
+.housekeeping-print-modal-body {
+  padding: 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.housekeeping-print-date-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+.housekeeping-print-date-range label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+}
+.housekeeping-print-date-range input[type="date"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  background: #ffffff;
+  color: #0f172a;
+}
+.housekeeping-print-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.housekeeping-print-presets .preset-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-right: 4px;
+}
+.housekeeping-print-presets .preset-btn {
+  font-size: 0.76rem;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+.housekeeping-print-presets .preset-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.housekeeping-print-summary-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.housekeeping-print-summary-box .summary-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: #166534;
+}
+.housekeeping-print-summary-box .summary-item i {
+  color: #15803d;
+  font-size: 0.95rem;
+  width: 18px;
+  text-align: center;
+}
+.housekeeping-print-options {
+  padding: 2px 4px;
+}
 
 /* Help centre */
 .help-dialog-icon {
@@ -3099,6 +3229,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-summary-heading { align-items: flex-start; flex-direction: column; }
   .laundry-stock-table-filter { flex-wrap: wrap; }
   .laundry-stock-table-filter > small { width: 100%; margin: 0; }
+  .housekeeping-table-filter { flex-wrap: wrap; }
+  .housekeeping-table-filter > small { width: 100%; margin: 0; }
   .laundry-stock-month-table-wrap { display: none; }
   .laundry-stock-mobile-table { display: block; }
   .housekeeping-title-row { flex-direction: column; }
@@ -3141,6 +3273,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .laundry-stock-table-filter { align-items: stretch; flex-direction: column; }
   .laundry-stock-table-filter input { width: 100%; box-sizing: border-box; }
   .laundry-stock-show-all { justify-content: center; width: 100%; }
+  .housekeeping-table-filter { align-items: stretch; flex-direction: column; }
+  .housekeeping-table-filter input { width: 100%; box-sizing: border-box; }
+  .housekeeping-show-all { justify-content: center; width: 100%; }
+  .housekeeping-print-date-range { flex-direction: column; }
   .mobile-stock-item-row { padding-inline: 7px; }
   .mobile-stock-column-headings { padding-inline: 7px; }
   .housekeeping-summary-grid { grid-template-columns: 1fr; gap: 7px; }

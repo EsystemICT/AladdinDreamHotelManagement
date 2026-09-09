@@ -394,6 +394,13 @@ const monthDisplayToIso = (value) => {
   return `${match[2]}-${match[1].padStart(2, '0')}`;
 };
 
+const calculateDateSpan = (start, end) => {
+  if (!start || !end) return 0;
+  const s = new Date(`${start}T00:00:00`);
+  const e = new Date(`${end}T00:00:00`);
+  return Math.max(1, Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1);
+};
+
 const getLocalIsoDate = (date = new Date()) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
@@ -1112,6 +1119,12 @@ export default function App() {
   const [housekeepingInlineCustomerDrafts, setHousekeepingInlineCustomerDrafts] = useState({});
   const [housekeepingPendingCustomerCells, setHousekeepingPendingCustomerCells] = useState({});
   const [housekeepingActiveCell, setHousekeepingActiveCell] = useState(null);
+  const [housekeepingStartDate, setHousekeepingStartDate] = useState('');
+  const [housekeepingEndDate, setHousekeepingEndDate] = useState('');
+  const [showHousekeepingPrintModal, setShowHousekeepingPrintModal] = useState(false);
+  const [housekeepingPrintStartDate, setHousekeepingPrintStartDate] = useState('');
+  const [housekeepingPrintEndDate, setHousekeepingPrintEndDate] = useState('');
+  const [housekeepingPrintOnlyAssigned, setHousekeepingPrintOnlyAssigned] = useState(true);
   const housekeepingAutoSaveTimerRef = useRef(null);
   const housekeepingCustomerAutoSaveTimerRef = useRef(null);
   const housekeepingInlineCustomerTimersRef = useRef({});
@@ -2751,6 +2764,8 @@ export default function App() {
     if (housekeepingCustomerAutoSaveTimerRef.current) clearTimeout(housekeepingCustomerAutoSaveTimerRef.current.timerId);
     housekeepingCustomerAutoSaveTimerRef.current = null;
     setHousekeepingMonth(nextMonth);
+    setHousekeepingStartDate('');
+    setHousekeepingEndDate('');
     setHousekeepingFeedback({ type: '', message: '' });
     setHousekeepingStaffModal(null);
     setHousekeepingAutoSaveStatus('idle');
@@ -3968,48 +3983,80 @@ export default function App() {
   };
 
   // --- PRINT HOUSEKEEPING REPORT ---
-  const handlePrintHousekeeping = () => {
+  const handlePrintHousekeeping = (startDate = '', endDate = '', onlyAssigned = true) => {
     const printWindow = window.open('', '', 'height=700,width=1000');
-    
+    if (!printWindow) {
+      alert("Please allow popups to print the report.");
+      return;
+    }
+
+    const effectiveStartDate = startDate || housekeepingMonthStart;
+    const effectiveEndDate = endDate || housekeepingMonthEnd;
+
+    const daysToPrint = housekeepingCalendarDays.filter(day => {
+      if (effectiveStartDate && day.dateKey < effectiveStartDate) return false;
+      if (effectiveEndDate && day.dateKey > effectiveEndDate) return false;
+      return true;
+    });
+
+    const isSingleDay = effectiveStartDate === effectiveEndDate;
+    const periodDisplay = isSingleDay
+      ? `${calendarIsoToDisplay(effectiveStartDate)}`
+      : `${calendarIsoToDisplay(effectiveStartDate)} to ${calendarIsoToDisplay(effectiveEndDate)} (${daysToPrint.length} days)`;
+
     let reportContent = `
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>Housekeeping Schedule Report - ${housekeepingMonthDisplay}</title>
+          <meta charset="utf-8">
+          <title>Housekeeping Schedule Report - ${periodDisplay}</title>
           <style>
-            body { font-family: sans-serif; color: #333; padding: 20px; }
-            h1 { color: #1e3a8a; text-align: center; margin-bottom: 5px; }
-            .subtitle { text-align: center; color: #666; font-size: 0.9rem; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
-            th { background-color: #f4f4f4; color: #111; font-weight: bold; }
-            tr:nth-child(even) { background-color: #fafafa; }
-            .room-badge { font-weight: bold; color: #1e3a8a; }
-            .staff-list { color: #059669; font-weight: 500; }
-            .remark-list { color: #4b5563; font-style: italic; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; padding: 24px; margin: 0; background: #fff; }
+            .header-container { border-bottom: 2px solid #0f766e; padding-bottom: 12px; margin-bottom: 16px; }
+            h1 { color: #0f766e; margin: 0 0 6px 0; font-size: 1.6rem; }
+            .subtitle { color: #64748b; font-size: 0.88rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+            .subtitle-period { font-weight: 700; color: #0f172a; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85rem; }
+            th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+            th { background-color: #f1f5f9; color: #0f172a; font-weight: 700; }
+            tr:nth-child(even) { background-color: #f8fafc; }
+            .date-badge { font-weight: 600; color: #334155; white-space: nowrap; }
+            .room-badge { font-weight: 700; color: #0369a1; white-space: nowrap; }
+            .staff-list { color: #047857; font-weight: 600; }
+            .staff-unassigned { color: #94a3b8; font-style: italic; }
+            .remark-list { color: #334155; font-style: italic; }
+            .footer { text-align: center; font-size: 0.78rem; color: #94a3b8; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
             @media print {
               body { padding: 0; }
-              @page { size: landscape; margin: 10mm; }
+              @page { size: portrait; margin: 12mm 10mm; }
+              .header-container { border-bottom: 2px solid #333; }
+              th { background-color: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             }
           </style>
         </head>
         <body>
-          <h1>Aladdin Dream Hotel - Housekeeping Schedule</h1>
-          <div class="subtitle">Month: ${housekeepingMonthDisplay} | Generated: ${new Date().toLocaleString('en-MY')}</div>
+          <div class="header-container">
+            <h1>Aladdin Dream Hotel - Housekeeping Schedule</h1>
+            <div class="subtitle">
+              <span>Period: <span class="subtitle-period">${periodDisplay}</span></span>
+              <span>Generated: ${new Date().toLocaleString('en-MY')}</span>
+            </div>
+          </div>
           <table>
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Room</th>
-                <th>Room Type</th>
-                <th>Assigned Staff</th>
-                <th>Customer Remarks / Info</th>
+                <th style="width: 18%;">Date</th>
+                <th style="width: 12%;">Room</th>
+                <th style="width: 14%;">Room Type</th>
+                <th style="width: 26%;">Assigned Staff</th>
+                <th style="width: 30%;">Customer Remarks / Info</th>
               </tr>
             </thead>
             <tbody>
     `;
 
-    let hasData = false;
-    housekeepingCalendarDays.forEach(day => {
+    let totalEntries = 0;
+    daysToPrint.forEach(day => {
       housekeepingRooms.forEach(room => {
         const cellKey = `${room.id}|${day.dateKey}`;
         const cellRecords = housekeepingCellRecordMap[cellKey] || [];
@@ -4021,32 +4068,34 @@ export default function App() {
         const customerInfo = inlineCustomerInfo.filter(Boolean);
         
         const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
-        
-        if (assignedNames.length > 0 || customerInfo.length > 0) {
-          hasData = true;
+        const hasAssignment = assignedNames.length > 0;
+        const hasRemark = customerInfo.length > 0;
+
+        if (!onlyAssigned || hasAssignment || hasRemark) {
+          totalEntries++;
           reportContent += `
             <tr>
-              <td style="white-space:nowrap;"><b>${day.day} ${day.weekday}</b> (${calendarIsoToDisplay(day.dateKey)})</td>
+              <td class="date-badge"><b>${day.day} ${day.weekday}</b><br><small style="color:#64748b;">${calendarIsoToDisplay(day.dateKey)}</small></td>
               <td class="room-badge">Room ${room.id}</td>
               <td>${room.type || '-'}</td>
-              <td class="staff-list">${assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned'}</td>
-              <td class="remark-list">${customerInfo.length > 0 ? customerInfo.join(' | ') : '-'}</td>
+              <td class="${hasAssignment ? 'staff-list' : 'staff-unassigned'}">${hasAssignment ? assignedNames.join(', ') : 'Unassigned'}</td>
+              <td class="remark-list">${hasRemark ? customerInfo.join(' | ') : '-'}</td>
             </tr>
           `;
         }
       });
     });
 
-    if (!hasData) {
-      reportContent += `<tr><td colspan="5" style="text-align:center;">No housekeeping assignments or remarks found for ${housekeepingMonthDisplay}.</td></tr>`;
+    if (totalEntries === 0) {
+      reportContent += `<tr><td colspan="5" style="text-align:center; padding: 24px; color: #64748b;">No housekeeping records found for the period ${periodDisplay}.</td></tr>`;
     }
 
     reportContent += `
             </tbody>
           </table>
-          <p style="text-align:center; font-size:0.8rem; color:#888; margin-top:30px;">
-            Aladdin Dream Hotel Management System
-          </p>
+          <div class="footer">
+            Aladdin Dream Hotel Management System &bull; Total ${totalEntries} record(s) listed
+          </div>
         </body>
       </html>
     `;
@@ -4058,10 +4107,18 @@ export default function App() {
   };
 
   // --- EXPORT HOUSEKEEPING TO EXCEL ---
-  const handleExportHousekeepingExcel = () => {
+  const handleExportHousekeepingExcel = (startDate = '', endDate = '', onlyAssigned = true) => {
     const rows = [];
+    const effectiveStartDate = startDate || housekeepingMonthStart;
+    const effectiveEndDate = endDate || housekeepingMonthEnd;
+
+    const daysToExport = housekeepingCalendarDays.filter(day => {
+      if (effectiveStartDate && day.dateKey < effectiveStartDate) return false;
+      if (effectiveEndDate && day.dateKey > effectiveEndDate) return false;
+      return true;
+    });
     
-    housekeepingCalendarDays.forEach(day => {
+    daysToExport.forEach(day => {
       housekeepingRooms.forEach(room => {
         const cellKey = `${room.id}|${day.dateKey}`;
         const cellRecords = housekeepingCellRecordMap[cellKey] || [];
@@ -4073,14 +4130,16 @@ export default function App() {
         const customerInfo = inlineCustomerInfo.filter(Boolean);
         
         const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
-        
-        if (assignedNames.length > 0 || customerInfo.length > 0) {
+        const hasAssignment = assignedNames.length > 0;
+        const hasRemark = customerInfo.length > 0;
+
+        if (!onlyAssigned || hasAssignment || hasRemark) {
           rows.push({
             "Date": calendarIsoToDisplay(day.dateKey),
             "Day": day.weekday,
             "Room Number": room.id,
             "Room Type": room.type || '',
-            "Assigned Staff": assignedNames.join(', ') || 'Unassigned',
+            "Assigned Staff": hasAssignment ? assignedNames.join(', ') : 'Unassigned',
             "Remark 1": inlineCustomerInfo[0] || '',
             "Remark 2": inlineCustomerInfo[1] || ''
           });
@@ -4089,7 +4148,7 @@ export default function App() {
     });
 
     if (rows.length === 0) {
-      alert("No housekeeping records found to export for this month.");
+      alert("No housekeeping records found to export for the selected date range.");
       return;
     }
 
@@ -4106,7 +4165,11 @@ export default function App() {
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Housekeeping Schedule");
-    XLSX.writeFile(workbook, `Housekeeping_Schedule_${housekeepingMonth}.xlsx`);
+    const hasDateFilter = Boolean(startDate || endDate);
+    const fileNameStr = hasDateFilter
+      ? `Housekeeping_Schedule_${effectiveStartDate}_to_${effectiveEndDate}.xlsx`
+      : `Housekeeping_Schedule_${housekeepingMonth}.xlsx`;
+    XLSX.writeFile(workbook, fileNameStr);
   };
 
   // --- PRINT LAUNDRY REPORT ---
@@ -4447,6 +4510,9 @@ export default function App() {
     .sort((a, b) => (a.name || a.userid || '').localeCompare(b.name || b.userid || ''));
   const [housekeepingYear, housekeepingMonthNumber] = housekeepingMonth.split('-').map(Number);
   const housekeepingDaysInMonth = new Date(housekeepingYear, housekeepingMonthNumber, 0).getDate();
+  const housekeepingMonthStart = `${housekeepingMonth}-01`;
+  const housekeepingMonthEnd = `${housekeepingMonth}-${String(housekeepingDaysInMonth).padStart(2, '0')}`;
+  const hasHousekeepingDateFilter = Boolean(housekeepingStartDate || housekeepingEndDate);
   const housekeepingCalendarDays = Array.from({ length: housekeepingDaysInMonth }, (_, index) => {
     const day = index + 1;
     const dateKey = `${housekeepingMonth}-${String(day).padStart(2, '0')}`;
@@ -4457,6 +4523,11 @@ export default function App() {
       weekday: date.toLocaleDateString('en-MY', { weekday: 'short' }),
       isWeekend: date.getDay() === 0 || date.getDay() === 6
     };
+  });
+  const displayedHousekeepingDays = housekeepingCalendarDays.filter(day => {
+    if (housekeepingStartDate && day.dateKey < housekeepingStartDate) return false;
+    if (housekeepingEndDate && day.dateKey > housekeepingEndDate) return false;
+    return true;
   });
   const housekeepingCellRecordMap = housekeepingRecords.reduce((cellMap, record) => {
     if (!record.serviceDate || record.roomId === undefined || record.roomId === null) return cellMap;
@@ -4481,6 +4552,39 @@ export default function App() {
   const housekeepingAssignedCells = Object.keys(housekeepingCellRecordMap).length;
   const housekeepingMonthDisplay = monthIsoToDisplay(housekeepingMonth);
   const todayIsoDate = getLocalIsoDate();
+
+  const handleOpenHousekeepingPrintModal = () => {
+    const todayStr = getLocalIsoDate();
+    const defaultStart = housekeepingStartDate || (todayStr.startsWith(housekeepingMonth) ? todayStr : housekeepingMonthStart);
+    const defaultEnd = housekeepingEndDate || (todayStr.startsWith(housekeepingMonth) ? todayStr : housekeepingMonthEnd);
+    setHousekeepingPrintStartDate(defaultStart);
+    setHousekeepingPrintEndDate(defaultEnd);
+    setHousekeepingPrintOnlyAssigned(true);
+    setShowHousekeepingPrintModal(true);
+  };
+
+  const housekeepingPrintMatchingCount = useMemo(() => {
+    if (!housekeepingPrintStartDate || !housekeepingPrintEndDate) return 0;
+    let count = 0;
+    housekeepingCalendarDays.forEach(day => {
+      if (day.dateKey < housekeepingPrintStartDate || day.dateKey > housekeepingPrintEndDate) return;
+      housekeepingRooms.forEach(room => {
+        const cellKey = `${room.id}|${day.dateKey}`;
+        const cellRecords = housekeepingCellRecordMap[cellKey] || [];
+        const customerRecord = housekeepingCustomerInfoMap[cellKey];
+        const draft = housekeepingInlineCustomerDrafts[cellKey];
+        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
+          ? draft
+          : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const customerInfo = inlineCustomerInfo.filter(Boolean);
+        const assignedNames = cellRecords.map(record => record.staffName || record.staffId).filter(Boolean);
+        if (!housekeepingPrintOnlyAssigned || assignedNames.length > 0 || customerInfo.length > 0) {
+          count++;
+        }
+      });
+    });
+    return count;
+  }, [housekeepingPrintStartDate, housekeepingPrintEndDate, housekeepingPrintOnlyAssigned, housekeepingCalendarDays, housekeepingRooms, housekeepingCellRecordMap, housekeepingCustomerInfoMap, housekeepingInlineCustomerDrafts]);
 
   const todayDateString = currentTime.toLocaleDateString('en-MY');
   const todaysAttendanceMap = {};
@@ -5835,14 +5939,65 @@ export default function App() {
                 <h3>{housekeepingMonthDisplay}</h3>
               </div>
               <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
-                <button className="btn grey" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handlePrintHousekeeping}>
+                <button className="btn grey" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handleOpenHousekeepingPrintModal}>
                   <i className="fa-solid fa-print"></i> Print Report
                 </button>
-                <button className="btn green" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handleExportHousekeepingExcel}>
+                <button className="btn green" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={() => handleExportHousekeepingExcel(housekeepingStartDate, housekeepingEndDate)}>
                   <i className="fa-solid fa-file-excel"></i> Export Excel
                 </button>
-                <span><i className="fa-solid fa-arrows-left-right"></i> Scroll sideways to view all {housekeepingDaysInMonth} days</span>
+                <span><i className="fa-solid fa-arrows-left-right"></i> {hasHousekeepingDateFilter ? `Showing ${displayedHousekeepingDays.length} of ${housekeepingDaysInMonth} days` : `Scroll sideways to view all ${housekeepingDaysInMonth} days`}</span>
               </div>
+            </div>
+
+            <div className="housekeeping-table-filter" role="group" aria-label="Housekeeping schedule date filters">
+              <label>
+                <span>Start Date</span>
+                <input
+                  type="date"
+                  value={housekeepingStartDate}
+                  min={housekeepingMonthStart}
+                  max={housekeepingEndDate || housekeepingMonthEnd}
+                  onChange={event => {
+                    const selectedDate = event.target.value;
+                    setHousekeepingStartDate(selectedDate);
+                    if (selectedDate && (!housekeepingEndDate || housekeepingEndDate < selectedDate)) {
+                      setHousekeepingEndDate(selectedDate);
+                    }
+                  }}
+                />
+              </label>
+              <label>
+                <span>End Date</span>
+                <input
+                  type="date"
+                  value={housekeepingEndDate}
+                  min={housekeepingStartDate || housekeepingMonthStart}
+                  max={housekeepingMonthEnd}
+                  onChange={event => {
+                    const selectedDate = event.target.value;
+                    setHousekeepingEndDate(selectedDate);
+                    if (selectedDate && (!housekeepingStartDate || housekeepingStartDate > selectedDate)) {
+                      setHousekeepingStartDate(selectedDate);
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn grey housekeeping-show-all"
+                onClick={() => {
+                  setHousekeepingStartDate('');
+                  setHousekeepingEndDate('');
+                }}
+                disabled={!hasHousekeepingDateFilter}
+              >
+                <i className="fa-solid fa-list"></i> Show All
+              </button>
+              <small>
+                {hasHousekeepingDateFilter
+                  ? `Showing ${displayedHousekeepingDays.length} of ${housekeepingDaysInMonth} days (${calendarIsoToDisplay(housekeepingStartDate)} - ${calendarIsoToDisplay(housekeepingEndDate)}).`
+                  : `Showing all ${housekeepingDaysInMonth} days of ${housekeepingMonthDisplay}.`}
+              </small>
             </div>
 
             <div className="housekeeping-calendar-wrap">
@@ -5853,7 +6008,7 @@ export default function App() {
                   <thead>
                     <tr>
                       <th className="housekeeping-room-column"><span>Room</span></th>
-                      {housekeepingCalendarDays.map(day => (
+                      {displayedHousekeepingDays.map(day => (
                         <th
                           key={day.dateKey}
                           className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${housekeepingActiveCell?.serviceDate === day.dateKey ? 'active-column-header' : ''}`}
@@ -5871,7 +6026,7 @@ export default function App() {
                           <strong>{room.id}</strong>
                           {room.type && <small>{room.type}</small>}
                         </th>
-                        {housekeepingCalendarDays.map(day => {
+                        {displayedHousekeepingDays.map(day => {
                           const cellKey = `${room.id}|${day.dateKey}`;
                           const cellRecords = housekeepingCellRecordMap[cellKey] || [];
                           const customerRecord = housekeepingCustomerInfoMap[cellKey];
@@ -7324,6 +7479,193 @@ export default function App() {
       )}
 
       {/* --- MODALS --- */}
+      {showHousekeepingPrintModal && (
+        <div className="modal-overlay" onClick={() => setShowHousekeepingPrintModal(false)}>
+          <div
+            className="modal-content housekeeping-print-modal"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="housekeeping-staff-modal-heading">
+              <div>
+                <p>HOUSEKEEPING REPORT</p>
+                <h2>Print Schedule Report</h2>
+                <span>{housekeepingMonthDisplay}</span>
+              </div>
+              <button
+                type="button"
+                className="profile-close-btn"
+                onClick={() => setShowHousekeepingPrintModal(false)}
+                aria-label="Close print dialog"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <div className="housekeeping-print-modal-body">
+              <div className="housekeeping-print-date-range">
+                <label>
+                  <span>Start Date (從)</span>
+                  <input
+                    type="date"
+                    value={housekeepingPrintStartDate}
+                    min={housekeepingMonthStart}
+                    max={housekeepingPrintEndDate || housekeepingMonthEnd}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setHousekeepingPrintStartDate(val);
+                      if (val && (!housekeepingPrintEndDate || housekeepingPrintEndDate < val)) {
+                        setHousekeepingPrintEndDate(val);
+                      }
+                    }}
+                  />
+                </label>
+                <div className="date-range-separator" style={{alignSelf: 'center', color: '#64748b', paddingTop: '16px'}}>
+                  <i className="fa-solid fa-arrow-right"></i>
+                </div>
+                <label>
+                  <span>End Date (到)</span>
+                  <input
+                    type="date"
+                    value={housekeepingPrintEndDate}
+                    min={housekeepingPrintStartDate || housekeepingMonthStart}
+                    max={housekeepingMonthEnd}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setHousekeepingPrintEndDate(val);
+                      if (val && (!housekeepingPrintStartDate || housekeepingPrintStartDate > val)) {
+                        setHousekeepingPrintStartDate(val);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Quick Date Presets */}
+              <div className="housekeeping-print-presets">
+                <span className="preset-label">Quick Select:</span>
+                <button
+                  type="button"
+                  className="btn grey preset-btn"
+                  onClick={() => {
+                    const todayStr = getLocalIsoDate();
+                    const d = todayStr.startsWith(housekeepingMonth) ? todayStr : housekeepingMonthStart;
+                    setHousekeepingPrintStartDate(d);
+                    setHousekeepingPrintEndDate(d);
+                  }}
+                >
+                  <i className="fa-regular fa-calendar-check"></i> Today
+                </button>
+                <button
+                  type="button"
+                  className="btn grey preset-btn"
+                  onClick={() => {
+                    const tmr = new Date();
+                    tmr.setDate(tmr.getDate() + 1);
+                    const tmrStr = getLocalIsoDate(tmr);
+                    const d = tmrStr.startsWith(housekeepingMonth) ? tmrStr : housekeepingMonthStart;
+                    setHousekeepingPrintStartDate(d);
+                    setHousekeepingPrintEndDate(d);
+                  }}
+                >
+                  <i className="fa-solid fa-calendar-day"></i> Tomorrow
+                </button>
+                <button
+                  type="button"
+                  className="btn grey preset-btn"
+                  onClick={() => {
+                    const todayStr = getLocalIsoDate();
+                    const startStr = todayStr.startsWith(housekeepingMonth) ? todayStr : housekeepingMonthStart;
+                    const sDate = new Date(`${startStr}T00:00:00`);
+                    sDate.setDate(sDate.getDate() + 6);
+                    const calculatedEnd = getLocalIsoDate(sDate);
+                    const endStr = calculatedEnd > housekeepingMonthEnd ? housekeepingMonthEnd : calculatedEnd;
+                    setHousekeepingPrintStartDate(startStr);
+                    setHousekeepingPrintEndDate(endStr);
+                  }}
+                >
+                  <i className="fa-solid fa-calendar-week"></i> Next 7 Days
+                </button>
+                <button
+                  type="button"
+                  className="btn grey preset-btn"
+                  onClick={() => {
+                    setHousekeepingPrintStartDate(housekeepingMonthStart);
+                    setHousekeepingPrintEndDate(housekeepingMonthEnd);
+                  }}
+                >
+                  <i className="fa-solid fa-calendar-days"></i> Full Month
+                </button>
+              </div>
+
+              {/* Summary */}
+              <div className="housekeeping-print-summary-box">
+                <div className="summary-item">
+                  <i className="fa-solid fa-calendar"></i>
+                  <div>
+                    <strong>Date Period: </strong>
+                    <span>
+                      {housekeepingPrintStartDate && housekeepingPrintEndDate
+                        ? (housekeepingPrintStartDate === housekeepingPrintEndDate
+                            ? calendarIsoToDisplay(housekeepingPrintStartDate)
+                            : `${calendarIsoToDisplay(housekeepingPrintStartDate)} to ${calendarIsoToDisplay(housekeepingPrintEndDate)} (${calculateDateSpan(housekeepingPrintStartDate, housekeepingPrintEndDate)} days)`)
+                        : housekeepingMonthDisplay}
+                    </span>
+                  </div>
+                </div>
+                <div className="summary-item">
+                  <i className="fa-solid fa-clipboard-check"></i>
+                  <div>
+                    <strong>Records to Print: </strong>
+                    <span>{housekeepingPrintMatchingCount} room arrangement entries</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Print options */}
+              <div className="housekeeping-print-options">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: '#475569' }}>
+                  <input
+                    type="checkbox"
+                    checked={housekeepingPrintOnlyAssigned}
+                    onChange={e => setHousekeepingPrintOnlyAssigned(e.target.checked)}
+                  />
+                  <span>Only print rooms with assigned staff or customer remarks</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px', paddingTop: '14px', borderTop: '1px solid #e2e8f0' }}>
+              <button
+                type="button"
+                className="btn grey"
+                onClick={() => setShowHousekeepingPrintModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn green"
+                onClick={() => {
+                  handleExportHousekeepingExcel(housekeepingPrintStartDate, housekeepingPrintEndDate, housekeepingPrintOnlyAssigned);
+                }}
+              >
+                <i className="fa-solid fa-file-excel"></i> Export Excel
+              </button>
+              <button
+                type="button"
+                className="btn blue"
+                onClick={() => {
+                  handlePrintHousekeeping(housekeepingPrintStartDate, housekeepingPrintEndDate, housekeepingPrintOnlyAssigned);
+                  setShowHousekeepingPrintModal(false);
+                }}
+              >
+                <i className="fa-solid fa-print"></i> Print Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {housekeepingStaffModal && (
         <div className="modal-overlay" onClick={closeHousekeepingStaffModal}>
           <div

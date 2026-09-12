@@ -4621,6 +4621,31 @@ export default function App() {
     });
     return totalMap;
   }, [displayedHousekeepingDays, housekeepingRooms, housekeepingCustomerInfoMap, housekeepingInlineCustomerDrafts]);
+
+  const housekeepingMonthTotalQty = useMemo(() => {
+    let sum = 0;
+    housekeepingCalendarDays.forEach(day => {
+      housekeepingRooms.forEach(room => {
+        const cellKey = `${room.id}|${day.dateKey}`;
+        const customerRecord = housekeepingCustomerInfoMap[cellKey];
+        const draft = housekeepingInlineCustomerDrafts[cellKey];
+        const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+          ? draft.qty
+          : (customerRecord?.qty || '');
+        if (inlineCustomerQty) {
+          const parsed = parseFloat(inlineCustomerQty);
+          if (!Number.isNaN(parsed)) {
+            sum += parsed;
+          }
+        }
+      });
+    });
+    return sum;
+  }, [housekeepingCalendarDays, housekeepingRooms, housekeepingCustomerInfoMap, housekeepingInlineCustomerDrafts]);
+
+  const housekeepingDisplayedTotalQty = useMemo(() => {
+    return Object.values(housekeepingDailyTotalQtyMap).reduce((acc, curr) => acc + (curr.sum || 0), 0);
+  }, [housekeepingDailyTotalQtyMap]);
   const housekeepingSmartResult = parseHousekeepingArrangementText(housekeepingSmartText, housekeepingRooms, housekeepingMonth);
   const housekeepingUniqueRooms = new Set(housekeepingRecords.map(record => String(record.roomId))).size;
   const housekeepingUniqueStaff = new Set(housekeepingRecords.map(record => record.staffDocId || record.staffId)).size;
@@ -6007,6 +6032,7 @@ export default function App() {
               <div><i className="fa-solid fa-list-check"></i><span><strong>{housekeepingAssignedCells}</strong> assignments</span></div>
               <div><i className="fa-solid fa-door-closed"></i><span><strong>{housekeepingUniqueRooms}</strong> rooms</span></div>
               <div><i className="fa-solid fa-users"></i><span><strong>{housekeepingUniqueStaff}</strong> staff</span></div>
+              <div><i className="fa-solid fa-cubes-stacked"></i><span><strong>{housekeepingMonthTotalQty}</strong> total qty</span></div>
             </div>
           </section>
 
@@ -6014,7 +6040,12 @@ export default function App() {
             <div className="housekeeping-list-heading">
               <div>
                 <p>MONTHLY ROOM SCHEDULE</p>
-                <h3>{housekeepingMonthDisplay}</h3>
+                <div style={{display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap'}}>
+                  <h3>{housekeepingMonthDisplay}</h3>
+                  <span className="housekeeping-month-total-pill" title={`Total Qty for ${hasHousekeepingDateFilter ? 'selected period' : housekeepingMonthDisplay}`}>
+                    <i className="fa-solid fa-calculator"></i> Total Qty: <strong>{hasHousekeepingDateFilter ? housekeepingDisplayedTotalQty : housekeepingMonthTotalQty}</strong>
+                  </span>
+                </div>
               </div>
               <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
                 <button className="btn grey" style={{fontSize: '0.85rem', padding: '6px 12px'}} onClick={handleOpenHousekeepingPrintModal}>
@@ -6217,7 +6248,9 @@ export default function App() {
                     <tr className="housekeeping-total-row">
                       <th className="housekeeping-room-column housekeeping-total-header" scope="row">
                         <strong>Total Qty</strong>
-                        <small>Daily Sum</small>
+                        <span className="housekeeping-footer-month-total" title={`Total Qty for ${hasHousekeepingDateFilter ? 'selected period' : housekeepingMonthDisplay}`}>
+                          All: {hasHousekeepingDateFilter ? housekeepingDisplayedTotalQty : housekeepingMonthTotalQty}
+                        </span>
                       </th>
                       {displayedHousekeepingDays.map(day => {
                         const dayTotal = housekeepingDailyTotalQtyMap[day.dateKey] || { sum: 0, hasAny: false };

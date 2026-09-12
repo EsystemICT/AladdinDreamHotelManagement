@@ -2792,6 +2792,7 @@ export default function App() {
       room,
       selectedStaffDocIds,
       customerInfo: [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''],
+      qty: customerRecord?.qty || '',
       customerRecordId: customerRecord?.id || ''
     });
   };
@@ -2899,6 +2900,7 @@ export default function App() {
     const isoMonth = isoServiceDate.slice(0, 7);
     const customerInfo1 = String(modal.customerInfo?.[0] || '').trim().slice(0, 200);
     const customerInfo2 = String(modal.customerInfo?.[1] || '').trim().slice(0, 200);
+    const qty = String(modal.qty !== undefined ? modal.qty : (modal.customerQty || '')).trim().slice(0, 50);
     const roomId = String(modal.room.id);
     const recordId = modal.customerRecordId || `${isoServiceDate}_${encodeURIComponent(roomId)}`;
 
@@ -2910,6 +2912,7 @@ export default function App() {
         roomType: modal.room.type || '',
         customerInfo1,
         customerInfo2,
+        qty,
         keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
         keyedInById: currentUser?.userid || currentUser?.id || 'staff',
         updatedAt: serverTimestamp()
@@ -2924,6 +2927,7 @@ export default function App() {
           roomType: modal.room.type || '',
           customerInfo1,
           customerInfo2,
+          qty,
           keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
           keyedInById: currentUser?.userid || currentUser?.id || 'staff',
           updatedAt: new Date()
@@ -2932,9 +2936,14 @@ export default function App() {
       });
       setHousekeepingStaffModal(currentModal => (
         currentModal?.serviceDate === modal.serviceDate && String(currentModal.room.id) === roomId
-          ? { ...currentModal, customerRecordId: recordId }
+          ? { ...currentModal, customerRecordId: recordId, qty }
           : currentModal
       ));
+      setHousekeepingInlineCustomerDrafts(previous => {
+        const next = { ...previous };
+        delete next[`${roomId}|${isoServiceDate}`];
+        return next;
+      });
       await logSystemAction(
         currentUser?.name || currentUser?.userid || 'Staff',
         source === 'smart' ? 'HOUSEKEEPING_CUSTOMER_AUTO_KEY_IN' : 'HOUSEKEEPING_CUSTOMER_UPDATE',
@@ -2960,7 +2969,7 @@ export default function App() {
     housekeepingCustomerAutoSaveTimerRef.current = { timerId, modal };
   };
 
-  const queueHousekeepingInlineCustomerSave = (serviceDate, room, customerInfo, customerRecordId, immediate = false) => {
+  const queueHousekeepingInlineCustomerSave = (serviceDate, room, customerInfo, customerRecordId, immediate = false, qty = '') => {
     const cellKey = `${room.id}|${serviceDate}`;
     if (housekeepingInlineCustomerTimersRef.current[cellKey]) {
       clearTimeout(housekeepingInlineCustomerTimersRef.current[cellKey]);
@@ -2973,6 +2982,7 @@ export default function App() {
         serviceDate,
         room,
         customerInfo,
+        qty,
         customerRecordId
       });
       setHousekeepingPendingCustomerCells(previous => ({ ...previous, [cellKey]: saved ? 'saved' : 'error' }));
@@ -3038,6 +3048,7 @@ export default function App() {
         housekeepingSmartResult.entries.forEach(entry => {
           const recordId = `${isoServiceDate}_${encodeURIComponent(entry.roomId)}`;
           const room = housekeepingRooms.find(candidate => String(candidate.id) === entry.roomId);
+          const existingRecord = housekeepingCustomerInfoMap[`${entry.roomId}|${isoServiceDate}`];
           nextMap.set(recordId, {
             id: recordId,
             serviceDate: isoServiceDate,
@@ -3046,6 +3057,7 @@ export default function App() {
             roomType: room?.type || '',
             customerInfo1: String(entry.customerInfo[0] || '').trim().slice(0, 200),
             customerInfo2: String(entry.customerInfo[1] || '').trim().slice(0, 200),
+            qty: existingRecord?.qty || '',
             keyedInBy: currentUser?.name || currentUser?.userid || 'Staff',
             keyedInById: currentUser?.userid || currentUser?.id || 'staff',
             updatedAt: new Date()
@@ -4045,34 +4057,42 @@ export default function App() {
           <table>
             <thead>
               <tr>
-                <th style="width: 18%;">Date</th>
-                <th style="width: 12%;">Room</th>
-                <th style="width: 14%;">Room Type</th>
-                <th style="width: 26%;">Assigned Staff</th>
-                <th style="width: 30%;">Customer Remarks / Info</th>
+                <th style="width: 17%;">Date</th>
+                <th style="width: 10%;">Room</th>
+                <th style="width: 13%;">Room Type</th>
+                <th style="width: 22%;">Assigned Staff</th>
+                <th style="width: 28%;">Customer Remarks / Info</th>
+                <th style="width: 10%;">Qty</th>
               </tr>
             </thead>
             <tbody>
     `;
 
     let totalEntries = 0;
+    let totalQtySum = 0;
     daysToPrint.forEach(day => {
       housekeepingRooms.forEach(room => {
         const cellKey = `${room.id}|${day.dateKey}`;
         const cellRecords = housekeepingCellRecordMap[cellKey] || [];
         const customerRecord = housekeepingCustomerInfoMap[cellKey];
         const draft = housekeepingInlineCustomerDrafts[cellKey];
-        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
-          ? draft
+        const inlineCustomerInfo = draft
+          ? (Array.isArray(draft) ? draft : (draft.customerInfo || ['', '']))
           : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+          ? draft.qty
+          : (customerRecord?.qty || '');
         const customerInfo = inlineCustomerInfo.filter(Boolean);
         
         const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
         const hasAssignment = assignedNames.length > 0;
         const hasRemark = customerInfo.length > 0;
+        const hasQty = Boolean(inlineCustomerQty);
 
-        if (!onlyAssigned || hasAssignment || hasRemark) {
+        if (!onlyAssigned || hasAssignment || hasRemark || hasQty) {
           totalEntries++;
+          const num = parseFloat(inlineCustomerQty);
+          if (!Number.isNaN(num)) totalQtySum += num;
           reportContent += `
             <tr>
               <td class="date-badge"><b>${day.day} ${day.weekday}</b><br><small style="color:#64748b;">${calendarIsoToDisplay(day.dateKey)}</small></td>
@@ -4080,6 +4100,7 @@ export default function App() {
               <td>${room.type || '-'}</td>
               <td class="${hasAssignment ? 'staff-list' : 'staff-unassigned'}">${hasAssignment ? assignedNames.join(', ') : 'Unassigned'}</td>
               <td class="remark-list">${hasRemark ? customerInfo.join(' | ') : '-'}</td>
+              <td style="text-align: center; font-weight: 600;">${hasQty ? inlineCustomerQty : '-'}</td>
             </tr>
           `;
         }
@@ -4087,11 +4108,17 @@ export default function App() {
     });
 
     if (totalEntries === 0) {
-      reportContent += `<tr><td colspan="5" style="text-align:center; padding: 24px; color: #64748b;">No housekeeping records found for the period ${periodDisplay}.</td></tr>`;
+      reportContent += `<tr><td colspan="6" style="text-align:center; padding: 24px; color: #64748b;">No housekeeping records found for the period ${periodDisplay}.</td></tr>`;
     }
 
     reportContent += `
             </tbody>
+            <tfoot>
+              <tr style="background: #f8fafc; font-weight: bold; border-top: 2px solid #94a3b8;">
+                <td colspan="5" style="text-align: right; padding: 9px 12px; font-size: 0.85rem; color: #334155;">Total Quantity:</td>
+                <td style="text-align: center; padding: 9px 12px; font-weight: 800; font-size: 0.95rem; color: #1d4ed8;">${totalQtySum}</td>
+              </tr>
+            </tfoot>
           </table>
           <div class="footer">
             Aladdin Dream Hotel Management System &bull; Total ${totalEntries} record(s) listed
@@ -4124,16 +4151,20 @@ export default function App() {
         const cellRecords = housekeepingCellRecordMap[cellKey] || [];
         const customerRecord = housekeepingCustomerInfoMap[cellKey];
         const draft = housekeepingInlineCustomerDrafts[cellKey];
-        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
-          ? draft
+        const inlineCustomerInfo = draft
+          ? (Array.isArray(draft) ? draft : (draft.customerInfo || ['', '']))
           : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+          ? draft.qty
+          : (customerRecord?.qty || '');
         const customerInfo = inlineCustomerInfo.filter(Boolean);
         
         const assignedNames = [...new Set(cellRecords.map(record => record.staffName || record.staffId).filter(Boolean))];
         const hasAssignment = assignedNames.length > 0;
         const hasRemark = customerInfo.length > 0;
+        const hasQty = Boolean(inlineCustomerQty);
 
-        if (!onlyAssigned || hasAssignment || hasRemark) {
+        if (!onlyAssigned || hasAssignment || hasRemark || hasQty) {
           rows.push({
             "Date": calendarIsoToDisplay(day.dateKey),
             "Day": day.weekday,
@@ -4141,7 +4172,8 @@ export default function App() {
             "Room Type": room.type || '',
             "Assigned Staff": hasAssignment ? assignedNames.join(', ') : 'Unassigned',
             "Remark 1": inlineCustomerInfo[0] || '',
-            "Remark 2": inlineCustomerInfo[1] || ''
+            "Remark 2": inlineCustomerInfo[1] || '',
+            "Qty": inlineCustomerQty || ''
           });
         }
       });
@@ -4152,6 +4184,23 @@ export default function App() {
       return;
     }
 
+    const totalQtySum = rows.reduce((acc, r) => {
+      const val = parseFloat(r["Qty"]);
+      return !Number.isNaN(val) ? acc + val : acc;
+    }, 0);
+    if (totalQtySum > 0) {
+      rows.push({
+        "Date": "TOTAL",
+        "Day": "",
+        "Room Number": "",
+        "Room Type": "",
+        "Assigned Staff": "",
+        "Remark 1": "",
+        "Remark 2": "",
+        "Qty": totalQtySum
+      });
+    }
+
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet['!cols'] = [
       { wch: 14 },
@@ -4160,7 +4209,8 @@ export default function App() {
       { wch: 15 },
       { wch: 25 },
       { wch: 30 },
-      { wch: 30 }
+      { wch: 30 },
+      { wch: 10 }
     ];
 
     const workbook = XLSX.utils.book_new();
@@ -4546,6 +4596,31 @@ export default function App() {
     cellMap[`${record.roomId}|${record.serviceDate}`] = record;
     return cellMap;
   }, {});
+
+  const housekeepingDailyTotalQtyMap = useMemo(() => {
+    const totalMap = {};
+    displayedHousekeepingDays.forEach(day => {
+      let sum = 0;
+      let hasAny = false;
+      housekeepingRooms.forEach(room => {
+        const cellKey = `${room.id}|${day.dateKey}`;
+        const customerRecord = housekeepingCustomerInfoMap[cellKey];
+        const draft = housekeepingInlineCustomerDrafts[cellKey];
+        const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+          ? draft.qty
+          : (customerRecord?.qty || '');
+        if (inlineCustomerQty) {
+          const parsed = parseFloat(inlineCustomerQty);
+          if (!Number.isNaN(parsed)) {
+            sum += parsed;
+            hasAny = true;
+          }
+        }
+      });
+      totalMap[day.dateKey] = { sum, hasAny };
+    });
+    return totalMap;
+  }, [displayedHousekeepingDays, housekeepingRooms, housekeepingCustomerInfoMap, housekeepingInlineCustomerDrafts]);
   const housekeepingSmartResult = parseHousekeepingArrangementText(housekeepingSmartText, housekeepingRooms, housekeepingMonth);
   const housekeepingUniqueRooms = new Set(housekeepingRecords.map(record => String(record.roomId))).size;
   const housekeepingUniqueStaff = new Set(housekeepingRecords.map(record => record.staffDocId || record.staffId)).size;
@@ -4573,12 +4648,15 @@ export default function App() {
         const cellRecords = housekeepingCellRecordMap[cellKey] || [];
         const customerRecord = housekeepingCustomerInfoMap[cellKey];
         const draft = housekeepingInlineCustomerDrafts[cellKey];
-        const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
-          ? draft
+        const inlineCustomerInfo = draft
+          ? (Array.isArray(draft) ? draft : (draft.customerInfo || ['', '']))
           : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+        const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+          ? draft.qty
+          : (customerRecord?.qty || '');
         const customerInfo = inlineCustomerInfo.filter(Boolean);
         const assignedNames = cellRecords.map(record => record.staffName || record.staffId).filter(Boolean);
-        if (!housekeepingPrintOnlyAssigned || assignedNames.length > 0 || customerInfo.length > 0) {
+        if (!housekeepingPrintOnlyAssigned || assignedNames.length > 0 || customerInfo.length > 0 || Boolean(inlineCustomerQty)) {
           count++;
         }
       });
@@ -6031,10 +6109,14 @@ export default function App() {
                           const cellRecords = housekeepingCellRecordMap[cellKey] || [];
                           const customerRecord = housekeepingCustomerInfoMap[cellKey];
                           const draft = housekeepingInlineCustomerDrafts[cellKey];
-                          const inlineCustomerInfo = (draft && (draft[0] || draft[1]))
-                            ? draft
+                          const inlineCustomerInfo = draft
+                            ? (Array.isArray(draft) ? draft : (draft.customerInfo || ['', '']))
                             : [customerRecord?.customerInfo1 || '', customerRecord?.customerInfo2 || ''];
+                          const inlineCustomerQty = (draft && typeof draft === 'object' && !Array.isArray(draft) && draft.qty !== undefined)
+                            ? draft.qty
+                            : (customerRecord?.qty || '');
                           const customerInfo = inlineCustomerInfo.filter(Boolean);
+                          const hasCustomerDetails = customerInfo.length > 0 || Boolean(inlineCustomerQty);
                           const customerSaveStatus = housekeepingPendingCustomerCells[cellKey] || '';
                           const isPending = Object.prototype.hasOwnProperty.call(housekeepingPendingAssignments, cellKey);
                           const pendingStaffDocIds = housekeepingPendingAssignments[cellKey] || [];
@@ -6047,7 +6129,7 @@ export default function App() {
                           return (
                             <td
                               key={day.dateKey}
-                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''} ${customerInfo.length > 0 ? 'has-customer-info' : ''} ${isActiveRow ? 'active-row-cell' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${isActiveCell ? 'active-grid-cell' : ''}`}
+                              className={`${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${assignedNames.length > 0 ? 'assigned' : ''} ${hasCustomerDetails ? 'has-customer-info' : ''} ${isActiveRow ? 'active-row-cell' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${isActiveCell ? 'active-grid-cell' : ''}`}
                             >
                               <div className="housekeeping-calendar-cell">
                                 <button
@@ -6056,7 +6138,7 @@ export default function App() {
                                   onClick={() => openHousekeepingStaffModal(day.dateKey, room, cellRecords)}
                                   disabled={isPending}
                                   aria-label={`Edit housekeeping details for Room ${room.id} on ${calendarIsoToDisplay(day.dateKey)}`}
-                                  title={[assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned', ...customerInfo].join(' | ')}
+                                  title={[assignedNames.length > 0 ? assignedNames.join(', ') : 'Unassigned', ...customerInfo, inlineCustomerQty ? `Qty: ${inlineCustomerQty}` : ''].filter(Boolean).join(' | ')}
                                 >
                                   <span>{assignedNames.length > 0 ? assignedNames.join(' / ') : 'Unassigned'}</span>
                                   <i className="fa-solid fa-pen" aria-hidden="true"></i>
@@ -6073,17 +6155,48 @@ export default function App() {
                                       onFocus={() => setHousekeepingActiveCell({ roomId: String(room.id), serviceDate: day.dateKey })}
                                       onBlur={() => {
                                         if (housekeepingInlineCustomerDrafts[cellKey]) {
-                                          queueHousekeepingInlineCustomerSave(day.dateKey, room, inlineCustomerInfo, customerRecord?.id || '', true);
+                                          queueHousekeepingInlineCustomerSave(day.dateKey, room, inlineCustomerInfo, customerRecord?.id || '', true, inlineCustomerQty);
                                         }
                                       }}
                                       onChange={event => {
                                         const nextCustomerInfo = [...inlineCustomerInfo];
                                         nextCustomerInfo[index] = event.target.value;
-                                        setHousekeepingInlineCustomerDrafts(previous => ({ ...previous, [cellKey]: nextCustomerInfo }));
-                                        queueHousekeepingInlineCustomerSave(day.dateKey, room, nextCustomerInfo, customerRecord?.id || '');
+                                        setHousekeepingInlineCustomerDrafts(previous => ({
+                                          ...previous,
+                                          [cellKey]: {
+                                            customerInfo: nextCustomerInfo,
+                                            qty: inlineCustomerQty
+                                          }
+                                        }));
+                                        queueHousekeepingInlineCustomerSave(day.dateKey, room, nextCustomerInfo, customerRecord?.id || '', false, inlineCustomerQty);
                                       }}
                                     />
                                   ))}
+                                  <input
+                                    type="text"
+                                    value={inlineCustomerQty}
+                                    maxLength="50"
+                                    placeholder="Qty"
+                                    className="housekeeping-qty-input"
+                                    aria-label={`Room ${room.id} ${calendarIsoToDisplay(day.dateKey)} quantity`}
+                                    onFocus={() => setHousekeepingActiveCell({ roomId: String(room.id), serviceDate: day.dateKey })}
+                                    onBlur={() => {
+                                      if (housekeepingInlineCustomerDrafts[cellKey]) {
+                                        queueHousekeepingInlineCustomerSave(day.dateKey, room, inlineCustomerInfo, customerRecord?.id || '', true, inlineCustomerQty);
+                                      }
+                                    }}
+                                    onChange={event => {
+                                      const nextQty = event.target.value;
+                                      setHousekeepingInlineCustomerDrafts(previous => ({
+                                        ...previous,
+                                        [cellKey]: {
+                                          customerInfo: inlineCustomerInfo,
+                                          qty: nextQty
+                                        }
+                                      }));
+                                      queueHousekeepingInlineCustomerSave(day.dateKey, room, inlineCustomerInfo, customerRecord?.id || '', false, nextQty);
+                                    }}
+                                  />
                                   {customerSaveStatus && (
                                     <i
                                       className={`fa-solid ${customerSaveStatus === 'waiting' ? 'fa-clock' : customerSaveStatus === 'saving' ? 'fa-spinner fa-spin' : customerSaveStatus === 'saved' ? 'fa-circle-check' : 'fa-circle-exclamation'} housekeeping-inline-save-icon ${customerSaveStatus}`}
@@ -6100,6 +6213,30 @@ export default function App() {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="housekeeping-total-row">
+                      <th className="housekeeping-room-column housekeeping-total-header" scope="row">
+                        <strong>Total Qty</strong>
+                        <small>Daily Sum</small>
+                      </th>
+                      {displayedHousekeepingDays.map(day => {
+                        const dayTotal = housekeepingDailyTotalQtyMap[day.dateKey] || { sum: 0, hasAny: false };
+                        const isActiveColumn = housekeepingActiveCell?.serviceDate === day.dateKey;
+                        return (
+                          <td
+                            key={`total-${day.dateKey}`}
+                            className={`housekeeping-daily-total-cell ${day.isWeekend ? 'weekend' : ''} ${day.dateKey === todayIsoDate ? 'today' : ''} ${isActiveColumn ? 'active-column-cell' : ''} ${dayTotal.hasAny && dayTotal.sum > 0 ? 'has-qty' : ''}`}
+                            title={`Total Qty for ${calendarIsoToDisplay(day.dateKey)}: ${dayTotal.sum}`}
+                          >
+                            <div className="housekeeping-daily-total-badge">
+                              <span className="total-label">Total Qty</span>
+                              <strong>{dayTotal.sum}</strong>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </tfoot>
                 </table>
               )}
             </div>
@@ -7692,7 +7829,7 @@ export default function App() {
               <div className="housekeeping-customer-editor-heading">
                 <div>
                   <span>CUSTOMER INFORMATION</span>
-                  <p>Two remark-style fields for this room and date.</p>
+                  <p>Remark fields and quantity for this room and date.</p>
                 </div>
                 <i className="fa-solid fa-address-card" aria-hidden="true"></i>
               </div>
@@ -7716,6 +7853,22 @@ export default function App() {
                     />
                   </label>
                 ))}
+                <label className="qty-field">
+                  <span>Qty</span>
+                  <input
+                    type="text"
+                    value={housekeepingStaffModal.qty || ''}
+                    maxLength="50"
+                    placeholder="Quantity (e.g. 2, 2 pax)"
+                    disabled={housekeepingCustomerAutoSaveStatus === 'saving'}
+                    onChange={event => {
+                      const nextQty = event.target.value;
+                      const nextModal = { ...housekeepingStaffModal, qty: nextQty };
+                      setHousekeepingStaffModal(nextModal);
+                      queueHousekeepingCustomerAutoSave(nextModal);
+                    }}
+                  />
+                </label>
               </div>
               <div className={`housekeeping-customer-save-status ${housekeepingCustomerAutoSaveStatus}`} role="status" aria-live="polite">
                 {housekeepingCustomerAutoSaveStatus === 'idle' && <><i className="fa-solid fa-bolt"></i> Customer fields save automatically</>}

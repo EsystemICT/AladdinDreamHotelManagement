@@ -2723,6 +2723,95 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-calendar-table tbody tr.active-housekeeping-row > td { border-top: 3px solid #2563eb; border-bottom: 3px solid #2563eb; }
 .housekeeping-calendar-table tbody tr.active-housekeeping-row > :first-child { border-left: 3px solid #2563eb; }
 .housekeeping-calendar-table tbody tr.active-housekeeping-row > :last-child { border-right: 3px solid #2563eb; }
+.housekeeping-calendar-table tfoot th,
+.housekeeping-calendar-table tfoot td {
+  height: 52px;
+  min-height: 52px;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-top: 2px solid #cbd5e1;
+  border-bottom: 0;
+  vertical-align: middle;
+}
+.housekeeping-calendar-table tfoot .housekeeping-room-column {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: #f1f5f9;
+  border-top: 2px solid #cbd5e1;
+  border-bottom: 0;
+  text-align: center;
+}
+.housekeeping-calendar-table tfoot .housekeeping-room-column strong {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 850;
+  color: #1e293b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.housekeeping-calendar-table tfoot .housekeeping-room-column small {
+  display: block;
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-top: 1px;
+}
+.housekeeping-daily-total-cell {
+  background: #f8fafc;
+  text-align: center;
+}
+.housekeeping-daily-total-cell.weekend {
+  background: #f1f5f9;
+}
+.housekeeping-daily-total-cell.today {
+  background: #edf9f6;
+  box-shadow: inset 2px 0 0 rgba(39, 120, 115, 0.4), inset -2px 0 0 rgba(39, 120, 115, 0.4);
+}
+.housekeeping-daily-total-cell.active-column-cell {
+  box-shadow: inset 2px 0 0 #d6a43a, inset -2px 0 0 #d6a43a;
+}
+.housekeeping-daily-total-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  transition: all 0.2s ease;
+}
+.housekeeping-daily-total-badge .total-label {
+  font-size: 0.53rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  line-height: 1;
+}
+.housekeeping-daily-total-badge strong {
+  font-size: 0.95rem;
+  font-weight: 850;
+  line-height: 1.2;
+  margin-top: 2px;
+  color: #334155;
+}
+.housekeeping-daily-total-cell.has-qty .housekeeping-daily-total-badge {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.12);
+}
+.housekeeping-daily-total-cell.has-qty .housekeeping-daily-total-badge .total-label {
+  color: #3b82f6;
+}
+.housekeeping-daily-total-cell.has-qty .housekeeping-daily-total-badge strong {
+  color: #1d4ed8;
+}
 .housekeeping-calendar-cell { position: relative; }
 .housekeeping-staff-trigger {
   display: flex;
@@ -2758,6 +2847,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-customer-lines > input { width: 100%; height: 24px; min-height: 24px; margin: 0; padding: 3px 20px 3px 6px; box-sizing: border-box; color: #245e5a; background: rgba(240, 249, 247, 0.96); border: 1px solid #c7dfdb; border-left: 2px solid #65a9a2; border-radius: 4px; font-size: 0.61rem; font-weight: 700; line-height: 1.2; }
 .housekeeping-customer-lines > input::placeholder { color: #a1aab6; font-weight: 650; }
 .housekeeping-customer-lines > input:focus { outline: 2px solid rgba(39, 120, 115, 0.16); border-color: #4d9992; }
+.housekeeping-customer-lines > input.housekeeping-qty-input { border-left-color: #2563eb; background: rgba(240, 249, 255, 0.96); color: #1e40af; }
+.housekeeping-customer-lines > input.housekeeping-qty-input::placeholder { color: #93c5fd; font-weight: 700; }
+.housekeeping-customer-lines > input.housekeeping-qty-input:focus { outline: 2px solid rgba(37, 99, 235, 0.18); border-color: #3b82f6; }
 .housekeeping-inline-save-icon { position: absolute; right: 5px; bottom: 7px; font-size: 0.58rem; pointer-events: none; }
 .housekeeping-inline-save-icon.waiting,
 .housekeeping-inline-save-icon.saving { color: #9a6a1c; }
@@ -2777,7 +2869,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .housekeeping-customer-editor-heading span { color: #277873; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.11em; }
 .housekeeping-customer-editor-heading p { margin: 3px 0 0; color: var(--hotel-slate-500); font-size: 0.7rem; }
 .housekeeping-customer-editor-heading > i { color: #9a6a1c; }
-.housekeeping-customer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 11px; }
+.housekeeping-customer-fields { display: grid; grid-template-columns: 2fr 2fr 1.2fr; gap: 9px; margin-top: 11px; }
+@media (max-width: 600px) {
+  .housekeeping-customer-fields { grid-template-columns: 1fr; }
+}
 .housekeeping-customer-fields label { min-width: 0; }
 .housekeeping-customer-fields label > span { display: block; margin-bottom: 5px; color: var(--hotel-slate-600); font-size: 0.68rem; font-weight: 850; }
 .housekeeping-customer-fields input { width: 100%; min-height: 39px; margin: 0; padding: 8px 9px; box-sizing: border-box; font-size: 0.75rem; }
